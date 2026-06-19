@@ -30,9 +30,19 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen text-gray-900">
-      <header className="px-4 py-3 bg-white border-b border-gray-200">
-        <h1 className="text-base font-bold">Peregrine</h1>
-        <p className="text-xs text-gray-500">Personal AI job-search assistant</p>
+      <header className="px-4 py-3 bg-white border-b border-gray-200 flex items-center gap-3">
+        <img
+          src="/peregrine-icon.png"
+          alt="Peregrine"
+          className="w-9 h-9 rounded-lg object-cover"
+          onError={(e) => {
+            e.currentTarget.style.display = "none";
+          }}
+        />
+        <div>
+          <h1 className="text-base font-bold">Peregrine</h1>
+          <p className="text-xs text-gray-500">Personal AI job-search assistant</p>
+        </div>
       </header>
 
       <main className="flex flex-1 min-h-0">

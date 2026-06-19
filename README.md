@@ -1,4 +1,8 @@
-# Peregrine
+<p align="center">
+  <img src="web/public/peregrine-icon.png" alt="Peregrine" width="160" height="160" />
+</p>
+
+<h1 align="center">Peregrine</h1>
 
 A personal, local-first **AI job-search assistant** — the fastest hunter for your next role. Give it your CV; it scans
 job portals, scores fit, prepares your materials, and gates the **Apply** button
