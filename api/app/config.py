@@ -7,6 +7,7 @@ container (`/app`) where `data/`, `config/`, and `.agents/` are mounted.
 from __future__ import annotations
 
 import os
+import shutil
 from functools import lru_cache
 from pathlib import Path
 
@@ -51,6 +52,14 @@ def get_settings() -> Settings:
 
 
 def ensure_dirs() -> None:
-    """Create runtime directories if missing (first boot)."""
+    """Create runtime directories and seed live data from examples on first boot."""
     for d in (DATA_DIR, JOBS_DIR, CONFIG_DIR, APPLICATIONS_DIR, LOGS_DIR):
         d.mkdir(parents=True, exist_ok=True)
+    # The live CSVs are gitignored (they hold personal data). On a fresh clone we
+    # copy the committed demo seeds so the app isn't empty — never the reverse.
+    for live, example in (
+        (JOBS_CSV, DATA_DIR / "jobs.example.csv"),
+        (APPLICATIONS_CSV, DATA_DIR / "applications.example.csv"),
+    ):
+        if not live.exists() and example.exists():
+            shutil.copy(example, live)

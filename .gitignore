@@ -19,16 +19,26 @@ dist/
 *.env
 !.env.example
 
-# --- Runtime data (user-specific, keep the folder + schemas) ---
+# --- Personal data — NEVER commit (lives only on your machine) ---
+# Your tracked jobs/applications. Demo seeds are shipped as *.example.csv and
+# copied to the live files on first run (api/app/config.py::ensure_dirs).
+data/*.csv
+!data/*.example.csv
+data/*.tmp
+data/*.bak
 data/jobs/*.md
 !data/jobs/.gitkeep
-data/*.csv
-!data/applications.csv
-!data/jobs.csv
 data/index.sqlite
 config/profile.yml
 config/memory.yml
 config/portals.yml
+
+# Your résumé, cover letters, and any application materials
+resume/*
+!resume/README.md
+applications/*
+!applications/README.md
+!applications/.gitkeep
 
 # --- Logs ---
 logs/
