@@ -101,6 +101,7 @@ export default function App() {
                     selectedId={selectedId}
                     onSelect={setSelectedId}
                     onScan={scan}
+                    onChanged={refresh}
                     loading={loading}
                   />
                 </div>

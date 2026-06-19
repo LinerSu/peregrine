@@ -1,29 +1,24 @@
-import { useEffect, useMemo, useState } from "react";
-import { type Job } from "../api";
+import { useMemo, useState } from "react";
+import { api, type Job } from "../api";
 import { salaryRange, statusClass } from "../format";
 
-type SortKey = "fit_score" | "company" | "position" | "status" | "salary" | "location";
+type SortKey = "fit_score" | "company" | "position" | "role_category" | "status" | "salary" | "location";
 type SortDir = "asc" | "desc";
 
 const COLUMNS: { key: SortKey; label: string }[] = [
   { key: "fit_score", label: "Fit" },
   { key: "company", label: "Company" },
   { key: "position", label: "Position" },
+  { key: "role_category", label: "Role" },
   { key: "status", label: "Status" },
-  { key: "flexibility" as SortKey, label: "Flex" },
   { key: "salary", label: "Salary" },
   { key: "location", label: "Location" },
 ];
 
 function sortValue(j: Job, key: SortKey): number | string {
-  switch (key) {
-    case "fit_score":
-      return j.fit_score ?? -1;
-    case "salary":
-      return j.salary_max ?? j.salary_min ?? -1;
-    default:
-      return (j[key as keyof Job] as string | null)?.toLowerCase?.() ?? "";
-  }
+  if (key === "fit_score") return j.fit_score ?? -1;
+  if (key === "salary") return j.salary_max ?? j.salary_min ?? -1;
+  return ((j[key as keyof Job] as string | null) ?? "").toString().toLowerCase();
 }
 
 export default function JobsTable({
@@ -31,51 +26,84 @@ export default function JobsTable({
   selectedId,
   onSelect,
   onScan,
+  onChanged,
   loading,
 }: {
   jobs: Job[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   onScan: () => void;
+  onChanged: () => void;
   loading: boolean;
 }) {
   const [query, setQuery] = useState("");
+  const [role, setRole] = useState("All");
+  const [starredOnly, setStarredOnly] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "fit_score", dir: "desc" });
 
-  const [filtered, setFiltered] = useState<Job[]>(jobs);
-  useEffect(() => {
-    const q = query.toLowerCase();
-    setFiltered(
-      q ? jobs.filter((j) => j.company.toLowerCase().includes(q) || j.position.toLowerCase().includes(q)) : jobs
-    );
-  }, [query, jobs]);
+  const roles = useMemo(
+    () => ["All", ...Array.from(new Set(jobs.map((j) => j.role_category).filter(Boolean))).sort()],
+    [jobs]
+  );
 
   const rows = useMemo(() => {
-    const sorted = [...filtered].sort((a, b) => {
+    const q = query.toLowerCase();
+    const filtered = jobs.filter(
+      (j) =>
+        (!q || j.company.toLowerCase().includes(q) || j.position.toLowerCase().includes(q)) &&
+        (role === "All" || j.role_category === role) &&
+        (!starredOnly || j.starred)
+    );
+    return [...filtered].sort((a, b) => {
       const av = sortValue(a, sort.key);
       const bv = sortValue(b, sort.key);
       const cmp = av < bv ? -1 : av > bv ? 1 : 0;
       return sort.dir === "asc" ? cmp : -cmp;
     });
-    return sorted;
-  }, [filtered, sort]);
+  }, [jobs, query, role, starredOnly, sort]);
 
   const toggleSort = (key: SortKey) =>
     setSort((s) =>
       s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "fit_score" ? "desc" : "asc" }
     );
-
   const arrow = (key: SortKey) => (sort.key === key ? (sort.dir === "asc" ? " ▲" : " ▼") : "");
+
+  const toggleStar = async (e: React.MouseEvent, j: Job) => {
+    e.stopPropagation();
+    await api.updateJob(j.id, { starred: !j.starred });
+    onChanged();
+  };
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 p-3 border-b border-gray-200">
+      <div className="flex flex-wrap items-center gap-2 p-3 border-b border-gray-200">
         <input
-          className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-md"
+          className="flex-1 min-w-[120px] px-3 py-1.5 text-sm border border-gray-300 rounded-md"
           placeholder="Filter jobs…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
+        <select
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+          className="px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-white"
+          title="Filter by role"
+        >
+          {roles.map((r) => (
+            <option key={r} value={r}>
+              {r === "All" ? "All roles" : r}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={() => setStarredOnly((v) => !v)}
+          title="Show starred only"
+          className={`px-2 py-1.5 text-sm rounded-md border ${
+            starredOnly ? "border-amber-400 bg-amber-50 text-amber-700" : "border-gray-300 text-gray-500"
+          }`}
+        >
+          {starredOnly ? "★" : "☆"}
+        </button>
         <button
           onClick={onScan}
           disabled={loading}
@@ -88,6 +116,7 @@ export default function JobsTable({
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-gray-50 text-gray-600">
             <tr>
+              <th className="px-2 py-2"></th>
               {COLUMNS.map((c) => (
                 <th
                   key={c.key}
@@ -109,15 +138,24 @@ export default function JobsTable({
                   selectedId === j.id ? "bg-indigo-50" : ""
                 }`}
               >
+                <td className="px-2 py-2 text-center">
+                  <button
+                    onClick={(e) => toggleStar(e, j)}
+                    title={j.starred ? "Unstar" : "Star"}
+                    className={j.starred ? "text-amber-500" : "text-gray-300 hover:text-amber-400"}
+                  >
+                    {j.starred ? "★" : "☆"}
+                  </button>
+                </td>
                 <td className="px-3 py-2">{j.fit_score != null ? j.fit_score.toFixed(2) : "—"}</td>
                 <td className="px-3 py-2 font-medium">{j.company}</td>
                 <td className="px-3 py-2">{j.position}</td>
+                <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{j.role_category || "—"}</td>
                 <td className="px-3 py-2">
                   <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${statusClass(j.status)}`}>
                     {j.status}
                   </span>
                 </td>
-                <td className="px-3 py-2 text-gray-500">{j.flexibility || "—"}</td>
                 <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
                   {salaryRange(j.salary_min, j.salary_max, j.currency)}
                 </td>
@@ -126,8 +164,8 @@ export default function JobsTable({
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={COLUMNS.length} className="px-3 py-8 text-center text-gray-400">
-                  No jobs yet. Ask the assistant to "find jobs matching my CV" or click Scan.
+                <td colSpan={COLUMNS.length + 1} className="px-3 py-8 text-center text-gray-400">
+                  No jobs match. Adjust filters, or ask the assistant to "find jobs matching my CV".
                 </td>
               </tr>
             )}

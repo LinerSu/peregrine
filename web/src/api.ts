@@ -16,6 +16,8 @@ export interface Job {
   url: string;
   fit_score: number | null;
   detail_md: string;
+  role_category: string;
+  starred: boolean;
 }
 
 export interface Application extends Job {
@@ -66,6 +68,8 @@ export const api = {
     http<{ count: number; jobs: Job[] }>(`/api/jobs?query=${encodeURIComponent(query)}`),
   scan: () => http<{ new: number; duplicates: number; filtered: number }>("/api/jobs/scan", { method: "POST" }),
   getJob: (id: string) => http<{ job: Job; markdown: string }>(`/api/jobs/${id}`),
+  updateJob: (id: string, patch: Partial<Job>) =>
+    http<{ job: Job }>(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   evaluate: (id: string) => http<Record<string, unknown>>(`/api/jobs/${id}/evaluate`, { method: "POST" }),
   prepare: (id: string) =>
     http<{ apply_url: string; detail_md: string; note: string }>(`/api/jobs/${id}/prepare`, {

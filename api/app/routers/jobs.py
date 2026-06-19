@@ -36,6 +36,21 @@ def get_job(job_id: str):
     return {"job": job.model_dump(), "markdown": store.read_job_md(job_id)}
 
 
+EDITABLE_JOB_FIELDS = {"starred", "role_category", "status"}
+
+
+@router.patch("/{job_id}")
+def update_job(job_id: str, payload: dict):
+    """Update user-controllable job fields: starred, role_category, status."""
+    job = store.get_job(job_id)
+    if not job:
+        raise HTTPException(404, f"job {job_id} not found")
+    changes = {k: v for k, v in payload.items() if k in EDITABLE_JOB_FIELDS}
+    updated = job.model_copy(update=changes)
+    store.upsert_job(updated)
+    return {"job": updated.model_dump()}
+
+
 @router.post("/{job_id}/evaluate")
 def evaluate(job_id: str):
     result = tools.evaluate_fit(job_id)

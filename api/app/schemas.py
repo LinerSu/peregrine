@@ -24,6 +24,8 @@ class Job(BaseModel):
     url: str = ""
     fit_score: Optional[float] = None
     detail_md: str = ""
+    role_category: str = ""
+    starred: bool = False
 
 
 class Application(Job):

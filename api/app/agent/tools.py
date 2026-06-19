@@ -11,6 +11,7 @@ from .. import data_store as store
 from .. import status
 from ..config import APPLICATIONS_DIR
 from ..logging_config import get_logger
+from ..roles import classify_role
 from ..schemas import Application, Job
 from . import providers
 from .registry import registry
@@ -59,6 +60,7 @@ def scan_jobs() -> dict[str, Any]:
                     posted_date=p.posted_date,
                     url=p.url,
                     detail_md=detail_path,
+                    role_category=classify_role(p.position),
                 )
             )
             new += 1
@@ -293,6 +295,9 @@ def parse_cv(cv_text: str) -> dict[str, Any]:
 )
 def list_jobs(query: str = "") -> dict[str, Any]:
     jobs = store.list_jobs()
+    for j in jobs:  # backfill role for jobs saved before classification existed
+        if not j.role_category:
+            j.role_category = classify_role(j.position)
     if query:
         q = query.lower()
         jobs = [j for j in jobs if q in j.company.lower() or q in j.position.lower()]
@@ -316,6 +321,7 @@ def _persist_posting(p: providers.RawPosting) -> Job:
             posted_date=p.posted_date,
             url=p.url,
             detail_md=detail_path,
+            role_category=classify_role(p.position),
         )
     )
 
