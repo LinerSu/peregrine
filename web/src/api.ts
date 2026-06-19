@@ -92,6 +92,13 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
+  createApplication: (payload: Partial<Application>) =>
+    http<{ application: Application }>("/api/applications", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  deleteApplication: (id: string) =>
+    http<{ deleted: string }>(`/api/applications/${id}`, { method: "DELETE" }),
   getProfile: () => http<Profile>("/api/profile"),
   getPreferences: () => http<Targets>("/api/preferences"),
   savePreferences: (t: Targets) =>

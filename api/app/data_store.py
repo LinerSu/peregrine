@@ -84,17 +84,24 @@ def upsert_job(job: Job) -> Job:
     return job
 
 
-def next_job_id() -> str:
-    """Sequential surrogate id like 2026-001 used for filenames/links."""
+def next_id() -> str:
+    """Next surrogate id like 2026-001, unique across BOTH jobs and applications
+    (so a manually-added application can't later collide with a scanned job)."""
     from datetime import date
 
     year = date.today().year
+    ids = [j.id for j in list_jobs()] + [a.id for a in list_applications()]
     nums = [
-        int(j.id.split("-")[-1])
-        for j in list_jobs()
-        if j.id.startswith(f"{year}-") and j.id.split("-")[-1].isdigit()
+        int(i.split("-")[-1])
+        for i in ids
+        if i.startswith(f"{year}-") and i.split("-")[-1].isdigit()
     ]
     return f"{year}-{(max(nums) + 1) if nums else 1:03d}"
+
+
+def next_job_id() -> str:
+    """Back-compat alias; ids are shared across jobs + applications."""
+    return next_id()
 
 
 # --------------------------------------------------------------------------- #
@@ -141,6 +148,16 @@ def upsert_application(app: Application) -> Application:
     _write_csv(config.APPLICATIONS_CSV, APPLICATION_FIELDS, [a.model_dump() for a in apps])
     log.info("upsert_application id=%s", app.id)
     return app
+
+
+def delete_application(app_id: str) -> bool:
+    apps = list_applications()
+    remaining = [a for a in apps if a.id != app_id]
+    if len(remaining) == len(apps):
+        return False
+    _write_csv(config.APPLICATIONS_CSV, APPLICATION_FIELDS, [a.model_dump() for a in remaining])
+    log.info("delete_application id=%s", app_id)
+    return True
 
 
 # --------------------------------------------------------------------------- #

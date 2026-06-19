@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import io
+from datetime import date
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from .. import data_store as store
 from ..agent import tools
+from ..schemas import Application
 
 router = APIRouter(prefix="/api", tags=["applications"])
 
@@ -18,6 +20,35 @@ EDITABLE_APPLICATION_FIELDS = {"status", "interview_date", "applied_date", "cont
 def list_applications():
     apps = store.list_applications()
     return {"count": len(apps), "applications": [a.model_dump() for a in apps]}
+
+
+@router.post("/applications")
+def create_application(payload: dict):
+    """Manually track an application (e.g. one you applied to outside Peregrine)."""
+    data = {k: v for k, v in payload.items() if k in Application.model_fields}
+    data["id"] = store.next_id()
+    data.setdefault("status", "applied")
+    data.setdefault("company_job_id", f"manual-{data['id']}")
+    if not data.get("applied_date"):
+        data["applied_date"] = date.today().isoformat()
+    try:
+        app = Application(**data)
+    except Exception as exc:  # missing company/position etc.
+        raise HTTPException(422, f"invalid application: {exc}")
+    store.upsert_application(app)
+    return {"application": app.model_dump()}
+
+
+@router.delete("/applications/{app_id}")
+def delete_application(app_id: str):
+    if not store.delete_application(app_id):
+        raise HTTPException(404, f"application {app_id} not found")
+    # If it was tracking a scanned job, make that job actionable again.
+    job = store.get_job(app_id)
+    if job and job.status == "applied":
+        job.status = "open"
+        store.upsert_job(job)
+    return {"deleted": app_id}
 
 
 @router.patch("/applications/{app_id}")
