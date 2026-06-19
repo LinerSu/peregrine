@@ -51,9 +51,18 @@ docker compose up --build     # web -> http://localhost:5173 , api -> :8000
 ```
 
 ## How to extend
-- **New job board** → add a provider fn in `app/agent/providers.py` + register in `PROVIDERS`.
+- **New job board** → add a provider fn in `app/agent/providers.py` + register in `PROVIDERS`;
+  add its host to `crawl_policy.ALLOWED_HOSTS` and fetch via `crawl_policy.safe_get` (never raw httpx).
 - **New capability** → add a `SKILL.md` under `.agents/skills/` + a tool in `tools.py`.
 - **Real LLM** → set `LLM_PROVIDER` + key in `.env`.
+
+## Quality gate (local git hooks)
+Solo/local-first, no CI — checks run at commit time via tracked hooks in `hooks/`
+(enabled with `core.hooksPath`). Run **`bash scripts/install-hooks.sh`** once per clone.
+- `commit-msg` — subject must be `<type>: <summary>` (feat/fix/docs/chore/…), ≤72 chars.
+- `pre-commit` — `py_compile` staged Python + **crawl-policy guard** (blocks raw `httpx`/
+  `requests`/browser-UA outside `crawl_policy.py`, so the good-bot rule can't be bypassed).
+- Bypass once with `git commit --no-verify`. Heavier checks (web build) belong in CI if/when added.
 
 ## Continuity protocol (for a fresh window)
 1. Read this **Current status & roadmap** section (durable handoff).

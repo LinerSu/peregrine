@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Reject commit messages whose subject isn't `<type>: <summary>` (Conventional-ish).
+# Enabled via core.hooksPath=hooks — run scripts/install-hooks.sh once per clone.
+set -euo pipefail
+
+subject="$(sed -n '1p' "$1")"
+
+# Let git's own machinery through untouched.
+case "$subject" in
+  Merge*|Revert*|"fixup! "*|"squash! "*) exit 0 ;;
+esac
+
+types="feat|fix|docs|chore|refactor|test|perf|style|build|ci|revert"
+if ! printf '%s' "$subject" | grep -qE "^(${types})(\([a-z0-9._-]+\))?!?: .+"; then
+  echo "✗ commit-msg: subject must be  <type>: <summary>" >&2
+  echo "  types: ${types//|/, }" >&2
+  echo "  e.g.   feat(web): add applications tracker" >&2
+  echo "  got:   ${subject}" >&2
+  exit 1
+fi
+
+if [ "${#subject}" -gt 72 ]; then
+  echo "✗ commit-msg: subject is ${#subject} chars (max 72)" >&2
+  echo "  ${subject}" >&2
+  exit 1
+fi

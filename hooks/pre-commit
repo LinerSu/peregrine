@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Fast local checks before a commit is created:
+#   1. py_compile staged Python (catch syntax breaks)
+#   2. crawl-policy guard: outbound HTTP must go through crawl_policy.safe_get
+# Enabled via core.hooksPath=hooks — run scripts/install-hooks.sh once per clone.
+# Bypass in a pinch with: git commit --no-verify
+set -euo pipefail
+
+staged="$(git diff --cached --name-only --diff-filter=ACM)"
+[ -z "$staged" ] && exit 0
+fail=0
+
+# 1) Python syntax ---------------------------------------------------------
+py_files="$(printf '%s\n' "$staged" | grep -E '\.py$' || true)"
+if [ -n "$py_files" ] && ! python3 -m py_compile $py_files 2>/tmp/peregrine-pyc.err; then
+  echo "✗ pre-commit: Python syntax error:" >&2
+  cat /tmp/peregrine-pyc.err >&2
+  fail=1
+fi
+
+# 2) Crawl-policy guard ----------------------------------------------------
+# Every outbound fetch must route through crawl_policy.safe_get (the good-bot
+# rule). No raw HTTP clients or browser-UA spoofing anywhere else under api/.
+guard_files="$(printf '%s\n' "$staged" | grep -E '^api/.*\.py$' | grep -v 'api/app/agent/crawl_policy.py' || true)"
+if [ -n "$guard_files" ]; then
+  hits="$(grep -nE 'httpx\.(get|post|put|request|stream|Client)|requests\.(get|post)|urllib\.request|Mozilla/' $guard_files || true)"
+  if [ -n "$hits" ]; then
+    echo "✗ pre-commit: raw HTTP / browser-UA outside crawl_policy.py" >&2
+    echo "  route outbound fetches through crawl_policy.safe_get():" >&2
+    printf '  %s\n' "$hits" >&2
+    fail=1
+  fi
+fi
+
+[ "$fail" -eq 0 ] || { echo "  (fix the above, or bypass once with: git commit --no-verify)" >&2; exit 1; }
