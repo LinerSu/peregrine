@@ -78,29 +78,31 @@ _Last updated: 2026-06-19._
 **Shipped (works end-to-end, validated):**
 - Repo renamed **my-job-search → Peregrine**; pushed to `github.com/LinerSu/peregrine` (main).
 - `docker compose up` runs `peregrine-api` (:8000) + `peregrine-web` (:5173). Health: `/api/health`.
-- Backend: agent harness + evaluator/reviewer subagents + tool registry.
-- Providers: **Greenhouse (live)**, **amazon.jobs URL ingest (live, job 3196773)**,
-  **Apple / jobs.apple.com URL ingest (live, validated on positionId 200668037)** — parses the
-  page's embedded `window.__staticRouterHydrationData`; ashby/lever/generic are stubs.
+- Backend: agent harness + evaluator/reviewer/upskiller subagents + tool registry.
+- Providers (all **live**, via `crawl_policy.safe_get`): **Greenhouse**, **amazon.jobs**,
+  **Apple** (jobs.apple.com — parses embedded `__staticRouterHydrationData`), **Ashby**
+  (api.ashbyhq.com), **Lever** (api.lever.co). Both scan-by-slug and paste-a-URL ingest. generic = stub.
 - Tools: `scan_jobs`, `ingest_job_url`, `evaluate_fit`, `prepare_materials`, `parse_cv`,
-  `list_jobs`, **`mark_applied`**.
+  `list_jobs`, `mark_applied`, `assess_upskilling`.
 - LLM provider-agnostic (anthropic/openai/ollama/**mock** fallback so it boots with no key).
-- Frontend: persistent **Chat** sidebar + tabbed working area — **Jobs** (table+detail w/ apply
-  gate), **Applications** tracker, **Profile / CV**, **Upskilling**. Jobs table now shows
-  status + salary; Applications tab edits status/interview-date/contacts/notes inline.
-- Write path: **Mark as applied** (UI button + `POST /api/jobs/{id}/apply`) flips job status and
-  writes `applications.csv`; `PATCH /api/applications/{id}` updates tracker fields.
+- Frontend: persistent **Chat** sidebar + tabs — **Jobs** (sortable table + detail rendered as
+  **structured cards**, apply gate), **Applications** tracker (inline status/dates/contacts/notes),
+  **Targets** (search-intent preferences), **Profile / CV** (paste **+ file upload PDF/txt/md**),
+  **Upskilling** (per-job skill-gap analysis).
+- Write paths: `POST /api/jobs/{id}/apply` (status→applied + applications.csv), `PATCH
+  /api/applications/{id}`, `PUT /api/preferences` (profile.targets), `POST /api/cv/upload`,
+  `POST /api/jobs/{id}/upskilling`.
+- **Search intent**: `config/profile.yml::targets` (roles/locations/work_mode/min_salary/
+  include+exclude keywords) drives `scan_jobs` filtering and is visible to the fit-scoring LLM.
+- **Tests**: `api/tests/` (crawl_policy, providers, data_store) — 20 passing. Run:
+  `docker compose run --rm -v "$PWD/api/tests:/app/tests" api sh -c "pip install -q pytest && python -m pytest tests -q"`.
 
-**Front-end gaps vs. the product vision (prioritized — pick up here):**
-1. ~~Top-level **tabs**~~ ✅ done. ~~**Applications tracker** + "mark as applied" write path~~ ✅ done.
-2. **Jobs table** still needs **sortable** columns + flexibility/close-date (status+salary added).
-3. Render **job detail + evaluation as structured cards** (Strengths / Weaknesses / Materials),
-   not the current raw-Markdown `<pre>`.
-4. **CV file upload** (Profile tab has paste + external-resources panel; no file upload yet).
-5. **Upskilling** is a placeholder view — add the backend tool + endpoint to power it.
-
-**Backend gaps:** implement ashby/lever providers; cover-letter generation in `materials-prep`;
-optional SQLite derived index; tests.
+**Remaining roadmap (prioritized — pick up here):**
+1. **Wire a real LLM** — set `LLM_PROVIDER` + key in `.env`; with `mock`, fit/CV/upskilling are placeholders.
+2. **Cover-letter generation** in `materials-prep` (LLM-gated).
+3. **min_salary** is captured in Targets but not yet enforced in `_passes_filters` (salary isn't on
+   RawPosting at scan time) — wire it once providers carry comp.
+4. Optional **SQLite** derived index for fast search at scale; broaden test coverage (routers/subagents).
 
 **Provider notes / ToS:** Meta (metacareers.com) is **intentionally unsupported** — it blocks
 plain fetches (HTTP 400) and its GraphQL needs a browser session + `fb_dtsg`/`doc_id` tokens;

@@ -5,13 +5,15 @@ import JobsTable from "./components/JobsTable";
 import JobDetail from "./components/JobDetail";
 import ApplicationsTable from "./components/ApplicationsTable";
 import ProfilePanel from "./components/ProfilePanel";
+import PreferencesPanel from "./components/PreferencesPanel";
 import UpskillingPanel from "./components/UpskillingPanel";
 
-type Tab = "jobs" | "applications" | "profile" | "upskilling";
+type Tab = "jobs" | "applications" | "targets" | "profile" | "upskilling";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "jobs", label: "Jobs" },
   { id: "applications", label: "Applications" },
+  { id: "targets", label: "Targets" },
   { id: "profile", label: "Profile / CV" },
   { id: "upskilling", label: "Upskilling" },
 ];
@@ -118,9 +120,11 @@ export default function App() {
               <ApplicationsTable applications={applications} onChanged={refresh} />
             )}
 
+            {tab === "targets" && <PreferencesPanel onChanged={refresh} />}
+
             {tab === "profile" && <ProfilePanel onChanged={refresh} />}
 
-            {tab === "upskilling" && <UpskillingPanel />}
+            {tab === "upskilling" && <UpskillingPanel jobs={jobs} />}
           </div>
         </section>
       </main>

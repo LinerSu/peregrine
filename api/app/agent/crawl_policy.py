@@ -43,6 +43,8 @@ ALLOWED_HOSTS: frozenset[str] = frozenset(
         "job-boards.greenhouse.io",
         "amazon.jobs",
         "jobs.apple.com",
+        "api.ashbyhq.com",
+        "api.lever.co",
     }
 )
 

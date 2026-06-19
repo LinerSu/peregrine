@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type Job } from "../api";
+import JobMarkdown from "./JobMarkdown";
 
 // Job detail with the human-in-the-loop apply gate: the Apply link is only
 // revealed after the user reviews strengths / weaknesses / materials and clicks
@@ -84,8 +85,8 @@ export default function JobDetail({ jobId, onChanged }: { jobId: string; onChang
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-4">
-        <pre className="whitespace-pre-wrap text-sm text-gray-800 font-sans">{markdown}</pre>
+      <div className="flex-1 overflow-auto p-4 bg-gray-50">
+        <JobMarkdown md={markdown} />
       </div>
 
       <div className="p-4 border-t border-gray-200 bg-gray-50">

@@ -27,6 +27,18 @@ export default function ProfilePanel({ onChanged }: { onChanged: () => void }) {
     }
   };
 
+  const upload = async (file: File | undefined) => {
+    if (!file || busy) return;
+    setBusy(true);
+    try {
+      await api.uploadCv(file);
+      await load();
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const skills = profile?.skills ?? [];
 
   return (
@@ -61,7 +73,21 @@ export default function ProfilePanel({ onChanged }: { onChanged: () => void }) {
       </section>
 
       <section>
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Paste CV</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">Upload CV</h3>
+        <label className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 rounded-md cursor-pointer hover:bg-indigo-100">
+          {busy ? "Working…" : "Choose file (PDF, .txt, .md)"}
+          <input
+            type="file"
+            accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown"
+            className="hidden"
+            disabled={busy}
+            onChange={(e) => upload(e.target.files?.[0])}
+          />
+        </label>
+      </section>
+
+      <section>
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">…or paste CV</h3>
         <textarea
           className="w-full h-48 px-3 py-2 text-sm border border-gray-300 rounded-md resize-y font-mono"
           placeholder="Paste your CV / resume text here…"

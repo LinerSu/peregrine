@@ -1,6 +1,30 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { type Job } from "../api";
 import { salaryRange, statusClass } from "../format";
+
+type SortKey = "fit_score" | "company" | "position" | "status" | "salary" | "location";
+type SortDir = "asc" | "desc";
+
+const COLUMNS: { key: SortKey; label: string }[] = [
+  { key: "fit_score", label: "Fit" },
+  { key: "company", label: "Company" },
+  { key: "position", label: "Position" },
+  { key: "status", label: "Status" },
+  { key: "flexibility" as SortKey, label: "Flex" },
+  { key: "salary", label: "Salary" },
+  { key: "location", label: "Location" },
+];
+
+function sortValue(j: Job, key: SortKey): number | string {
+  switch (key) {
+    case "fit_score":
+      return j.fit_score ?? -1;
+    case "salary":
+      return j.salary_max ?? j.salary_min ?? -1;
+    default:
+      return (j[key as keyof Job] as string | null)?.toLowerCase?.() ?? "";
+  }
+}
 
 export default function JobsTable({
   jobs,
@@ -16,14 +40,32 @@ export default function JobsTable({
   loading: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const [filtered, setFiltered] = useState<Job[]>(jobs);
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "fit_score", dir: "desc" });
 
+  const [filtered, setFiltered] = useState<Job[]>(jobs);
   useEffect(() => {
     const q = query.toLowerCase();
     setFiltered(
       q ? jobs.filter((j) => j.company.toLowerCase().includes(q) || j.position.toLowerCase().includes(q)) : jobs
     );
   }, [query, jobs]);
+
+  const rows = useMemo(() => {
+    const sorted = [...filtered].sort((a, b) => {
+      const av = sortValue(a, sort.key);
+      const bv = sortValue(b, sort.key);
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return sort.dir === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [filtered, sort]);
+
+  const toggleSort = (key: SortKey) =>
+    setSort((s) =>
+      s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "fit_score" ? "desc" : "asc" }
+    );
+
+  const arrow = (key: SortKey) => (sort.key === key ? (sort.dir === "asc" ? " ▲" : " ▼") : "");
 
   return (
     <div className="flex flex-col h-full">
@@ -46,16 +88,20 @@ export default function JobsTable({
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-gray-50 text-gray-600">
             <tr>
-              <th className="px-3 py-2 text-left font-medium">Fit</th>
-              <th className="px-3 py-2 text-left font-medium">Company</th>
-              <th className="px-3 py-2 text-left font-medium">Position</th>
-              <th className="px-3 py-2 text-left font-medium">Status</th>
-              <th className="px-3 py-2 text-left font-medium">Salary</th>
-              <th className="px-3 py-2 text-left font-medium">Location</th>
+              {COLUMNS.map((c) => (
+                <th
+                  key={c.key}
+                  onClick={() => toggleSort(c.key)}
+                  className="px-3 py-2 text-left font-medium cursor-pointer select-none hover:text-gray-900 whitespace-nowrap"
+                >
+                  {c.label}
+                  {arrow(c.key)}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {filtered.map((j) => (
+            {rows.map((j) => (
               <tr
                 key={j.id}
                 onClick={() => onSelect(j.id)}
@@ -71,15 +117,16 @@ export default function JobsTable({
                     {j.status}
                   </span>
                 </td>
+                <td className="px-3 py-2 text-gray-500">{j.flexibility || "—"}</td>
                 <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
                   {salaryRange(j.salary_min, j.salary_max, j.currency)}
                 </td>
                 <td className="px-3 py-2 text-gray-500">{j.location || "—"}</td>
               </tr>
             ))}
-            {filtered.length === 0 && (
+            {rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-gray-400">
+                <td colSpan={COLUMNS.length} className="px-3 py-8 text-center text-gray-400">
                   No jobs yet. Ask the assistant to "find jobs matching my CV" or click Scan.
                 </td>
               </tr>

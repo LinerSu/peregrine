@@ -19,9 +19,11 @@ if [ -n "$py_files" ] && ! python3 -m py_compile $py_files 2>/tmp/peregrine-pyc.
 fi
 
 # 2) Crawl-policy guard ----------------------------------------------------
-# Every outbound fetch must route through crawl_policy.safe_get (the good-bot
-# rule). No raw HTTP clients or browser-UA spoofing anywhere else under api/.
-guard_files="$(printf '%s\n' "$staged" | grep -E '^api/.*\.py$' | grep -v 'api/app/agent/crawl_policy.py' || true)"
+# Every outbound *job-board* fetch must route through crawl_policy.safe_get (the
+# good-bot rule). No raw HTTP clients or browser-UA spoofing elsewhere under api/.
+# Exempt: crawl_policy.py itself, and llm.py (LLM-provider API calls, not crawling).
+guard_files="$(printf '%s\n' "$staged" | grep -E '^api/.*\.py$' \
+  | grep -vE 'api/app/agent/(crawl_policy|llm)\.py' || true)"
 if [ -n "$guard_files" ]; then
   hits="$(grep -nE 'httpx\.(get|post|put|request|stream|Client)|requests\.(get|post)|urllib\.request|Mozilla/' $guard_files || true)"
   if [ -n "$hits" ]; then

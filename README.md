@@ -29,8 +29,9 @@ results → open a job → **Evaluate fit** → **Prepare to apply** → Apply.
 web/ (React chat + dashboard)
   └─► api/ (FastAPI)  ── agent harness (LLM loop + tools)
         ├─ subagents: searcher · evaluator · reviewer (isolated context)
-        ├─ tools: scan_jobs · evaluate_fit · prepare_materials · parse_cv · list_jobs
-        ├─ providers: greenhouse (live) · ashby/lever/generic (stubs)
+        ├─ tools: scan_jobs · evaluate_fit · prepare_materials · parse_cv · list_jobs · mark_applied · assess_upskilling
+        ├─ providers (live): greenhouse · amazon · apple · ashby · lever  (generic = stub)
+        ├─ crawl_policy: allow-list · ToS block-list · robots · rate-limit · honest UA
         └─ skills -> .agents/skills/*/SKILL.md  (open standard, dual-use with CLIs)
 data/   jobs.csv · applications.csv · jobs/<id>.md   (single source of truth)
 config/ profile.yml · memory.yml · portals.yml       (memory + scraper config)
@@ -50,8 +51,8 @@ other companies' sites.
 
 **What it does**
 - Fetches jobs only from boards it officially supports **and** that permit
-  automated access — currently Greenhouse, plus single postings you paste from
-  amazon.jobs or jobs.apple.com.
+  automated access — Greenhouse, Ashby and Lever boards, plus single postings you
+  paste from amazon.jobs or jobs.apple.com.
 - Scores fit against your CV, prepares materials, and tracks your applications.
 - Keeps your data on your machine.
 

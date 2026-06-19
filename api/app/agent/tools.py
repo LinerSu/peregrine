@@ -14,7 +14,7 @@ from ..logging_config import get_logger
 from ..schemas import Application, Job
 from . import providers
 from .registry import registry
-from .subagents import evaluator, reviewer
+from .subagents import evaluator, reviewer, upskiller
 
 log = get_logger(__name__)
 
@@ -30,6 +30,7 @@ def scan_jobs() -> dict[str, Any]:
     portals = store.read_portals()
     companies = portals.get("companies", []) or []
     filters = portals.get("filters", {}) or {}
+    targets = store.read_targets()
     snapshot = portals.get("snapshot", True)
 
     status.record("scan_start", f"{len(companies)} companies", current_task="Scanning job portals")
@@ -38,7 +39,7 @@ def scan_jobs() -> dict[str, Any]:
     for c in companies:
         postings = providers.fetch(c.get("provider", "generic"), c.get("name", ""), c.get("slug", ""))
         for p in postings:
-            if not _passes_filters(p, filters):
+            if not _passes_filters(p, filters, targets):
                 filtered += 1
                 continue
             if store.find_job_by_key(p.company, p.company_job_id):
@@ -67,11 +68,26 @@ def scan_jobs() -> dict[str, Any]:
     return summary
 
 
-def _passes_filters(p: providers.RawPosting, filters: dict[str, Any]) -> bool:
-    locs = [l.lower() for l in (filters.get("locations") or [])]
-    if locs and not any(l in p.location.lower() for l in locs):
+def _passes_filters(
+    p: providers.RawPosting, filters: dict[str, Any], targets: dict[str, Any] | None = None
+) -> bool:
+    """Portals filters + the user's search targets (config/profile.yml::targets)."""
+    targets = targets or {}
+    loc_hay = p.location.lower()
+    text = f"{p.position} {p.description}".lower()
+
+    # Location: targets override portals; remote postings always pass a location gate.
+    locs = [l.lower() for l in (targets.get("locations") or filters.get("locations") or [])]
+    if locs and "remote" not in loc_hay and not any(l in loc_hay for l in locs):
         return False
-    if filters.get("remote_only") and "remote" not in p.location.lower():
+    if (filters.get("remote_only") or targets.get("work_mode") == "remote") and "remote" not in loc_hay:
+        return False
+
+    # Keyword include/exclude from search targets.
+    if any(kw.lower() in text for kw in (targets.get("exclude_keywords") or [])):
+        return False
+    include = [kw.lower() for kw in (targets.get("include_keywords") or [])]
+    if include and not any(kw in text for kw in include):
         return False
     return True
 
@@ -168,6 +184,29 @@ def prepare_materials(job_id: str) -> dict[str, Any]:
         "detail_md": job.detail_md,
         "note": "Review strengths/weaknesses/materials in the job detail before applying.",
     }
+
+
+# --------------------------------------------------------------------------- #
+@registry.register(
+    "assess_upskilling",
+    "Compare a job's requirements against the user's profile and surface skill "
+    "gaps with concrete ways to close them. Read-only; advisory.",
+    {
+        "type": "object",
+        "properties": {"job_id": {"type": "string"}},
+        "required": ["job_id"],
+    },
+)
+def assess_upskilling(job_id: str) -> dict[str, Any]:
+    job = store.get_job(job_id)
+    if not job:
+        return {"error": f"job {job_id} not found"}
+    status.record("upskill_start", job_id, current_task=f"Upskilling analysis for {job_id}")
+    job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
+    result = upskiller(job_md, store.read_profile())
+    result["job_id"] = job_id
+    status.record("upskill_done", job_id, current_task="idle")
+    return result
 
 
 # --------------------------------------------------------------------------- #

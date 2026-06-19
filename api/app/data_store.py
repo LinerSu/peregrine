@@ -165,6 +165,17 @@ def write_profile(data: dict[str, Any]) -> None:
     _write_yaml(config.PROFILE_YML, data)
 
 
+def read_targets() -> dict[str, Any]:
+    """What the user is looking for (search intent), stored under profile.targets."""
+    return read_profile().get("targets", {}) or {}
+
+
+def write_targets(targets: dict[str, Any]) -> None:
+    profile = read_profile()
+    profile["targets"] = targets
+    write_profile(profile)
+
+
 def read_memory() -> dict[str, Any]:
     return _read_yaml(config.MEMORY_YML)
 

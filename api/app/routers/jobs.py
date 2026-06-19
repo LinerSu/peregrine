@@ -60,3 +60,12 @@ def apply(job_id: str, payload: dict | None = None):
     if "error" in result:
         raise HTTPException(404, result["error"])
     return result
+
+
+@router.post("/{job_id}/upskilling")
+def upskilling(job_id: str):
+    """Skill-gap analysis: what the job wants vs. the user's profile."""
+    result = tools.assess_upskilling(job_id)
+    if "error" in result:
+        raise HTTPException(404, result["error"])
+    return result

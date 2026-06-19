@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from ..logging_config import get_logger
@@ -64,13 +65,73 @@ def greenhouse(company: str, slug: str, timeout: float = 30.0) -> list[RawPostin
 
 
 def ashby(company: str, slug: str, timeout: float = 30.0) -> list[RawPosting]:
-    log.info("ashby provider stub for %s (slug=%s) — implement feed parsing", company, slug)
-    return []
+    """Ashby public posting API. Host pinned via crawl_policy."""
+    url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
+    try:
+        r = crawl_policy.safe_get(url, timeout=timeout)
+        r.raise_for_status()
+        jobs = r.json().get("jobs", [])
+    except Exception as exc:
+        log.warning("ashby(%s) failed: %s", slug, exc)
+        return []
+    out = []
+    for j in jobs:
+        if j.get("isListed") is False:
+            continue
+        location = j.get("location", "") or ""
+        if j.get("isRemote"):
+            location = f"{location} (remote)".strip()
+        out.append(
+            RawPosting(
+                company=company,
+                company_job_id=str(j.get("id", "")),
+                position=j.get("title", ""),
+                location=location,
+                url=j.get("jobUrl", ""),
+                posted_date=(j.get("publishedAt") or "")[:10],
+                description=_strip_html(j.get("descriptionPlain") or j.get("descriptionHtml", "")),
+            )
+        )
+    return out
+
+
+def _epoch_ms_to_date(ms: Any) -> str:
+    try:
+        return datetime.fromtimestamp(int(ms) / 1000, tz=timezone.utc).date().isoformat()
+    except (TypeError, ValueError):
+        return ""
 
 
 def lever(company: str, slug: str, timeout: float = 30.0) -> list[RawPosting]:
-    log.info("lever provider stub for %s (slug=%s) — implement feed parsing", company, slug)
-    return []
+    """Lever public postings API. Host pinned via crawl_policy."""
+    url = f"https://api.lever.co/v0/postings/{slug}?mode=json"
+    try:
+        r = crawl_policy.safe_get(url, timeout=timeout)
+        r.raise_for_status()
+        postings = r.json()
+    except Exception as exc:
+        log.warning("lever(%s) failed: %s", slug, exc)
+        return []
+    out = []
+    for j in postings:
+        cats = j.get("categories") or {}
+        body = _strip_html(j.get("descriptionPlain", ""))
+        for lst in j.get("lists", []) or []:
+            body += f"\n\n## {lst.get('text', '')}\n{_strip_html(lst.get('content', ''))}"
+        if j.get("additionalPlain"):
+            body += f"\n\n{_strip_html(j['additionalPlain'])}"
+        out.append(
+            RawPosting(
+                company=company,
+                company_job_id=str(j.get("id", "")),
+                position=j.get("text", ""),
+                location=cats.get("location", ""),
+                url=j.get("hostedUrl", ""),
+                posted_date=_epoch_ms_to_date(j.get("createdAt")),
+                description=body.strip(),
+            )
+        )
+    return out
 
 
 def generic(company: str, slug: str, timeout: float = 30.0) -> list[RawPosting]:
@@ -97,6 +158,8 @@ def fetch(provider: str, company: str, slug: str) -> list[RawPosting]:
 _AMAZON_RE = re.compile(r"amazon\.jobs/(?:[a-z-]+/)?jobs/(\d+)", re.I)
 _GREENHOUSE_RE = re.compile(r"greenhouse\.io/(?:embed/job_app\?for=)?([\w-]+)/jobs/(\d+)", re.I)
 _APPLE_RE = re.compile(r"jobs\.apple\.com/[\w-]+/details/([\w-]+)", re.I)
+_ASHBY_RE = re.compile(r"jobs\.ashbyhq\.com/([\w-]+)/([\w-]+)", re.I)
+_LEVER_RE = re.compile(r"jobs\.lever\.co/([\w-]+)/([\w-]+)", re.I)
 _APPLE_HYDRATION_RE = re.compile(
     r'window\.__staticRouterHydrationData\s*=\s*JSON\.parse\("(.*?)"\);', re.S
 )
@@ -203,9 +266,10 @@ def _amazon_ingest(job_id: str, timeout: float = 30.0) -> RawPosting | None:
 def ingest_url(url: str) -> RawPosting | None:
     """Detect the source from a pasted URL and return a normalized posting.
 
-    Supported: amazon.jobs, Apple (jobs.apple.com) and Greenhouse-hosted boards.
-    Returns None for unsupported hosts (add a parser here to extend). Raises
-    PolicyViolation for hosts our crawl policy refuses (e.g. LinkedIn)."""
+    Supported: amazon.jobs, Apple (jobs.apple.com), Greenhouse, Ashby
+    (jobs.ashbyhq.com) and Lever (jobs.lever.co) boards. Returns None for
+    unsupported hosts (add a parser here to extend). Raises PolicyViolation for
+    hosts our crawl policy refuses (e.g. LinkedIn)."""
     reason = crawl_policy.blocked_reason(crawl_policy.host_of(url))
     if reason:
         raise PolicyViolation(f"{crawl_policy.host_of(url)} is blocked by policy — {reason}")
@@ -222,6 +286,16 @@ def ingest_url(url: str) -> RawPosting | None:
         slug, _job_id = m.group(1), m.group(2)
         postings = greenhouse(slug.title(), slug)
         return next((p for p in postings if p.company_job_id == _job_id), None)
+
+    m = _ASHBY_RE.search(url)
+    if m:
+        org, jid = m.group(1), m.group(2)
+        return next((p for p in ashby(org.title(), org) if p.company_job_id == jid), None)
+
+    m = _LEVER_RE.search(url)
+    if m:
+        org, jid = m.group(1), m.group(2)
+        return next((p for p in lever(org.title(), org) if p.company_job_id == jid), None)
 
     log.info("ingest_url: unsupported host for %s", url)
     return None

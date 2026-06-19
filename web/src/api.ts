@@ -33,6 +33,15 @@ export interface Profile {
   [key: string]: unknown;
 }
 
+export interface Targets {
+  roles?: string[];
+  locations?: string[];
+  work_mode?: string;
+  min_salary?: number | null;
+  include_keywords?: string[];
+  exclude_keywords?: string[];
+}
+
 export interface ChatAction {
   tool?: string;
   result?: unknown;
@@ -64,6 +73,13 @@ export const api = {
     }),
   submitCv: (cv_text: string) =>
     http<Record<string, unknown>>("/api/cv", { method: "POST", body: JSON.stringify({ cv_text }) }),
+  uploadCv: async (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${BASE}/api/cv/upload`, { method: "POST", body: fd });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json() as Promise<Record<string, unknown>>;
+  },
   listApplications: () =>
     http<{ count: number; applications: Application[] }>("/api/applications"),
   markApplied: (id: string, applied_date?: string) =>
@@ -77,4 +93,13 @@ export const api = {
       body: JSON.stringify(patch),
     }),
   getProfile: () => http<Profile>("/api/profile"),
+  getPreferences: () => http<Targets>("/api/preferences"),
+  savePreferences: (t: Targets) =>
+    http<Targets>("/api/preferences", { method: "PUT", body: JSON.stringify(t) }),
+  upskilling: (id: string) =>
+    http<{
+      job_id: string;
+      summary: string;
+      missing_skills: { skill: string; why: string; how_to_close: string }[];
+    }>(`/api/jobs/${id}/upskilling`, { method: "POST" }),
 };

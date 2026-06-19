@@ -63,6 +63,38 @@ def evaluator(job_md: str, profile: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def upskiller(job_md: str, profile: dict[str, Any]) -> dict[str, Any]:
+    """Compare a job's requirements against the profile and surface skill gaps."""
+    llm = LLMClient()
+    messages = [
+        {"role": "system", "content": load_skill("upskill")},
+        {
+            "role": "user",
+            "content": (
+                "Profile (JSON):\n```\n"
+                + json.dumps(profile, ensure_ascii=False, indent=2)
+                + "\n```\n\nJob posting:\n```\n"
+                + job_md
+                + "\n```\n\nReturn ONLY a JSON object with keys: summary (string), "
+                "missing_skills (array of {skill, why, how_to_close})."
+            ),
+        },
+    ]
+    result = _json_from_text(llm.complete(messages).text)
+    if not result:
+        result = {
+            "summary": "(mock) Configure an LLM provider for a real upskilling analysis.",
+            "missing_skills": [
+                {
+                    "skill": "(mock) example gap",
+                    "why": "appears in the job's requirements but not yet in your profile",
+                    "how_to_close": "take a focused course or ship a small project that uses it",
+                }
+            ],
+        }
+    return result
+
+
 def reviewer(evaluation: dict[str, Any], job_md: str) -> dict[str, Any]:
     """Critique the evaluation in a fresh context and return a revised version."""
     llm = LLMClient()
