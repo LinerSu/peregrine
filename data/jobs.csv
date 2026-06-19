@@ -1,0 +1,2 @@
+id,company,company_job_id,position,status,location,flexibility,salary_min,salary_max,currency,posted_date,close_date,url,fit_score,detail_md
+2026-001,Anthropic,R-4521,Machine Learning Engineer,open,"San Francisco, CA",hybrid,300000,420000,USD,2026-06-01,,https://job-boards.greenhouse.io/anthropic/jobs/R-4521,0.82,data/jobs/2026-001.md

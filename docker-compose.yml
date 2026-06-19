@@ -1,0 +1,26 @@
+services:
+  api:
+    build: ./api
+    container_name: peregrine-api
+    env_file: .env
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+      - ./.agents:/app/.agents
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      args:
+        # Empty -> frontend calls relative /api and nginx proxies to the api service.
+        VITE_API_BASE: ${VITE_API_BASE:-}
+    container_name: peregrine-web
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+    restart: unless-stopped

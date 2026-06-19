@@ -1,0 +1,2 @@
+# Per-job long-form detail + snapshots live here as <id>.md
+# Sortable metrics live in ../jobs.csv (keyed by `id`).

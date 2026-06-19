@@ -1,0 +1,39 @@
+# --- Python / backend ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Node / frontend ---
+node_modules/
+dist/
+.vite/
+*.local
+
+# --- Env / secrets ---
+.env
+*.env
+!.env.example
+
+# --- Runtime data (user-specific, keep the folder + schemas) ---
+data/jobs/*.md
+!data/jobs/.gitkeep
+data/*.csv
+!data/applications.csv
+!data/jobs.csv
+data/index.sqlite
+config/profile.yml
+config/memory.yml
+config/portals.yml
+
+# --- Logs ---
+logs/
+*.log
+
+# --- OS ---
+.DS_Store
+Thumbs.db

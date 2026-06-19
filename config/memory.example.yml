@@ -1,0 +1,16 @@
+# ---------------------------------------------------------------------------
+# Long-term agent memory. Copy to `config/memory.yml`.
+# The agent appends durable facts, decisions, and preferences here across
+# sessions so a fresh chat window has continuity.
+# ---------------------------------------------------------------------------
+notes: []                 # free-form durable notes, newest last
+#  - date: 2026-06-19
+#    note: "Prefers remote; declined onsite-only roles."
+
+decisions: []             # things the user decided, so we don't re-ask
+#  - date: 2026-06-19
+#    decision: "Targeting Staff-level only."
+
+# Companies the user is excited about / wants to avoid.
+target_companies: []
+avoid_companies: []

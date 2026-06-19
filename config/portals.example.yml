@@ -1,0 +1,29 @@
+# ---------------------------------------------------------------------------
+# Scraper configuration. Copy to `config/portals.yml`.
+# Generic, ATS-feed based (inspired by santifer/career-ops). Each company entry
+# names the ATS provider + the company's slug on that ATS.
+# ---------------------------------------------------------------------------
+
+# Free-text search queries run across supported job boards.
+queries:
+  - "machine learning engineer"
+  - "applied scientist"
+
+# Per-company direct ATS feeds (most reliable, no scraping HTML).
+companies:
+  - name: Anthropic
+    provider: greenhouse        # greenhouse | ashby | lever | generic
+    slug: anthropic
+  - name: OpenAI
+    provider: ashby
+    slug: openai
+
+# Hard filters applied during scan.
+filters:
+  locations: []                 # empty = any
+  remote_only: false
+  min_base: 0                   # 0 = no salary floor
+
+# Be a polite scraper.
+rate_limit_seconds: 2
+snapshot: true                  # save raw posting to data/jobs/<id>.md

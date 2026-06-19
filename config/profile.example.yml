@@ -1,0 +1,34 @@
+# ---------------------------------------------------------------------------
+# Your career profile. Copy to `config/profile.yml` and edit (or let the agent
+# fill it from your CV via the chat: "here is my CV ...").
+# The agent READS and UPDATES this file as long-term memory.
+# ---------------------------------------------------------------------------
+name: ""
+headline: ""              # e.g. "Senior ML Engineer"
+location: ""
+open_to_relocation: false
+work_auth:                # e.g. ["US Citizen"] or ["EU work permit"]
+  - ""
+needs_sponsorship: false
+
+# Compensation expectations (used to filter / flag jobs).
+comp:
+  currency: USD
+  base_min: 0
+  base_target: 0
+
+# What you want and want to avoid — shapes fit evaluation.
+preferences:
+  roles: []               # e.g. ["ML Engineer", "Applied Scientist"]
+  industries: []
+  flexibility: ""         # "remote" | "hybrid" | "onsite" | "any"
+  avoid: []               # e.g. ["on-call heavy", "early-stage"]
+
+# Skills the agent knows you have (CV intake populates this).
+skills:
+  - name: ""
+    level: ""             # "beginner" | "intermediate" | "advanced" | "expert"
+    evidence: ""          # where you used it
+
+# Path to your master resume (pdf or .tex) under resume/.
+resume_path: ""
