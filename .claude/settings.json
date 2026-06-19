@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "permissions": {
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Edit",
+      "Write",
+
+      "Bash(npm install:*)",
+      "Bash(npm ci:*)",
+      "Bash(npm run:*)",
+      "Bash(npx vite:*)",
+      "Bash(npx tsc:*)",
+
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(uvicorn:*)",
+      "Bash(pytest:*)",
+      "Bash(pip install:*)",
+      "Bash(uv:*)",
+
+      "Bash(docker compose:*)",
+      "Bash(curl http://localhost:*)",
+      "Bash(curl http://127.0.0.1:*)",
+
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git add:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git restore:*)",
+      "Bash(git stash:*)"
+    ],
+    "deny": [
+      "Write(./data/**)",
+      "Edit(./data/**)"
+    ],
+    "ask": []
+  }
+}

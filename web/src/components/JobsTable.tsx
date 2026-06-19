@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { type Job } from "../api";
+import { salaryRange, statusClass } from "../format";
 
 export default function JobsTable({
   jobs,
@@ -48,6 +49,8 @@ export default function JobsTable({
               <th className="px-3 py-2 text-left font-medium">Fit</th>
               <th className="px-3 py-2 text-left font-medium">Company</th>
               <th className="px-3 py-2 text-left font-medium">Position</th>
+              <th className="px-3 py-2 text-left font-medium">Status</th>
+              <th className="px-3 py-2 text-left font-medium">Salary</th>
               <th className="px-3 py-2 text-left font-medium">Location</th>
             </tr>
           </thead>
@@ -63,12 +66,20 @@ export default function JobsTable({
                 <td className="px-3 py-2">{j.fit_score != null ? j.fit_score.toFixed(2) : "—"}</td>
                 <td className="px-3 py-2 font-medium">{j.company}</td>
                 <td className="px-3 py-2">{j.position}</td>
+                <td className="px-3 py-2">
+                  <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${statusClass(j.status)}`}>
+                    {j.status}
+                  </span>
+                </td>
+                <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
+                  {salaryRange(j.salary_min, j.salary_max, j.currency)}
+                </td>
                 <td className="px-3 py-2 text-gray-500">{j.location || "—"}</td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-3 py-8 text-center text-gray-400">
+                <td colSpan={6} className="px-3 py-8 text-center text-gray-400">
                   No jobs yet. Ask the assistant to "find jobs matching my CV" or click Scan.
                 </td>
               </tr>

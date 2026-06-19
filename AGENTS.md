@@ -35,8 +35,14 @@ config/ profile.yml · memory.yml · portals.yml         (memory + scraper confi
 ## Hard rules
 - Never auto-submit an application. The user clicks Apply after the review gate.
 - Never fabricate skills/experience. Verify claims against `config/profile.yml`.
-- Be a polite scraper: honor `rate_limit_seconds`, respect ToS/robots, keep host
-  allow-lists in `providers.py` (SSRF safety).
+- **Be a good bot, never a malicious crawler.** Every outbound job-board fetch goes
+  through `app/agent/crawl_policy.py::safe_get`, which enforces: host **allow-list**
+  (supported boards only — SSRF + scope), a **block-list** of ToS-prohibited / bot-
+  protected sites (LinkedIn, Meta, Indeed, Glassdoor — refused before any request),
+  **robots.txt**, per-host **rate limiting**, and an **honest self-identifying User-Agent**
+  (no browser impersonation, no auth-walled/login scraping). Do not bypass it; to support
+  a new board, add its host to `ALLOWED_HOSTS` and a parser — never fetch raw URLs directly.
+  For blocked boards, have the user paste the job text instead of scraping.
 
 ## How to run
 ```bash
@@ -64,21 +70,31 @@ _Last updated: 2026-06-19._
 - Repo renamed **my-job-search → Peregrine**; pushed to `github.com/LinerSu/peregrine` (main).
 - `docker compose up` runs `peregrine-api` (:8000) + `peregrine-web` (:5173). Health: `/api/health`.
 - Backend: agent harness + evaluator/reviewer subagents + tool registry.
-- Providers: **Greenhouse (live)**, **amazon.jobs URL ingest (live, validated on job 3196773)**; ashby/lever/generic are stubs.
-- Tools: `scan_jobs`, `ingest_job_url`, `evaluate_fit`, `prepare_materials`, `parse_cv`, `list_jobs`.
+- Providers: **Greenhouse (live)**, **amazon.jobs URL ingest (live, job 3196773)**,
+  **Apple / jobs.apple.com URL ingest (live, validated on positionId 200668037)** — parses the
+  page's embedded `window.__staticRouterHydrationData`; ashby/lever/generic are stubs.
+- Tools: `scan_jobs`, `ingest_job_url`, `evaluate_fit`, `prepare_materials`, `parse_cv`,
+  `list_jobs`, **`mark_applied`**.
 - LLM provider-agnostic (anthropic/openai/ollama/**mock** fallback so it boots with no key).
-- Frontend (3-pane): Chat · Jobs table · Job detail with human-in-the-loop **apply gate**.
+- Frontend: persistent **Chat** sidebar + tabbed working area — **Jobs** (table+detail w/ apply
+  gate), **Applications** tracker, **Profile / CV**, **Upskilling**. Jobs table now shows
+  status + salary; Applications tab edits status/interview-date/contacts/notes inline.
+- Write path: **Mark as applied** (UI button + `POST /api/jobs/{id}/apply`) flips job status and
+  writes `applications.csv`; `PATCH /api/applications/{id}` updates tracker fields.
 
 **Front-end gaps vs. the product vision (prioritized — pick up here):**
-1. Add top-level **tabs**: Jobs · Applications · Upskilling · Profile/CV.
-2. **Applications tracker** view (applied date, status, interview date, contacts, notes).
-   API `/api/applications` exists; no UI yet, and no "mark as applied" write path.
-3. Enrich the **jobs table** columns: status, salary range, flexibility, posted/close dates; sortable.
-4. Render **job detail + evaluation as structured cards** (Strengths / Weaknesses / Materials),
+1. ~~Top-level **tabs**~~ ✅ done. ~~**Applications tracker** + "mark as applied" write path~~ ✅ done.
+2. **Jobs table** still needs **sortable** columns + flexibility/close-date (status+salary added).
+3. Render **job detail + evaluation as structured cards** (Strengths / Weaknesses / Materials),
    not the current raw-Markdown `<pre>`.
-5. **CV upload** box (currently only chat-paste) + an **external-resources** panel
-   (resume templates, interview prep links).
-6. **Upskilling** UI (skill exists; add a tool + endpoint + view).
+4. **CV file upload** (Profile tab has paste + external-resources panel; no file upload yet).
+5. **Upskilling** is a placeholder view — add the backend tool + endpoint to power it.
 
-**Backend gaps:** implement ashby/lever providers; write `applications.csv` on "applied";
-cover-letter generation in `materials-prep`; optional SQLite derived index; tests.
+**Backend gaps:** implement ashby/lever providers; cover-letter generation in `materials-prep`;
+optional SQLite derived index; tests.
+
+**Provider notes / ToS:** Meta (metacareers.com) is **intentionally unsupported** — it blocks
+plain fetches (HTTP 400) and its GraphQL needs a browser session + `fb_dtsg`/`doc_id` tokens;
+scraping it would fight bot-protection and risk an IP ban. **Always check a site's ToS/robots and
+rate-limit before fetching; don't hammer or retry aggressively. Host allow-lists stay pinned for
+SSRF safety.** For blocked boards, prefer manual paste of the description over scraping.

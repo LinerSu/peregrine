@@ -11,7 +11,7 @@ export default function ChatPanel({ onAction }: { onAction: () => void }) {
     {
       role: "assistant",
       content:
-        'Hi! Paste your CV, or try: "find jobs matching my CV". I\'ll scan portals, score fit, and prep you before you apply.',
+        'Hi! I\'m Peregrine, your local job-search assistant. Paste your CV, or try: "find jobs matching my CV" — I\'ll scan supported boards, score fit, prep materials, and track your applications.\n\nA note on what I can\'t do: I only fetch boards that allow it, so I won\'t scrape sites like LinkedIn or Indeed (paste those job descriptions instead), I never bypass logins or bot-checks, and I never submit an application for you — you always click Apply yourself.',
     },
   ]);
   const [input, setInput] = useState("");

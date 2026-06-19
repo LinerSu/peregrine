@@ -43,6 +43,33 @@ Dedup key = `company` + `company_job_id`.
 For agent/architecture details and the continuity protocol (so a fresh AI
 session can resume), see [AGENTS.md](AGENTS.md) and [STATUS.md](STATUS.md).
 
+## Scope, limits & disclaimer
+
+Peregrine is built to be a **good web citizen**, not a scraper that bulldozes
+other companies' sites.
+
+**What it does**
+- Fetches jobs only from boards it officially supports **and** that permit
+  automated access — currently Greenhouse, plus single postings you paste from
+  amazon.jobs or jobs.apple.com.
+- Scores fit against your CV, prepares materials, and tracks your applications.
+- Keeps your data on your machine.
+
+**What it won't do**
+- It **won't scrape sites whose Terms forbid it or that block bots** — e.g.
+  LinkedIn, Indeed, Glassdoor, Meta. For those, paste the job text instead.
+- It **won't bypass** logins, paywalls, CAPTCHAs or bot-detection, and won't
+  impersonate a browser to evade blocks. Every fetch honors `robots.txt`, a
+  per-host rate limit, an explicit host allow-list, and an honest, self-identifying
+  User-Agent (enforced in [`crawl_policy.py`](api/app/agent/crawl_policy.py)).
+- It **won't submit applications for you** — you always click Apply after the
+  review gate — and won't invent skills or experience you don't have.
+
+**Disclaimer.** You are responsible for complying with each site's Terms of
+Service. Fit scores and upskilling suggestions are AI-generated guidance, not
+guarantees. If a board isn't supported, copy the job description in manually
+rather than asking Peregrine to break through a site's protections.
+
 ---
 
 ## Vision (original notes)

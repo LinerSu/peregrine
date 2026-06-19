@@ -126,6 +126,10 @@ def list_applications() -> list[Application]:
     return out
 
 
+def get_application(app_id: str) -> Optional[Application]:
+    return next((a for a in list_applications() if a.id == app_id), None)
+
+
 def upsert_application(app: Application) -> Application:
     apps = list_applications()
     for i, a in enumerate(apps):

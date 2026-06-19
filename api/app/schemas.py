@@ -29,6 +29,8 @@ class Job(BaseModel):
 class Application(Job):
     applied_date: str = ""
     interview_date: str = ""
+    contacts: str = ""
+    notes: str = ""
 
 
 class FitEvaluation(BaseModel):

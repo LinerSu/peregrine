@@ -18,6 +18,21 @@ export interface Job {
   detail_md: string;
 }
 
+export interface Application extends Job {
+  applied_date: string;
+  interview_date: string;
+  contacts: string;
+  notes: string;
+}
+
+export interface Profile {
+  name?: string;
+  headline?: string;
+  location?: string;
+  skills?: { name: string; level?: string; evidence?: string }[];
+  [key: string]: unknown;
+}
+
 export interface ChatAction {
   tool?: string;
   result?: unknown;
@@ -49,4 +64,17 @@ export const api = {
     }),
   submitCv: (cv_text: string) =>
     http<Record<string, unknown>>("/api/cv", { method: "POST", body: JSON.stringify({ cv_text }) }),
+  listApplications: () =>
+    http<{ count: number; applications: Application[] }>("/api/applications"),
+  markApplied: (id: string, applied_date?: string) =>
+    http<{ application: Application; created: boolean }>(`/api/jobs/${id}/apply`, {
+      method: "POST",
+      body: JSON.stringify(applied_date ? { applied_date } : {}),
+    }),
+  updateApplication: (id: string, patch: Partial<Application>) =>
+    http<{ application: Application }>(`/api/applications/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  getProfile: () => http<Profile>("/api/profile"),
 };

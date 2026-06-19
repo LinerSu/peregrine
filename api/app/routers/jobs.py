@@ -51,3 +51,12 @@ def prepare(job_id: str):
     if "error" in result:
         raise HTTPException(404, result["error"])
     return result
+
+
+@router.post("/{job_id}/apply")
+def apply(job_id: str, payload: dict | None = None):
+    """Record that the user applied: flips status to 'applied' and tracks it."""
+    result = tools.mark_applied(job_id, (payload or {}).get("applied_date", ""))
+    if "error" in result:
+        raise HTTPException(404, result["error"])
+    return result

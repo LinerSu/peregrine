@@ -11,7 +11,7 @@ from .. import data_store as store
 from .. import status
 from ..config import APPLICATIONS_DIR
 from ..logging_config import get_logger
-from ..schemas import Job
+from ..schemas import Application, Job
 from . import providers
 from .registry import registry
 from .subagents import evaluator, reviewer
@@ -172,6 +172,43 @@ def prepare_materials(job_id: str) -> dict[str, Any]:
 
 # --------------------------------------------------------------------------- #
 @registry.register(
+    "mark_applied",
+    "Record that the user applied to a job: set the job status to 'applied' and "
+    "create/refresh the row in applications.csv. The user always clicks Apply "
+    "themselves first — this only tracks it.",
+    {
+        "type": "object",
+        "properties": {
+            "job_id": {"type": "string"},
+            "applied_date": {"type": "string", "description": "ISO date; defaults to today"},
+        },
+        "required": ["job_id"],
+    },
+)
+def mark_applied(job_id: str, applied_date: str = "") -> dict[str, Any]:
+    job = store.get_job(job_id)
+    if not job:
+        return {"error": f"job {job_id} not found"}
+
+    job.status = "applied"
+    store.upsert_job(job)
+
+    when = applied_date or date.today().isoformat()
+    existing = store.get_application(job_id)
+    app = Application(**job.model_dump(), applied_date=when)
+    if existing:  # preserve tracker fields the user has edited
+        app.applied_date = existing.applied_date or when
+        app.interview_date = existing.interview_date
+        app.contacts = existing.contacts
+        app.notes = existing.notes
+    store.upsert_application(app)
+
+    status.record("mark_applied", f"{job_id} {job.company}", current_task="idle")
+    return {"application": app.model_dump(), "created": not existing}
+
+
+# --------------------------------------------------------------------------- #
+@registry.register(
     "parse_cv",
     "Parse pasted CV text into the user's profile (config/profile.yml) as memory.",
     {
@@ -256,7 +293,11 @@ def _persist_posting(p: providers.RawPosting) -> Job:
 )
 def ingest_job_url(url: str) -> dict[str, Any]:
     status.record("ingest_start", url[:120], current_task="Ingesting job URL")
-    posting = providers.ingest_url(url)
+    try:
+        posting = providers.ingest_url(url)
+    except providers.PolicyViolation as exc:
+        status.record("ingest_blocked", str(exc)[:160], current_task="idle")
+        return {"error": str(exc)}
     if not posting:
         status.record("ingest_failed", url[:120], current_task="idle")
         return {"error": f"unsupported or unreachable URL: {url}"}
