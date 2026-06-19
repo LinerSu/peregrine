@@ -20,9 +20,13 @@ Produce an honest, evidence-based fit assessment that gates the Apply button.
 5. Recommend apply / hold / skip.
 
 ## Rules
-- Verify every claimed strength against the actual profile. No fabrication.
+- **Evidence-grounded:** every strength must cite specific evidence from the
+  profile (a skill, role, or project). If you can't point to evidence, it is not
+  a strength — put it in weaknesses/gaps. Never infer or fabricate experience.
+- A required qualification with no supporting profile evidence is always a **gap**.
 - Flag restrictions (citizenship, sponsorship) prominently.
-- A second pass (reviewer subagent) may critique this output before it's shown.
+- A second pass (reviewer subagent) critiques this output for fabrication and
+  missed restrictions before it's shown.
 
 ## Output
 Structured `{ fit_score, strengths[], weaknesses[], materials[], recommendation }`.

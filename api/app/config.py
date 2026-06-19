@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     llm_provider: str = "mock"
-    llm_model: str = "claude-sonnet-4-5"
+    llm_model: str = "claude-sonnet-4-6"
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     ollama_base_url: str = "http://localhost:11434"

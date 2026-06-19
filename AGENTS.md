@@ -26,6 +26,23 @@ data/   jobs.csv · applications.csv · jobs/<id>.md     (truth)
 config/ profile.yml · memory.yml · portals.yml         (memory + scraper config)
 ```
 
+## Agent strategy
+**Bounded workflows, not a long autonomous loop.** A job-assistant request is
+small and specific, and users expect a quick result then a follow-up. So:
+- **Intent router** ([harness.py](api/app/agent/harness.py) `_route`) classifies a chat message into **one**
+  bounded action — `ingest` (fixed 2-step: ingest→evaluate), `search`, `evaluate`,
+  `upskill`, `cv`, or a single grounded `ask` answer. No multi-iteration tool loop.
+- **Deep actions are short, fixed subagent runs**, not open exploration: `evaluate_fit`
+  = evaluator → reviewer (2 calls); `assess_upskilling` = 1 call. Each diagnoses and returns.
+- **Evidence-grounded judgment:** the evaluator must cite profile evidence for every
+  strength; an unsupported requirement is a *gap*, never a strength. The reviewer
+  subagent re-checks for fabrication in a fresh context before the user sees it.
+- **Right-size models** (when a real key is set): default `claude-sonnet-4-6`; route
+  cheap/structured work (CV parse, upskilling, scan summaries) to a fast model (Haiku),
+  reserve Sonnet/Opus for the fit judge + reviewer. Keep prompts/profile in a cached prefix.
+- The `mock` provider still drives every router path deterministically, so the app
+  works with no key (judgments are placeholders until a real model is configured).
+
 ## Data conventions
 - **Dedup key** = `company` + `company_job_id` (companies name IDs differently).
 - **Surrogate id** = `YYYY-NNN` (filenames/links).

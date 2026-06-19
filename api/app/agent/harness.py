@@ -1,138 +1,169 @@
-"""Agent harness — the orchestration loop.
+"""Agent harness — a small intent router, not a long autonomous loop.
 
-Assembles a system prompt from the `.agents/skills/` modules, calls the LLM with
-the registered tool specs, dispatches any tool calls, and loops until the model
-returns a final answer (or a max-iteration guard trips). When running against the
-`mock` provider (no API key), a lightweight keyword intent-router still drives the
-core flows so the app is usable out of the box.
+Job-assistant requests are small and specific: "search jobs", "here's a URL",
+"judge my CV against this job", "what am I missing", "parse my CV". So we
+**classify the message into one bounded action, run it once, and return** — no
+multi-step tool-calling loop where the model keeps deciding what to do next.
+
+The deep per-job actions (`evaluate_fit`, `assess_upskilling`) are themselves
+short, fixed subagent runs. Anything conversational falls to a single grounded
+LLM answer. Follow-ups arrive as new messages — we don't try to do everything in
+one turn.
 """
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Callable
 
+from .. import data_store as store
 from .. import status
-from ..config import SKILLS_DIR
 from ..logging_config import get_logger
 from . import tools  # noqa: F401  (registers tools as a side effect)
 from .llm import LLMClient
-from .registry import registry
 
 log = get_logger(__name__)
 
-MAX_ITERS = 6
+_URL_RE = re.compile(r"https?://\S+")
 
-
-def _system_prompt() -> str:
-    parts = [
-        "You are the user's personal job-search assistant. You help them intake a "
-        "CV, scan job portals, evaluate fit, prepare materials, and decide where to "
-        "apply. You never auto-submit an application; the user always clicks Apply "
-        "after reviewing strengths, weaknesses, and required materials. Never "
-        "fabricate skills or experience. Use tools to take actions.",
-        "\nAvailable skills:",
-    ]
-    for d in sorted(SKILLS_DIR.glob("*/SKILL.md")):
-        parts.append(f"\n--- {d.parent.name} ---\n{d.read_text(encoding='utf-8')}")
-    return "\n".join(parts)
+Handler = Callable[[str, list[dict[str, str]]], "tuple[str, list[dict[str, Any]]]"]
 
 
 def run(message: str, history: list[dict[str, str]]) -> dict[str, Any]:
     status.record("chat", message[:120], current_task="Handling chat request")
-    llm = LLMClient()
-    messages: list[dict[str, str]] = [{"role": "system", "content": _system_prompt()}]
-    messages += history
-    messages.append({"role": "user", "content": message})
+    intent, handler = _route(message)
+    reply, actions = handler(message, history)
+    status.record("chat_done", intent, current_task="idle")
+    return {"reply": reply, "actions": actions}
 
-    actions: list[dict[str, Any]] = []
-    specs = registry.specs()
 
-    for _ in range(MAX_ITERS):
-        result = llm.complete(messages, tools=specs)
-        if not result.tool_calls:
-            reply = result.text
-            if _looks_like_mock(reply):
-                reply, extra = _intent_fallback(message)
-                actions += extra
-            status.record("chat_done", current_task="idle")
-            return {"reply": reply, "actions": actions}
+def _route(message: str) -> tuple[str, Handler]:
+    """Classify the request into exactly one bounded action. Order matters."""
+    m = message.lower()
+    if _URL_RE.search(message):
+        return "ingest", _handle_url
+    if "upskill" in m or "skill gap" in m or "gap" in m or (
+        "skill" in m and any(w in m for w in ("need", "missing", "learn", "improve", "lack"))
+    ):
+        return "upskill", _handle_upskill
+    if any(k in m for k in ("evaluate", "judge", "fit for", "fit score", "how do i match", "assess")):
+        return "evaluate", _handle_evaluate
+    if any(k in m for k in ("find job", "search job", "matching job", "scan", "look for job")):
+        return "search", _handle_search
+    if len(message) > 400 or any(k in m for k in ("here is my cv", "parse my cv", "my resume", "my résumé")):
+        return "cv", _handle_cv
+    return "ask", _handle_ask
 
-        # Dispatch tool calls and feed results back to the model.
-        for call in result.tool_calls:
-            tool = registry.get(call.name)
-            if not tool:
-                continue
-            try:
-                output = tool.fn(**call.arguments)
-            except Exception as exc:  # surface but don't crash the loop
-                log.exception("tool %s failed", call.name)
-                output = {"error": str(exc)}
-            actions.append({"tool": call.name, "args": call.arguments, "result": output})
-            messages.append({"role": "assistant", "content": f"[called {call.name}]"})
-            messages.append({"role": "user", "content": f"Tool {call.name} result: {output}"})
 
-    status.record("chat_done", "max-iters", current_task="idle")
-    return {"reply": "Reached the action limit for this request.", "actions": actions}
+# --------------------------------------------------------------------------- #
+# Bounded handlers — each does one thing and returns.
+# --------------------------------------------------------------------------- #
+def _handle_url(message: str, _history: list[dict[str, str]]) -> tuple[str, list[dict[str, Any]]]:
+    url = _URL_RE.search(message).group(0).rstrip(").,")
+    ingest = tools.ingest_job_url(url)
+    actions = [{"tool": "ingest_job_url", "result": ingest}]
+    if "error" in ingest:
+        return f"Couldn't ingest that URL: {ingest['error']}", actions
+    job = ingest["job"]
+    ev = tools.evaluate_fit(job["id"])  # fixed 2nd step
+    actions.append({"tool": "evaluate_fit", "result": ev})
+    return (
+        f"Ingested **{job['position']}** at {job['company']} ({job['location']}) as `{job['id']}`"
+        + (" (already tracked)" if ingest.get("deduped") else "")
+        + f". Fit {ev.get('fit_score')} — {ev.get('recommendation')}. Open it to review the cards.",
+        actions,
+    )
+
+
+def _handle_search(_message: str, _history: list[dict[str, str]]) -> tuple[str, list[dict[str, Any]]]:
+    scan = tools.scan_jobs()
+    listing = tools.list_jobs()
+    actions = [{"tool": "scan_jobs", "result": scan}, {"tool": "list_jobs", "result": listing}]
+    return (
+        f"Scanned: {scan['new']} new, {scan['duplicates']} duplicates, {scan['filtered']} filtered. "
+        f"{listing['count']} jobs tracked — see the Jobs tab.",
+        actions,
+    )
+
+
+def _handle_evaluate(message: str, _history: list[dict[str, str]]) -> tuple[str, list[dict[str, Any]]]:
+    job = _find_job(message)
+    if not job:
+        return ("Which job? Open it in the Jobs tab and click **Evaluate fit**, or name the company.", [])
+    ev = tools.evaluate_fit(job["id"])
+    return (
+        f"Fit for **{job['company']} — {job['position']}**: score {ev.get('fit_score')}, "
+        f"recommendation {ev.get('recommendation')} "
+        f"({len(ev.get('strengths', []))} strengths, {len(ev.get('weaknesses', []))} gaps). "
+        "Open the job to see the cards.",
+        [{"tool": "evaluate_fit", "result": ev}],
+    )
+
+
+def _handle_upskill(message: str, _history: list[dict[str, str]]) -> tuple[str, list[dict[str, Any]]]:
+    job = _find_job(message)
+    if not job:
+        return ("Which job should I compare against? Name the company, or use the Upskilling tab.", [])
+    res = tools.assess_upskilling(job["id"])
+    gaps = res.get("missing_skills", [])
+    return (
+        f"For **{job['company']} — {job['position']}**: {res.get('summary', '')} "
+        f"({len(gaps)} gap{'s' if len(gaps) != 1 else ''} — see the Upskilling tab).",
+        [{"tool": "assess_upskilling", "result": res}],
+    )
+
+
+def _handle_cv(message: str, _history: list[dict[str, str]]) -> tuple[str, list[dict[str, Any]]]:
+    # A long paste looks like CV text — parse it. Otherwise point at the Profile tab.
+    if len(message) > 400:
+        res = tools.parse_cv(message)
+        return (
+            "Parsed your CV into the profile." if res.get("updated") else
+            "Got it, but parsing needs a real LLM (mock mode). Set a key in `.env`, or use the Profile / CV tab.",
+            [{"tool": "parse_cv", "result": res}],
+        )
+    return ("Paste your full CV text here, or upload it in the **Profile / CV** tab.", [])
+
+
+def _handle_ask(message: str, history: list[dict[str, str]]) -> tuple[str, list[dict[str, Any]]]:
+    """The only open-ended path: a single grounded LLM answer (no tool loop)."""
+    jobs = tools.list_jobs()["jobs"]
+    profile = store.read_profile()
+    system = (
+        "You are a concise personal job-search assistant. Answer the user's question "
+        "directly using the context below. If they want an action, tell them the one step "
+        "to take (e.g. 'open the job and click Evaluate fit'). Never fabricate skills or jobs."
+    )
+    context = _ask_context(jobs, profile)
+    messages = [{"role": "system", "content": system}, *history, {"role": "user", "content": f"{context}\n\nUser: {message}"}]
+    text = LLMClient().complete(messages).text
+    if _looks_like_mock(text):
+        text = _ask_mock(jobs)
+    return text, []
+
+
+# --------------------------------------------------------------------------- #
+def _find_job(message: str) -> dict[str, Any] | None:
+    m = message.lower()
+    for j in tools.list_jobs()["jobs"]:
+        if j["id"] in message or (j["company"] and j["company"].lower() in m):
+            return j
+    return None
+
+
+def _ask_context(jobs: list[dict[str, Any]], profile: dict[str, Any]) -> str:
+    top = ", ".join(f"{j['company']} ({j['fit_score']})" for j in jobs[:5]) or "none yet"
+    skills = ", ".join(s.get("name", "") for s in (profile.get("skills") or [])[:12]) or "no profile yet"
+    targets = profile.get("targets") or {}
+    return f"Context — tracked jobs: {len(jobs)} [{top}]. Profile skills: {skills}. Targets: {targets}."
+
+
+def _ask_mock(jobs: list[dict[str, Any]]) -> str:
+    return (
+        f"(Mock mode — set an LLM key in `.env` for real answers.) You have {len(jobs)} tracked job(s). "
+        "I can: scan/search jobs, ingest a pasted URL, evaluate fit, or show skill gaps — just ask, "
+        "or use the tabs."
+    )
 
 
 def _looks_like_mock(text: str) -> bool:
     return "mock** LLM mode" in text or "Using mock reply" in text
-
-
-def _intent_fallback(message: str) -> tuple[str, list[dict[str, Any]]]:
-    """Keyword router so core flows work without a real LLM."""
-    m = message.lower()
-    actions: list[dict[str, Any]] = []
-
-    # A pasted job URL -> ingest it, then evaluate fit.
-    url_match = re.search(r"https?://\S+", message)
-    if url_match:
-        url = url_match.group(0).rstrip(").,")
-        ingest = tools.ingest_job_url(url)
-        actions.append({"tool": "ingest_job_url", "result": ingest})
-        if "error" in ingest:
-            return (
-                f"Couldn't ingest that URL: {ingest['error']} "
-                "Supported right now: amazon.jobs and Greenhouse boards.",
-                actions,
-            )
-        job = ingest["job"]
-        ev = tools.evaluate_fit(job["id"])
-        actions.append({"tool": "evaluate_fit", "result": ev})
-        return (
-            f"Ingested **{job['position']}** at {job['company']} "
-            f"({job['location']}) as `{job['id']}`"
-            + (" (already tracked)" if ingest.get("deduped") else "")
-            + f". Fit score {ev.get('fit_score')} — recommendation: "
-            f"{ev.get('recommendation')}. Open it in the dashboard to review "
-            "strengths, weaknesses, and materials before applying.",
-            actions,
-        )
-
-    if any(k in m for k in ("find job", "search job", "matching job", "scan")):
-        scan = tools.scan_jobs()
-        listing = tools.list_jobs()
-        actions += [
-            {"tool": "scan_jobs", "result": scan},
-            {"tool": "list_jobs", "result": listing},
-        ]
-        return (
-            f"Scanned portals: {scan['new']} new, {scan['duplicates']} duplicates, "
-            f"{scan['filtered']} filtered. {listing['count']} jobs now tracked — "
-            "see the dashboard. (Mock mode: configure an LLM provider for richer replies.)",
-            actions,
-        )
-
-    if any(k in m for k in ("cv", "resume", "profile")):
-        return (
-            "Paste your CV text and I'll parse it into your profile. "
-            "(Mock mode: set an LLM provider in `.env` for full parsing.)",
-            actions,
-        )
-
-    listing = tools.list_jobs(query=message.strip())
-    actions.append({"tool": "list_jobs", "result": listing})
-    return (
-        f"Found {listing['count']} matching tracked jobs. Try: \"find jobs matching my CV\".",
-        actions,
-    )

@@ -44,9 +44,13 @@ def evaluator(job_md: str, profile: dict[str, Any]) -> dict[str, Any]:
                 + json.dumps(profile, ensure_ascii=False, indent=2)
                 + "\n```\n\nJob posting:\n```\n"
                 + job_md
-                + "\n```\n\nReturn ONLY a JSON object with keys: "
-                "fit_score (0..1), strengths (string[]), weaknesses (string[]), "
-                "materials (string[]), recommendation ('apply'|'hold'|'skip')."
+                + "\n```\n\nGround every claim in the profile — do NOT invent skills or "
+                "experience. Each strength must reference specific evidence from the profile. "
+                "Any required qualification with no supporting evidence belongs in weaknesses "
+                "(a gap), never in strengths.\n\n"
+                "Return ONLY a JSON object with keys: fit_score (0..1), strengths (string[]), "
+                "weaknesses (string[]), materials (string[]), "
+                "recommendation ('apply'|'hold'|'skip')."
             ),
         },
     ]
