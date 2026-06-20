@@ -275,12 +275,15 @@ def parse_cv(cv_text: str) -> dict[str, Any]:
         ]
     )
     parsed = _json_from_text(res.text)
+    # Only accept JSON that actually looks like a parsed CV (mock mode echoes the
+    # prompt, which can contain unrelated JSON — don't write that to the profile).
+    valid = bool(parsed) and any(k in parsed for k in ("name", "headline", "skills", "location"))
     profile = store.read_profile()
-    if parsed:
+    if valid:
         profile.update({k: v for k, v in parsed.items() if v})
         store.write_profile(profile)
-    status.record("cv_intake_done", f"skills={len(parsed.get('skills', []))}", current_task="idle")
-    return {"updated": bool(parsed), "profile": profile}
+    status.record("cv_intake_done", f"skills={len(parsed.get('skills', [])) if valid else 0}", current_task="idle")
+    return {"updated": valid, "profile": profile}
 
 
 # --------------------------------------------------------------------------- #

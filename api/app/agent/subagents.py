@@ -55,8 +55,9 @@ def evaluator(job_md: str, profile: dict[str, Any]) -> dict[str, Any]:
         },
     ]
     result = _json_from_text(llm.complete(messages).text)
-    if not result:
-        # Deterministic fallback so the UI always has something to gate on.
+    if "fit_score" not in result:
+        # No valid evaluation (e.g. mock mode echoes the prompt). Deterministic
+        # fallback so the UI always has something to gate on.
         result = {
             "fit_score": 0.5,
             "strengths": ["(mock) profile overlaps with core responsibilities"],
@@ -85,7 +86,7 @@ def upskiller(job_md: str, profile: dict[str, Any]) -> dict[str, Any]:
         },
     ]
     result = _json_from_text(llm.complete(messages).text)
-    if not result:
+    if "missing_skills" not in result:
         result = {
             "summary": "(mock) Configure an LLM provider for a real upskilling analysis.",
             "missing_skills": [
@@ -121,4 +122,4 @@ def reviewer(evaluation: dict[str, Any], job_md: str) -> dict[str, Any]:
         },
     ]
     revised = _json_from_text(llm.complete(messages).text)
-    return revised or evaluation
+    return revised if "fit_score" in revised else evaluation
