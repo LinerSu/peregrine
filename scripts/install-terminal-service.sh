@@ -44,7 +44,9 @@ Type=simple
 # lives. WorkingDirectory is baked in so claude opens with this repo loaded.
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=$REPO
-ExecStart=$REPO/scripts/terminal.sh
+# Quoted so a repo path containing spaces parses as a single executable
+# (systemd splits ExecStart on whitespace; WorkingDirectory takes the literal line).
+ExecStart="$REPO/scripts/terminal.sh"
 Restart=on-failure
 RestartSec=2
 
