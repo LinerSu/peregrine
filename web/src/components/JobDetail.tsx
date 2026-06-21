@@ -67,6 +67,7 @@ export default function JobDetail({
 
   const evaluate = async () => {
     if (mode === "internal") {
+      if (waitingEval) return; // already waiting on a save — don't restart/overlap
       baseline.current = markdown;
       setEvalPrompt(`evaluate fit for ${jobId}`);
       setCopied(false);

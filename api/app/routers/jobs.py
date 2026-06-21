@@ -109,5 +109,8 @@ def save_upskilling(job_id: str, payload: UpskillingInput):
 
 @router.get("/{job_id}/upskilling")
 def read_upskilling(job_id: str):
-    """Read the last saved skill-gap analysis ({} if none yet) — used by the UI poll."""
+    """Read the last saved skill-gap analysis ({} if none yet) — used by the UI poll.
+    404s on an unknown job, consistent with GET /{job_id}."""
+    if not store.get_job(job_id):
+        raise HTTPException(404, f"job {job_id} not found")
     return tools.get_upskilling(job_id) or {}

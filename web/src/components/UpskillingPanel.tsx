@@ -70,6 +70,7 @@ export default function UpskillingPanel({ jobs, mode }: { jobs: Job[]; mode: Ass
   const analyze = async () => {
     if (!jobId || busy) return;
     if (mode === "internal") {
+      if (waiting) return; // already waiting on a save — don't reset the baseline mid-poll
       const current = await api.getUpskilling(jobId).catch(() => null);
       baseline.current = current ? JSON.stringify(current) : "";
       setPrompt(`analyze skill gaps for ${jobId}`);
