@@ -16,6 +16,10 @@
 #
 set -euo pipefail
 
+# Start in the repo root so `claude` opens with the project loaded, regardless of
+# where this script is invoked from (the script lives in <repo>/scripts/).
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 PORT="${PEREGRINE_TERMINAL_PORT:-7681}"
 # Split into an array so a multi-word override (e.g. "claude --resume") passes as
 # separate args to ttyd — avoids unquoted word-splitting/globbing of the raw string.
@@ -35,10 +39,27 @@ if ! command -v "${CMD[0]}" >/dev/null 2>&1; then
   exit 1
 fi
 
+# Fail clearly if the port is already taken, rather than ttyd's cryptic bind error.
+if (exec 3<>"/dev/tcp/127.0.0.1/${PORT}") 2>/dev/null; then
+  exec 3>&-
+  echo "Port ${PORT} is already in use — not starting a second terminal." >&2
+  echo "  • Already set? The peregrine-terminal service may be running:" >&2
+  echo "      systemctl --user status peregrine-terminal" >&2
+  echo "  • apt's login terminal? Disable it:  sudo systemctl disable --now ttyd.service" >&2
+  echo "  • Need another one? Use a different port: PEREGRINE_TERMINAL_PORT=7682 $0" >&2
+  exit 1
+fi
+
 echo "Peregrine terminal → http://127.0.0.1:${PORT}  (running: ${CMD[*]}, local-only)"
 echo "Switch the assistant to 'Internal (Claude)' in the web UI. Ctrl-C to stop."
 
+# The writable flag moved across ttyd versions: ttyd >= 1.7 is read-only by
+# default and needs -W/--writable; ttyd <= 1.6 is writable by default and has no
+# -W (passing it prints "invalid option -- 'W'"). Add it only if this build has it.
+WRITABLE=()
+if ttyd --help 2>&1 | grep -q -- '--writable'; then
+  WRITABLE=(-W)
+fi
+
 # -i 127.0.0.1 : bind to loopback only (do not change to 0.0.0.0)
-# -W           : allow client keyboard input (required on ttyd >= 1.7; older
-#                builds are writable by default — drop -W if your ttyd rejects it)
-exec ttyd -i 127.0.0.1 -p "${PORT}" -W "${CMD[@]}"
+exec ttyd -i 127.0.0.1 -p "${PORT}" "${WRITABLE[@]}" "${CMD[@]}"

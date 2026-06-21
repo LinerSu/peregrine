@@ -20,6 +20,10 @@ docker compose up --build
 - Web UI → http://localhost:5173
 - API → http://localhost:8000 (`/api/health`, `/api/status`)
 
+> Want the in-app Claude terminal too? Run `./start.sh` instead of `docker compose up`
+> — it starts the stack **and** the local Claude terminal. See
+> [Assistant: External vs Internal (Claude)](#assistant-external-vs-internal-claude).
+
 Then in the chat bar try: **"find jobs matching my CV"** → review the scored
 results → open a job → **Evaluate fit** → **Prepare to apply** → Apply.
 
@@ -35,18 +39,32 @@ The assistant panel has a toggle between two modes:
   key, no per-token cost. Use this if you'd rather drive Claude on your existing
   plan than pay the metered API.
 
-Internal mode needs a small terminal server on your machine
-([`ttyd`](https://github.com/tsl0922/ttyd)) plus
-[Claude Code](https://claude.com/claude-code):
+Internal mode needs [`ttyd`](https://github.com/tsl0922/ttyd) and
+[Claude Code](https://claude.com/claude-code) installed on your machine.
+
+> **Heads-up on `ttyd`:** on Debian/Ubuntu, `sudo apt install ttyd` also installs
+> and **enables a `ttyd.service`** that runs a *root login shell* on port 7681 —
+> which collides with this feature (you'd get a username/password prompt instead
+> of Claude). Disable it once: `sudo systemctl disable --now ttyd.service`.
+
+**Recommended — set it up once.** Install the terminal as a background **user**
+service (no sudo) so it's always running and you never start it by hand:
 
 ```bash
-# install ttyd (e.g. `brew install ttyd` / `sudo apt install ttyd`), then:
-./scripts/terminal.sh        # serves `claude` at http://127.0.0.1:7681
+./scripts/install-terminal-service.sh
 ```
 
-Leave it running, switch the panel to **Internal (Claude)**, and you're driving
-Claude in the browser. Run it on the **host**, not inside Docker — the API
-container can't see your shell or your Claude login.
+After that, day-to-day you just `docker compose up` and click **Internal
+(Claude)** — the terminal auto-starts on login and is always listening; nothing
+else to run. Manage it with `systemctl --user {status,stop,start} peregrine-terminal`,
+or remove it with `./scripts/install-terminal-service.sh --uninstall`.
+
+**Or start it per session** (no service): `./start.sh` brings up the stack **and**
+the terminal together, or run just the terminal with `./scripts/terminal.sh`
+(serves `claude` at http://127.0.0.1:7681). Ctrl-C stops it.
+
+Claude runs on the **host**, not inside Docker — that's how it has your own login
+and sees this repo, and it's why the terminal can't be a `docker compose` service.
 
 > ⚠️ **Local-only.** The terminal is full shell access to your machine. The
 > script binds it to `127.0.0.1`, so it's reachable only from your own machine.
