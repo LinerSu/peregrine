@@ -18,6 +18,9 @@ services:
       args:
         # Empty -> frontend calls relative /api and nginx proxies to the api service.
         VITE_API_BASE: ${VITE_API_BASE:-}
+        # Empty -> "Internal (Claude)" terminal uses http://localhost:7681 (default
+        # ttyd port from scripts/terminal.sh). Override only if you change the port.
+        VITE_TERMINAL_URL: ${VITE_TERMINAL_URL:-}
     container_name: peregrine-web
     ports:
       - "5173:80"

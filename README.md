@@ -23,6 +23,37 @@ docker compose up --build
 Then in the chat bar try: **"find jobs matching my CV"** → review the scored
 results → open a job → **Evaluate fit** → **Prepare to apply** → Apply.
 
+## Assistant: External vs Internal (Claude)
+
+The assistant panel has a toggle between two modes:
+
+- **External** — the API-backed chat. Uses your `LLM_PROVIDER` + key
+  (`anthropic` / `openai` / `ollama` / `mock`) and is billed per token by that
+  provider. This is the default and the path for anyone with API budget.
+- **Internal (Claude)** — a **local terminal** embedded in the page, running an
+  interactive `claude` session on **your own Anthropic subscription** — no API
+  key, no per-token cost. Use this if you'd rather drive Claude on your existing
+  plan than pay the metered API.
+
+Internal mode needs a small terminal server on your machine
+([`ttyd`](https://github.com/tsl0922/ttyd)) plus
+[Claude Code](https://claude.com/claude-code):
+
+```bash
+# install ttyd (e.g. `brew install ttyd` / `sudo apt install ttyd`), then:
+./scripts/terminal.sh        # serves `claude` at http://127.0.0.1:7681
+```
+
+Leave it running, switch the panel to **Internal (Claude)**, and you're driving
+Claude in the browser. Run it on the **host**, not inside Docker — the API
+container can't see your shell or your Claude login.
+
+> ⚠️ **Local-only.** The terminal is full shell access to your machine. The
+> script binds it to `127.0.0.1`, so it's reachable only from your own machine.
+> **Never** bind it to `0.0.0.0` or expose that port to a network. Driving Claude
+> here yourself is interactive use of your subscription; don't wire the app to
+> query it automatically — that's what the External (API) mode is for.
+
 ## How it works
 
 ```

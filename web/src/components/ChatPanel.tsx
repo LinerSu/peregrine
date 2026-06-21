@@ -39,7 +39,6 @@ export default function ChatPanel({ onAction }: { onAction: () => void }) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-3 border-b border-gray-200 font-semibold text-gray-700">Assistant</div>
       <div ref={scrollRef} className="flex-1 overflow-auto p-3 space-y-3">
         {messages.map((m, i) => (
           <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
