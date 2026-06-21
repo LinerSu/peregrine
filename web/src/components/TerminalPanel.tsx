@@ -14,8 +14,9 @@ export default function TerminalPanel() {
   return (
     <div className="flex flex-col h-full">
       <div className="px-3 py-2 text-xs text-gray-500 border-b border-gray-200 bg-gray-50">
-        Local terminal on your machine. If blank, start it with{" "}
-        <code className="px-1 rounded bg-gray-200 text-gray-700">./scripts/terminal.sh</code>.{" "}
+        Local Claude terminal — runs on your machine. If blank, the terminal
+        service may be stopped:{" "}
+        <code className="px-1 rounded bg-gray-200 text-gray-700">systemctl --user start peregrine-terminal</code>.{" "}
         <a
           href={TERMINAL_URL}
           target="_blank"
