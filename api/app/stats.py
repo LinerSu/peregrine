@@ -5,6 +5,7 @@ the output is deterministic and easy to unit-test.
 """
 from __future__ import annotations
 
+import math
 from datetime import date
 from typing import Any
 
@@ -43,11 +44,13 @@ def compute_insights(jobs: list[Job], applications: list[Application]) -> dict[s
         {"stage": "Offer", "count": offer, "rate": rate(offer, tracked)},
     ]
 
-    # Fit-score histogram: 5 buckets across [0, 1].
+    # Fit-score histogram: 5 buckets across [0, 1]. Skip non-finite scores and
+    # clamp to [0, 1] so a stray nan/inf or out-of-range value can't crash this.
     buckets = [0, 0, 0, 0, 0]
     for j in jobs:
-        if j.fit_score is not None:
-            buckets[min(int(max(j.fit_score, 0.0) * 5), 4)] += 1
+        s = j.fit_score
+        if s is not None and math.isfinite(s):
+            buckets[min(int(max(0.0, min(s, 1.0)) * 5), 4)] += 1
     score_distribution = [
         {"range": f"{i * 0.2:.1f}–{(i + 1) * 0.2:.1f}", "count": c}
         for i, c in enumerate(buckets)

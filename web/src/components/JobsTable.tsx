@@ -111,6 +111,24 @@ export default function JobsTable({
     );
   }, [jobs, query, role, starredOnly]);
 
+  // Tab badge counts in a single pass (avoids O(tabs × rows) per render).
+  const tabCounts = useMemo(() => {
+    const c: Record<Tab, number> = {
+      all: 0, open: 0, evaluated: 0, applied: 0, interviewing: 0, offer: 0, rejected: 0,
+    };
+    for (const j of baseFiltered) {
+      c.all += 1;
+      if (j.fit_score != null) c.evaluated += 1;
+      if (
+        j.status === "open" || j.status === "applied" || j.status === "interviewing" ||
+        j.status === "offer" || j.status === "rejected"
+      ) {
+        c[j.status] += 1;
+      }
+    }
+    return c;
+  }, [baseFiltered]);
+
   const rows = useMemo(() => {
     const filtered = baseFiltered.filter((j) => matchesTab(j, tab));
     return [...filtered].sort((a, b) => {
@@ -304,7 +322,7 @@ export default function JobsTable({
       {/* Status tabs */}
       <div className="flex flex-wrap items-center gap-1 px-3 py-2 border-b border-gray-200 bg-white">
         {TABS.map((t) => {
-          const n = baseFiltered.filter((j) => matchesTab(j, t.key)).length;
+          const n = tabCounts[t.key];
           return (
             <button
               key={t.key}
