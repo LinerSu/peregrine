@@ -13,6 +13,7 @@ export interface Job {
   salary_min: number | null;
   salary_max: number | null;
   currency: string;
+  posted_date: string;
   url: string;
   fit_score: number | null;
   detail_md: string;
@@ -47,6 +48,14 @@ export interface Targets {
 export interface ChatAction {
   tool?: string;
   result?: unknown;
+}
+
+export interface Insights {
+  funnel: { stage: string; count: number; rate: number }[];
+  score_distribution: { range: string; count: number }[];
+  by_status: Record<string, number>;
+  activity: { week: string; added: number; applied: number }[];
+  totals: { jobs: number; applications: number; evaluated: number };
 }
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
@@ -103,6 +112,7 @@ export const api = {
     }),
   deleteApplication: (id: string) =>
     http<{ deleted: string }>(`/api/applications/${id}`, { method: "DELETE" }),
+  getStats: () => http<Insights>("/api/stats"),
   getProfile: () => http<Profile>("/api/profile"),
   getPreferences: () => http<Targets>("/api/preferences"),
   savePreferences: (t: Targets) =>

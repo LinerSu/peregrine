@@ -7,12 +7,14 @@ import ApplicationsTable from "./components/ApplicationsTable";
 import ProfilePanel from "./components/ProfilePanel";
 import PreferencesPanel from "./components/PreferencesPanel";
 import UpskillingPanel from "./components/UpskillingPanel";
+import InsightsPanel from "./components/InsightsPanel";
 
-type Tab = "jobs" | "applications" | "targets" | "profile" | "upskilling";
+type Tab = "jobs" | "applications" | "insights" | "targets" | "profile" | "upskilling";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "jobs", label: "Jobs" },
   { id: "applications", label: "Applications" },
+  { id: "insights", label: "Insights" },
   { id: "targets", label: "Targets" },
   { id: "profile", label: "Profile / CV" },
   { id: "upskilling", label: "Upskilling" },
@@ -125,6 +127,8 @@ export default function App() {
             {tab === "applications" && (
               <ApplicationsTable applications={applications} onChanged={refresh} />
             )}
+
+            {tab === "insights" && <InsightsPanel />}
 
             {tab === "targets" && <PreferencesPanel onChanged={refresh} />}
 
