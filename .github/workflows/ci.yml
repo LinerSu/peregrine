@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r api/requirements.txt pytest
+      - name: Run pytest
+        working-directory: api
+        run: python -m pytest -q
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        working-directory: web
+        run: npm install
+      - name: Build (tsc + vite)
+        working-directory: web
+        run: npm run build
+
+  demo-smoke:
+    name: Demo dataset smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r api/requirements.txt
+      - name: Seed every persona and smoke-test the API
+        working-directory: api
+        env:
+          PYTHONPATH: ${{ github.workspace }}/api
+        run: |
+          for p in ai-engineer ux-designer chem-phd bio-scientist law-student; do
+            python ../scripts/demo_smoke.py "$p"
+          done
