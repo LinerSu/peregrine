@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Application, type Job } from "./api";
-import ChatPanel from "./components/ChatPanel";
+import AssistantPanel from "./components/AssistantPanel";
 import JobsTable from "./components/JobsTable";
 import JobDetail from "./components/JobDetail";
 import ApplicationsTable from "./components/ApplicationsTable";
@@ -67,7 +67,7 @@ export default function App() {
 
       <main className="flex flex-1 min-h-0">
         <section className="w-1/3 max-w-md border-r border-gray-200 bg-white">
-          <ChatPanel onAction={refresh} />
+          <AssistantPanel onAction={refresh} />
         </section>
 
         <section className="flex flex-col flex-1 min-w-0 bg-white">

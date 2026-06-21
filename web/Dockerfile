@@ -6,6 +6,11 @@ WORKDIR /app
 ARG VITE_API_BASE=""
 ENV VITE_API_BASE=$VITE_API_BASE
 
+# Where the browser reaches the local terminal server (ttyd, started by
+# scripts/terminal.sh on the host). Defaults to http://localhost:7681 in code.
+ARG VITE_TERMINAL_URL=""
+ENV VITE_TERMINAL_URL=$VITE_TERMINAL_URL
+
 COPY package.json ./
 RUN npm install
 COPY . .
