@@ -56,8 +56,9 @@ def test_by_status_and_totals():
 def test_nonfinite_fit_score_does_not_crash():
     # A stray nan must not break /api/stats; it's excluded from the histogram.
     jobs = [_job("1", fit=float("nan")), _job("2", fit=0.5)]
-    sd = compute_insights(jobs, [])["score_distribution"]
-    assert sum(b["count"] for b in sd) == 1
+    out = compute_insights(jobs, [])
+    assert sum(b["count"] for b in out["score_distribution"]) == 1
+    assert out["totals"]["evaluated"] == 1  # nan is not counted as evaluated
 
 
 def test_empty_data():

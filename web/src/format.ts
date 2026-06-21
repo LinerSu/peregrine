@@ -30,9 +30,10 @@ export function statusClass(status: string): string {
   return STATUS_STYLES[status] ?? "bg-gray-100 text-gray-600";
 }
 
-// Color a fit score: green ≥0.70, amber 0.40–0.69, red <0.40, gray when unscored.
+// Color a fit score: green ≥0.70, amber 0.40–0.69, red <0.40, gray when unscored
+// (null) or non-finite (NaN/inf — treated as unscored).
 export function fitClass(score: number | null | undefined): string {
-  if (score == null) return "bg-gray-100 text-gray-500";
+  if (score == null || !Number.isFinite(score)) return "bg-gray-100 text-gray-500";
   if (score >= 0.7) return "bg-green-100 text-green-700";
   if (score >= 0.4) return "bg-amber-100 text-amber-700";
   return "bg-rose-100 text-rose-700";

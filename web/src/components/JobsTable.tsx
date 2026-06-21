@@ -66,9 +66,13 @@ export default function JobsTable({
   const [showCols, setShowCols] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "fit_score", dir: "desc" });
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(() => {
+    const known = new Set(OPTIONAL_COLS.map((c) => c.key));
     try {
-      const saved = localStorage.getItem(COL_STORAGE);
-      if (saved) return new Set(JSON.parse(saved) as ColKey[]);
+      const parsed = JSON.parse(localStorage.getItem(COL_STORAGE) ?? "null") as unknown;
+      if (Array.isArray(parsed)) {
+        // Keep only known keys, so a stale/edited value can't inflate colSpan.
+        return new Set(parsed.filter((k): k is ColKey => known.has(k as ColKey)));
+      }
     } catch {
       /* ignore bad localStorage */
     }
@@ -206,7 +210,7 @@ export default function JobsTable({
       </td>
       <td className="px-3 py-2">
         <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${fitClass(j.fit_score)}`}>
-          {j.fit_score != null ? j.fit_score.toFixed(2) : "—"}
+          {Number.isFinite(j.fit_score) ? j.fit_score!.toFixed(2) : "—"}
         </span>
       </td>
       <td className="px-3 py-2 font-medium">{j.company}</td>

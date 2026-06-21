@@ -28,7 +28,9 @@ def _iso_week(value: str) -> str | None:
 
 def compute_insights(jobs: list[Job], applications: list[Application]) -> dict[str, Any]:
     tracked = len(jobs)
-    evaluated = sum(1 for j in jobs if j.fit_score is not None)
+    # Only finite scores count as "evaluated" — keeps the funnel consistent with
+    # the histogram, which also excludes non-finite scores.
+    evaluated = sum(1 for j in jobs if j.fit_score is not None and math.isfinite(j.fit_score))
     applied = sum(1 for j in jobs if j.status in _APPLIED)
     interviewing = sum(1 for j in jobs if j.status in _INTERVIEWING)
     offer = sum(1 for j in jobs if j.status == "offer")
