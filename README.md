@@ -20,6 +20,10 @@ docker compose up --build
 - Web UI → http://localhost:5173
 - API → http://localhost:8000 (`/api/health`, `/api/status`)
 
+> Want the in-app Claude terminal too? Run `./start.sh` instead of `docker compose up`
+> — it starts the stack **and** the local Claude terminal. See
+> [Assistant: External vs Internal (Claude)](#assistant-external-vs-internal-claude).
+
 Then in the chat bar try: **"find jobs matching my CV"** → review the scored
 results → open a job → **Evaluate fit** → **Prepare to apply** → Apply.
 
@@ -35,18 +39,24 @@ The assistant panel has a toggle between two modes:
   key, no per-token cost. Use this if you'd rather drive Claude on your existing
   plan than pay the metered API.
 
-Internal mode needs a small terminal server on your machine
-([`ttyd`](https://github.com/tsl0922/ttyd)) plus
-[Claude Code](https://claude.com/claude-code):
+Internal mode needs [`ttyd`](https://github.com/tsl0922/ttyd) and
+[Claude Code](https://claude.com/claude-code) installed on your machine
+(`brew install ttyd` / `sudo apt install ttyd`).
+
+The easiest way to run everything is the one-command launcher — it brings up the
+web + api stack **and** the local Claude terminal, opened in this repo:
 
 ```bash
-# install ttyd (e.g. `brew install ttyd` / `sudo apt install ttyd`), then:
-./scripts/terminal.sh        # serves `claude` at http://127.0.0.1:7681
+./start.sh        # = docker compose up  +  the Claude terminal
 ```
 
-Leave it running, switch the panel to **Internal (Claude)**, and you're driving
-Claude in the browser. Run it on the **host**, not inside Docker — the API
-container can't see your shell or your Claude login.
+Then open the web UI and switch the panel to **Internal (Claude)**. (To start
+just the terminal — e.g. the stack is already up — run `./scripts/terminal.sh`;
+it serves `claude` at http://127.0.0.1:7681.)
+
+Claude runs on the **host**, not inside Docker — that's how it has your own login
+and sees this repo. Leave the launcher running; Ctrl-C stops the terminal (the
+stack keeps running — `docker compose down` to stop it).
 
 > ⚠️ **Local-only.** The terminal is full shell access to your machine. The
 > script binds it to `127.0.0.1`, so it's reachable only from your own machine.

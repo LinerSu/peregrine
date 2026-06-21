@@ -16,6 +16,10 @@
 #
 set -euo pipefail
 
+# Start in the repo root so `claude` opens with the project loaded, regardless of
+# where this script is invoked from (the script lives in <repo>/scripts/).
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 PORT="${PEREGRINE_TERMINAL_PORT:-7681}"
 # Split into an array so a multi-word override (e.g. "claude --resume") passes as
 # separate args to ttyd — avoids unquoted word-splitting/globbing of the raw string.
