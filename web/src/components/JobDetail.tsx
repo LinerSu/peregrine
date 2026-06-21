@@ -44,11 +44,13 @@ export default function JobDetail({
     if (!waitingEval) return;
     const started = Date.now();
     let inFlight = false; // don't let a slow request overlap the next tick
+    let live = true; // don't setState after cleanup if a request is mid-flight
     const id = setInterval(async () => {
       if (inFlight) return;
       inFlight = true;
       try {
         const res = await api.getJob(jobId).catch(() => null);
+        if (!live) return;
         if (res && res.markdown !== baseline.current) {
           setJob(res.job);
           setMarkdown(res.markdown);
@@ -61,7 +63,10 @@ export default function JobDetail({
         inFlight = false;
       }
     }, 3000);
-    return () => clearInterval(id);
+    return () => {
+      live = false;
+      clearInterval(id);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waitingEval, jobId]);
 
@@ -120,10 +125,10 @@ export default function JobDetail({
         <div className="flex gap-2 mt-3">
           <button
             onClick={evaluate}
-            disabled={busy}
+            disabled={busy || waitingEval}
             className="px-3 py-1.5 text-sm font-medium text-white bg-emerald-600 rounded-md hover:bg-emerald-700 disabled:opacity-50"
           >
-            {busy ? "Working…" : "Evaluate fit"}
+            {busy ? "Working…" : waitingEval ? "Waiting…" : "Evaluate fit"}
           </button>
           <button
             onClick={prepare}

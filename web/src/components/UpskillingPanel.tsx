@@ -48,11 +48,13 @@ export default function UpskillingPanel({ jobs, mode }: { jobs: Job[]; mode: Ass
     if (!waiting || !jobId) return;
     const started = Date.now();
     let inFlight = false; // don't let a slow request overlap the next tick
+    let live = true; // don't setState after cleanup if a request is mid-flight
     const id = setInterval(async () => {
       if (inFlight) return;
       inFlight = true;
       try {
         const r = await api.getUpskilling(jobId).catch(() => null);
+        if (!live) return;
         const sig = r ? JSON.stringify(r) : "";
         if (sig && sig !== baseline.current && (r?.missing_skills || r?.summary)) {
           show(r);
@@ -64,7 +66,10 @@ export default function UpskillingPanel({ jobs, mode }: { jobs: Job[]; mode: Ass
         inFlight = false;
       }
     }, 3000);
-    return () => clearInterval(id);
+    return () => {
+      live = false;
+      clearInterval(id);
+    };
   }, [waiting, jobId]);
 
   const analyze = async () => {
@@ -111,10 +116,10 @@ export default function UpskillingPanel({ jobs, mode }: { jobs: Job[]; mode: Ass
           </select>
           <button
             onClick={analyze}
-            disabled={busy || !jobId}
+            disabled={busy || waiting || !jobId}
             className="px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
           >
-            {busy ? "Analyzing…" : "Analyze gaps"}
+            {busy ? "Analyzing…" : waiting ? "Waiting…" : "Analyze gaps"}
           </button>
         </div>
 
