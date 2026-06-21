@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import status
 from .config import ensure_dirs, get_settings
 from .logging_config import get_logger, setup_logging
-from .routers import applications, chat, jobs
+from .routers import applications, chat, jobs, stats
 
 setup_logging()
 ensure_dirs()
@@ -25,6 +25,7 @@ app.add_middleware(
 app.include_router(chat.router)
 app.include_router(jobs.router)
 app.include_router(applications.router)
+app.include_router(stats.router)
 
 
 @app.on_event("startup")
