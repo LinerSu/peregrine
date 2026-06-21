@@ -1,19 +1,24 @@
-import { useState } from "react";
 import ChatPanel from "./ChatPanel";
 import TerminalPanel from "./TerminalPanel";
+import type { AssistantMode } from "../App";
 
-// The assistant runs in one of two modes:
+// The assistant runs in one of two modes (state lives in App so the LLM-backed
+// tabs can match it):
 //   external — API-backed chat. Uses LLM_PROVIDER + key (anthropic/openai/...),
 //              billed per token. The "core" path for whoever has API budget.
 //   internal — a local terminal running `claude` on your own machine, so you
 //              drive Claude on your existing subscription (no API key, no
 //              per-token cost). See TerminalPanel / scripts/terminal.sh.
-type Mode = "external" | "internal";
-
-export default function AssistantPanel({ onAction }: { onAction: () => void }) {
-  const [mode, setMode] = useState<Mode>("external");
-
-  const tab = (m: Mode, label: string, title: string) => (
+export default function AssistantPanel({
+  onAction,
+  mode,
+  setMode,
+}: {
+  onAction: () => void;
+  mode: AssistantMode;
+  setMode: (m: AssistantMode) => void;
+}) {
+  const tab = (m: AssistantMode, label: string, title: string) => (
     <button
       onClick={() => setMode(m)}
       title={title}

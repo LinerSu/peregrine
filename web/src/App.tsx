@@ -18,12 +18,17 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "upskilling", label: "Upskilling" },
 ];
 
+export type AssistantMode = "external" | "internal";
+
 export default function App() {
   const [tab, setTab] = useState<Tab>("jobs");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // External = API-backed; Internal = local Claude terminal. Lifted here so the
+  // LLM-backed tabs (Upskilling, Job detail) can switch their behavior to match.
+  const [mode, setMode] = useState<AssistantMode>("external");
 
   const refresh = useCallback(async () => {
     const [{ jobs }, { applications }] = await Promise.all([
@@ -67,7 +72,7 @@ export default function App() {
 
       <main className="flex flex-1 min-h-0">
         <section className="w-1/3 max-w-md border-r border-gray-200 bg-white">
-          <AssistantPanel onAction={refresh} />
+          <AssistantPanel onAction={refresh} mode={mode} setMode={setMode} />
         </section>
 
         <section className="flex flex-col flex-1 min-w-0 bg-white">
@@ -107,7 +112,7 @@ export default function App() {
                 </div>
                 <div className="flex-1 min-w-0">
                   {selectedId ? (
-                    <JobDetail jobId={selectedId} onChanged={refresh} />
+                    <JobDetail jobId={selectedId} onChanged={refresh} mode={mode} />
                   ) : (
                     <div className="flex items-center justify-center h-full text-gray-400 text-sm px-6 text-center">
                       Select a job to see fit, strengths, weaknesses, and the apply gate.
@@ -125,7 +130,7 @@ export default function App() {
 
             {tab === "profile" && <ProfilePanel onChanged={refresh} />}
 
-            {tab === "upskilling" && <UpskillingPanel jobs={jobs} />}
+            {tab === "upskilling" && <UpskillingPanel jobs={jobs} mode={mode} />}
           </div>
         </section>
       </main>

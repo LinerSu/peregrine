@@ -7,6 +7,7 @@ those files so reads/writes stay consistent.
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 from typing import Any, Optional
 
@@ -117,6 +118,25 @@ def write_job_md(job_id: str, content: str) -> str:
     path = config.JOBS_DIR / f"{job_id}.md"
     path.write_text(content, encoding="utf-8")
     return f"data/jobs/{job_id}.md"
+
+
+def read_upskilling(job_id: str) -> Optional[dict[str, Any]]:
+    """Last saved skill-gap analysis for a job (None if never run). Stored as a
+    JSON sidecar next to the per-job markdown."""
+    path = config.JOBS_DIR / f"{job_id}.upskilling.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+
+
+def write_upskilling(job_id: str, result: dict[str, Any]) -> str:
+    config.JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    path = config.JOBS_DIR / f"{job_id}.upskilling.json"
+    path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+    return f"data/jobs/{job_id}.upskilling.json"
 
 
 # --------------------------------------------------------------------------- #

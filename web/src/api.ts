@@ -113,4 +113,11 @@ export const api = {
       summary: string;
       missing_skills: { skill: string; why: string; how_to_close: string }[];
     }>(`/api/jobs/${id}/upskilling`, { method: "POST" }),
+  // Read the last saved skill-gap analysis ({} if none). Used to poll for the
+  // result after local Claude saves it in Internal mode.
+  getUpskilling: (id: string) =>
+    http<{
+      summary?: string;
+      missing_skills?: { skill: string; why: string; how_to_close: string }[];
+    }>(`/api/jobs/${id}/upskilling`),
 };
