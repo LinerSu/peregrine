@@ -27,6 +27,7 @@ data/*.csv
 data/*.tmp
 data/*.bak
 data/jobs/*.md
+data/jobs/*.json
 !data/jobs/.gitkeep
 data/index.sqlite
 config/profile.yml
