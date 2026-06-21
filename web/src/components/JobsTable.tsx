@@ -32,8 +32,9 @@ const TABS: { key: Tab; label: string }[] = [
 const matchesTab = (j: Job, tab: Tab) =>
   tab === "all" ? true : tab === "evaluated" ? j.fit_score != null : j.status === tab;
 
-// Order in which status groups appear in the grouped view.
-const GROUP_ORDER = ["interviewing", "offer", "applied", "open", "evaluated", "rejected", "closed", "removed"];
+// Order in which status groups appear in the grouped view. ("evaluated" is a
+// derived tab, not a real status, so it isn't a group here.)
+const GROUP_ORDER = ["interviewing", "offer", "applied", "open", "rejected", "closed", "removed"];
 
 function sortValue(j: Job, key: SortKey): number | string {
   if (key === "fit_score") return j.fit_score ?? -1;
