@@ -19,7 +19,7 @@ export default function TerminalPanel() {
         <a
           href={TERMINAL_URL}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           className="text-indigo-600 hover:underline"
         >
           Open in a new tab

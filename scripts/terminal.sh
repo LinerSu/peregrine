@@ -17,7 +17,9 @@
 set -euo pipefail
 
 PORT="${PEREGRINE_TERMINAL_PORT:-7681}"
-CMD="${PEREGRINE_TERMINAL_CMD:-claude}"
+# Split into an array so a multi-word override (e.g. "claude --resume") passes as
+# separate args to ttyd — avoids unquoted word-splitting/globbing of the raw string.
+read -r -a CMD <<< "${PEREGRINE_TERMINAL_CMD:-claude}"
 
 if ! command -v ttyd >/dev/null 2>&1; then
   echo "ttyd is not installed. Install it, then re-run:" >&2
@@ -27,16 +29,16 @@ if ! command -v ttyd >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v "${CMD%% *}" >/dev/null 2>&1; then
-  echo "'${CMD%% *}' is not on PATH. Install Claude Code (https://claude.com/claude-code)" >&2
+if ! command -v "${CMD[0]}" >/dev/null 2>&1; then
+  echo "'${CMD[0]}' is not on PATH. Install Claude Code (https://claude.com/claude-code)" >&2
   echo "and run 'claude' once to log in, or set PEREGRINE_TERMINAL_CMD to another command." >&2
   exit 1
 fi
 
-echo "Peregrine terminal → http://127.0.0.1:${PORT}  (running: ${CMD}, local-only)"
+echo "Peregrine terminal → http://127.0.0.1:${PORT}  (running: ${CMD[*]}, local-only)"
 echo "Switch the assistant to 'Internal (Claude)' in the web UI. Ctrl-C to stop."
 
 # -i 127.0.0.1 : bind to loopback only (do not change to 0.0.0.0)
 # -W           : allow client keyboard input (required on ttyd >= 1.7; older
 #                builds are writable by default — drop -W if your ttyd rejects it)
-exec ttyd -i 127.0.0.1 -p "${PORT}" -W ${CMD}
+exec ttyd -i 127.0.0.1 -p "${PORT}" -W "${CMD[@]}"
