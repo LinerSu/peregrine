@@ -40,23 +40,31 @@ The assistant panel has a toggle between two modes:
   plan than pay the metered API.
 
 Internal mode needs [`ttyd`](https://github.com/tsl0922/ttyd) and
-[Claude Code](https://claude.com/claude-code) installed on your machine
-(`brew install ttyd` / `sudo apt install ttyd`).
+[Claude Code](https://claude.com/claude-code) installed on your machine.
 
-The easiest way to run everything is the one-command launcher — it brings up the
-web + api stack **and** the local Claude terminal, opened in this repo:
+> **Heads-up on `ttyd`:** on Debian/Ubuntu, `sudo apt install ttyd` also installs
+> and **enables a `ttyd.service`** that runs a *root login shell* on port 7681 —
+> which collides with this feature (you'd get a username/password prompt instead
+> of Claude). Disable it once: `sudo systemctl disable --now ttyd.service`.
+
+**Recommended — set it up once.** Install the terminal as a background **user**
+service (no sudo) so it's always running and you never start it by hand:
 
 ```bash
-./start.sh        # = docker compose up  +  the Claude terminal
+./scripts/install-terminal-service.sh
 ```
 
-Then open the web UI and switch the panel to **Internal (Claude)**. (To start
-just the terminal — e.g. the stack is already up — run `./scripts/terminal.sh`;
-it serves `claude` at http://127.0.0.1:7681.)
+After that, day-to-day you just `docker compose up` and click **Internal
+(Claude)** — the terminal auto-starts on login and is always listening; nothing
+else to run. Manage it with `systemctl --user {status,stop,start} peregrine-terminal`,
+or remove it with `./scripts/install-terminal-service.sh --uninstall`.
+
+**Or start it per session** (no service): `./start.sh` brings up the stack **and**
+the terminal together, or run just the terminal with `./scripts/terminal.sh`
+(serves `claude` at http://127.0.0.1:7681). Ctrl-C stops it.
 
 Claude runs on the **host**, not inside Docker — that's how it has your own login
-and sees this repo. Leave the launcher running; Ctrl-C stops the terminal (the
-stack keeps running — `docker compose down` to stop it).
+and sees this repo, and it's why the terminal can't be a `docker compose` service.
 
 > ⚠️ **Local-only.** The terminal is full shell access to your machine. The
 > script binds it to `127.0.0.1`, so it's reachable only from your own machine.
