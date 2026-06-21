@@ -135,7 +135,9 @@ def read_upskilling(job_id: str) -> Optional[dict[str, Any]]:
 def write_upskilling(job_id: str, result: dict[str, Any]) -> str:
     config.JOBS_DIR.mkdir(parents=True, exist_ok=True)
     path = config.JOBS_DIR / f"{job_id}.upskilling.json"
-    path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")  # write+rename so a poller never reads a partial file
+    tmp.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)  # atomic
     return f"data/jobs/{job_id}.upskilling.json"
 
 

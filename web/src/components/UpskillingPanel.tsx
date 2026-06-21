@@ -31,10 +31,8 @@ export default function UpskillingPanel({ jobs, mode }: { jobs: Job[]; mode: Ass
   useEffect(() => {
     setPrompt("");
     setWaiting(false);
-    if (!jobId) {
-      show(null);
-      return;
-    }
+    show(null); // clear the previous job's result first, so an error leaves it cleared
+    if (!jobId) return;
     let live = true;
     api
       .getUpskilling(jobId)
@@ -49,14 +47,21 @@ export default function UpskillingPanel({ jobs, mode }: { jobs: Job[]; mode: Ass
   useEffect(() => {
     if (!waiting || !jobId) return;
     const started = Date.now();
+    let inFlight = false; // don't let a slow request overlap the next tick
     const id = setInterval(async () => {
-      const r = await api.getUpskilling(jobId).catch(() => null);
-      const sig = r ? JSON.stringify(r) : "";
-      if (sig && sig !== baseline.current && (r?.missing_skills || r?.summary)) {
-        show(r);
-        setWaiting(false);
-      } else if (Date.now() - started > 180_000) {
-        setWaiting(false); // give up after 3 min
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const r = await api.getUpskilling(jobId).catch(() => null);
+        const sig = r ? JSON.stringify(r) : "";
+        if (sig && sig !== baseline.current && (r?.missing_skills || r?.summary)) {
+          show(r);
+          setWaiting(false);
+        } else if (Date.now() - started > 180_000) {
+          setWaiting(false); // give up after 3 min
+        }
+      } finally {
+        inFlight = false;
       }
     }, 3000);
     return () => clearInterval(id);
@@ -125,10 +130,12 @@ export default function UpskillingPanel({ jobs, mode }: { jobs: Job[]; mode: Ass
                 {prompt}
               </code>
               <button
-                onClick={() => {
-                  navigator.clipboard?.writeText(prompt);
-                  setCopied(true);
-                }}
+                onClick={() =>
+                  navigator.clipboard
+                    ?.writeText(prompt)
+                    .then(() => setCopied(true))
+                    .catch(() => {})
+                }
                 className="px-2 py-1 text-xs font-medium text-indigo-700 bg-white border border-indigo-300 rounded hover:bg-indigo-100"
               >
                 {copied ? "Copied" : "Copy"}

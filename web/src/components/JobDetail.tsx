@@ -43,15 +43,22 @@ export default function JobDetail({
   useEffect(() => {
     if (!waitingEval) return;
     const started = Date.now();
+    let inFlight = false; // don't let a slow request overlap the next tick
     const id = setInterval(async () => {
-      const res = await api.getJob(jobId).catch(() => null);
-      if (res && res.markdown !== baseline.current) {
-        setJob(res.job);
-        setMarkdown(res.markdown);
-        onChanged();
-        setWaitingEval(false);
-      } else if (Date.now() - started > 180_000) {
-        setWaitingEval(false);
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const res = await api.getJob(jobId).catch(() => null);
+        if (res && res.markdown !== baseline.current) {
+          setJob(res.job);
+          setMarkdown(res.markdown);
+          onChanged();
+          setWaitingEval(false);
+        } else if (Date.now() - started > 180_000) {
+          setWaitingEval(false);
+        }
+      } finally {
+        inFlight = false;
       }
     }, 3000);
     return () => clearInterval(id);
@@ -135,10 +142,12 @@ export default function JobDetail({
                 {evalPrompt}
               </code>
               <button
-                onClick={() => {
-                  navigator.clipboard?.writeText(evalPrompt);
-                  setCopied(true);
-                }}
+                onClick={() =>
+                  navigator.clipboard
+                    ?.writeText(evalPrompt)
+                    .then(() => setCopied(true))
+                    .catch(() => {})
+                }
                 className="px-2 py-1 text-xs font-medium text-indigo-700 bg-white border border-indigo-300 rounded hover:bg-indigo-100"
               >
                 {copied ? "Copied" : "Copy"}

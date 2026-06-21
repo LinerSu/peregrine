@@ -20,6 +20,15 @@ from .subagents import evaluator, reviewer, upskiller
 log = get_logger(__name__)
 
 
+def _as_float(value: Any, default: float) -> float:
+    """Tolerant coercion — a null/malformed fit_score from a store-only PUT must
+    not turn into a 500."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 # --------------------------------------------------------------------------- #
 @registry.register(
     "scan_jobs",
@@ -143,7 +152,7 @@ def save_evaluation(job_id: str, evaluation: dict[str, Any]) -> dict[str, Any]:
         return {"error": f"job {job_id} not found"}
     ev = dict(evaluation)
     ev["job_id"] = job_id
-    job.fit_score = float(ev.get("fit_score", 0.5))
+    job.fit_score = _as_float(ev.get("fit_score"), 0.5)
     store.upsert_job(job)
     job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
     store.write_job_md(job_id, _merge_evaluation(job_md, ev))
