@@ -20,6 +20,15 @@ from .subagents import evaluator, reviewer, upskiller
 log = get_logger(__name__)
 
 
+def _as_float(value: Any, default: float) -> float:
+    """Tolerant coercion — a null/malformed fit_score from a store-only PUT must
+    not turn into a 500."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 # --------------------------------------------------------------------------- #
 @registry.register(
     "scan_jobs",
@@ -128,18 +137,26 @@ def evaluate_fit(job_id: str) -> dict[str, Any]:
 
     status.record("evaluate_start", job_id, current_task=f"Evaluating fit for {job_id}")
     job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
-    profile = store.read_profile()
+    evaluation = reviewer(evaluator(job_md, store.read_profile()), job_md)
+    saved = save_evaluation(job_id, evaluation)
 
-    evaluation = evaluator(job_md, profile)
-    evaluation = reviewer(evaluation, job_md)
-    evaluation["job_id"] = job_id
+    status.record("evaluate_done", f"{job_id} score={saved.get('fit_score')}", current_task="idle")
+    return saved
 
-    job.fit_score = float(evaluation.get("fit_score", 0.5))
+
+def save_evaluation(job_id: str, evaluation: dict[str, Any]) -> dict[str, Any]:
+    """Persist a fit evaluation — same store path whether it came from the External
+    subagents or from Internal mode (Claude reasons, then PUTs the result here). No LLM."""
+    job = store.get_job(job_id)
+    if not job:
+        return {"error": f"job {job_id} not found"}
+    ev = dict(evaluation)
+    ev["job_id"] = job_id
+    job.fit_score = _as_float(ev.get("fit_score"), 0.5)
     store.upsert_job(job)
-    store.write_job_md(job_id, _merge_evaluation(job_md, evaluation))
-
-    status.record("evaluate_done", f"{job_id} score={job.fit_score}", current_task="idle")
-    return evaluation
+    job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
+    store.write_job_md(job_id, _merge_evaluation(job_md, ev))
+    return ev
 
 
 def _merge_evaluation(job_md: str, ev: dict[str, Any]) -> str:
@@ -205,10 +222,26 @@ def assess_upskilling(job_id: str) -> dict[str, Any]:
         return {"error": f"job {job_id} not found"}
     status.record("upskill_start", job_id, current_task=f"Upskilling analysis for {job_id}")
     job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
-    result = upskiller(job_md, store.read_profile())
-    result["job_id"] = job_id
+    saved = save_upskilling(job_id, upskiller(job_md, store.read_profile()))
     status.record("upskill_done", job_id, current_task="idle")
-    return result
+    return saved
+
+
+def save_upskilling(job_id: str, result: dict[str, Any]) -> dict[str, Any]:
+    """Persist a skill-gap analysis — same store path for External and Internal mode.
+    No LLM; Internal mode reasons in the terminal and PUTs the result here."""
+    job = store.get_job(job_id)
+    if not job:
+        return {"error": f"job {job_id} not found"}
+    out = dict(result)
+    out["job_id"] = job_id
+    store.write_upskilling(job_id, out)
+    return out
+
+
+def get_upskilling(job_id: str) -> dict[str, Any] | None:
+    """Read the last saved skill-gap analysis (None if never run)."""
+    return store.read_upskilling(job_id)
 
 
 # --------------------------------------------------------------------------- #

@@ -44,6 +44,27 @@ class FitEvaluation(BaseModel):
     recommendation: Literal["apply", "hold", "skip"] = "hold"
 
 
+class EvaluationInput(BaseModel):
+    """Body for PUT /api/jobs/{id}/evaluation — store-only persist (no LLM)."""
+    fit_score: float
+    strengths: list[str] = []
+    weaknesses: list[str] = []
+    materials: list[str] = []
+    recommendation: Literal["apply", "hold", "skip"] = "hold"
+
+
+class MissingSkill(BaseModel):
+    skill: str
+    why: str = ""
+    how_to_close: str = ""
+
+
+class UpskillingInput(BaseModel):
+    """Body for PUT /api/jobs/{id}/upskilling — store-only persist (no LLM)."""
+    summary: str = ""
+    missing_skills: list[MissingSkill] = []
+
+
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
     content: str
