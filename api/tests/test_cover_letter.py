@@ -34,6 +34,15 @@ def test_gather_includes_user_samples(tmp_store):
     assert "Sample: mine" in gather_style_references()
 
 
+def test_gather_dedupes_by_stem_curated_wins(tmp_store):
+    d = tmp_store / "cover_letter_samples"
+    d.mkdir()
+    (d / "engineering.md").write_text("USER VERSION should be dropped", encoding="utf-8")
+    refs = gather_style_references()
+    assert refs.count("Sample: engineering") == 1
+    assert "USER VERSION" not in refs  # curated sample of the same stem wins
+
+
 def test_save_and_get_cover_letter(tmp_store):
     from app.agent import tools
 

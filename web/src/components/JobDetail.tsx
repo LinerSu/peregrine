@@ -50,6 +50,7 @@ export default function JobDetail({
     setMarkdown(markdown);
     setEvaluation(normEval(ev));
     setCoverLetter(cover?.content ?? null);
+    setCoverTextCopied(false); // new/refreshed content -> reset the Copy button
   };
 
   useEffect(() => {
@@ -61,6 +62,8 @@ export default function JobDetail({
     setWaitingCover(false);
     setCoverLetter(null);
     setCoverError("");
+    setCoverPromptCopied(false);
+    setCoverTextCopied(false);
     let live = true;
     load(() => live);
     return () => {
@@ -116,8 +119,10 @@ export default function JobDetail({
         const res = await api.getCoverLetter(jobId).catch(() => null);
         if (!live) return;
         const content = res?.content ?? null;
-        if (content && content !== coverBaseline.current) {
+        // null = not saved yet; a non-null value (even "") that differs is a save.
+        if (content != null && content !== coverBaseline.current) {
           setCoverLetter(content);
+          setCoverTextCopied(false);
           setWaitingCover(false);
         } else if (Date.now() - started > 180_000) {
           setWaitingCover(false);
@@ -166,6 +171,7 @@ export default function JobDetail({
     try {
       const res = await api.generateCoverLetter(jobId);
       setCoverLetter(res.content);
+      setCoverTextCopied(false);
     } catch {
       // The cover-letter LLM call is the longest in the app — surface failures.
       setCoverError("Couldn't generate the cover letter. Try again, or use Internal mode.");

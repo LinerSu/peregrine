@@ -41,7 +41,15 @@ def gather_style_references() -> str:
     Returns '' when none are available (the generator then relies on its own
     sense of structure)."""
     user_dir = config.DATA_DIR / USER_SAMPLES_DIRNAME
-    samples = (_read_samples(CURATED_DIR) + _read_samples(user_dir))[:_MAX_SAMPLES]
+    # De-dupe by stem (curated wins over a same-named user sample), then cap.
+    seen: set[str] = set()
+    samples: list[tuple[str, str]] = []
+    for name, text in _read_samples(CURATED_DIR) + _read_samples(user_dir):
+        if name in seen:
+            continue
+        seen.add(name)
+        samples.append((name, text))
+    samples = samples[:_MAX_SAMPLES]
     if not samples:
         return ""
     blocks = [f"### Sample: {name}\n{text}" for name, text in samples]
