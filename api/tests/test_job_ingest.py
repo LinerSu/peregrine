@@ -107,3 +107,10 @@ def test_ingest_endpoints(tmp_store):
     assert client.put("/api/jobs/ingest-source", json={"text": "  "}).status_code == 422
     # External parse can't extract a job in mock mode -> 422.
     assert client.post("/api/jobs/ingest-doc", json={"text": "posting"}).status_code == 422
+    # Internal save tolerates JSON null for optional fields (the HTTP entry point,
+    # not just the function) — Claude may emit null for an absent company_job_id.
+    rn = client.post(
+        "/api/jobs/ingest-doc/save",
+        json={"company": "Beta", "position": "Dev", "company_job_id": None, "location": None},
+    )
+    assert rn.status_code == 200 and rn.json()["created"] is True
