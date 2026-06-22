@@ -19,6 +19,21 @@ from ..logging_config import get_logger
 log = get_logger(__name__)
 
 
+def active_provider_is_mock() -> bool:
+    """True when no real LLM provider is usable, so External-mode calls return
+    deterministic mock fallbacks (fit 0.5, "(mock)" text, etc.). The UI surfaces this
+    so a keyless user isn't misled into trusting placeholder results as real."""
+    s = get_settings()
+    provider = s.llm_provider.lower()
+    if provider == "anthropic":
+        return not s.anthropic_api_key.strip()
+    if provider == "openai":
+        return not s.openai_api_key.strip()
+    if provider == "ollama":
+        return False  # local, assume reachable
+    return True  # "mock" or any unrecognized provider
+
+
 @dataclass
 class ToolCall:
     name: str
@@ -56,7 +71,7 @@ class LLMClient:
 
     # ------------------------------------------------------------------ #
     def _anthropic(self, messages: list[dict[str, str]], tools: list[dict] | None) -> LLMResult:
-        if not self.s.anthropic_api_key:
+        if not self.s.anthropic_api_key.strip():
             return self._mock(messages)
         system = "\n".join(m["content"] for m in messages if m["role"] == "system")
         convo = [m for m in messages if m["role"] != "system"]
@@ -93,7 +108,7 @@ class LLMClient:
 
     # ------------------------------------------------------------------ #
     def _openai(self, messages: list[dict[str, str]], tools: list[dict] | None) -> LLMResult:
-        if not self.s.openai_api_key:
+        if not self.s.openai_api_key.strip():
             return self._mock(messages)
         payload: dict[str, Any] = {"model": self.model, "messages": messages}
         if tools:
