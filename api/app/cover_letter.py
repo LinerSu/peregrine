@@ -29,7 +29,7 @@ def _read_samples(directory: Path) -> list[tuple[str, str]]:
     for path in sorted(directory.glob("*.md")):
         try:
             text = path.read_text(encoding="utf-8").strip()
-        except OSError:
+        except (OSError, UnicodeError):  # skip unreadable / non-UTF8 samples
             continue
         if text:
             out.append((path.stem, text[:_PER_SAMPLE_CHARS]))

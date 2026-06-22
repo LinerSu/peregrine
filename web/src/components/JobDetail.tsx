@@ -233,7 +233,7 @@ export default function JobDetail({
             disabled={busy || waitingCover}
             className="px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-100 rounded-md hover:bg-purple-200 disabled:opacity-50"
           >
-            {busy ? "Working…" : waitingCover ? "Waiting…" : coverLetter ? "Redraft cover letter" : "Cover letter"}
+            {busy ? "Working…" : waitingCover ? "Waiting…" : coverLetter != null ? "Redraft cover letter" : "Cover letter"}
           </button>
         </div>
 
@@ -330,7 +330,7 @@ export default function JobDetail({
         )}
         <JobMarkdown md={markdown} />
 
-        {coverLetter && (
+        {coverLetter != null && (
           <div className="mt-4 rounded-lg border border-purple-200 bg-white">
             <div className="flex items-center justify-between border-b border-purple-100 px-3 py-2">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-purple-700">
