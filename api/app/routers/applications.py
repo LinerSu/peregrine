@@ -139,6 +139,12 @@ def update_application(app_id: str, payload: dict):
     changes = {k: v for k, v in payload.items() if k in EDITABLE_APPLICATION_FIELDS}
     updated = app.model_copy(update=changes)
     store.upsert_application(updated)
+    # Keep a linked tracked job's status in sync (linked apps share the job's id) so the
+    # Jobs funnel and the Applications outcomes agree on where each application stands.
+    if "status" in changes:
+        job = store.get_job(app_id)
+        if job and job.status != updated.status:
+            store.upsert_job(job.model_copy(update={"status": updated.status}))
     return {"application": updated.model_dump()}
 
 
