@@ -42,10 +42,17 @@ class FitEvaluation(BaseModel):
     weaknesses: list[str] = []
     materials: list[str] = []
     recommendation: Literal["apply", "hold", "skip"] = "hold"
+    # v2 structured blocks, computed server-side (see app/evaluation.py).
+    legitimacy_score: Optional[float] = None
+    legitimacy_flags: list[str] = []
+    archetype: str = ""
 
 
 class EvaluationInput(BaseModel):
-    """Body for PUT /api/jobs/{id}/evaluation — store-only persist (no LLM)."""
+    """Body for PUT /api/jobs/{id}/evaluation — store-only persist (no LLM).
+
+    legitimacy_*/archetype are computed server-side from the posting and ignored
+    on input, so they're identical across External and Internal modes."""
     fit_score: float
     strengths: list[str] = []
     weaknesses: list[str] = []

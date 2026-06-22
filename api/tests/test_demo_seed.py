@@ -46,6 +46,10 @@ def test_persona_seeds_valid_dataset(tmp_dataset, dataset):
     assert store.read_upskilling(top.id) is not None
     # Heading must match the app's evaluation updater so re-evaluation replaces it.
     assert "## Agent evaluation" in store.read_job_md(top.id)
+    # v2: a structured evaluation sidecar with the computed legitimacy + archetype.
+    ev = store.read_evaluation(top.id)
+    assert ev and ev.get("archetype")
+    assert ev.get("legitimacy_score") is not None
 
     # At least one application, each with an applied date (so Insights populates).
     apps = store.list_applications()

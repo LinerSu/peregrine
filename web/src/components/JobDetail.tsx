@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type Job } from "../api";
+import { api, type Evaluation, type Job } from "../api";
 import type { AssistantMode } from "../App";
+import { legitimacyClass } from "../format";
 import JobMarkdown from "./JobMarkdown";
 
 // Job detail with the human-in-the-loop apply gate. "Evaluate fit" is mode-aware:
@@ -18,6 +19,7 @@ export default function JobDetail({
 }) {
   const [job, setJob] = useState<Job | null>(null);
   const [markdown, setMarkdown] = useState("");
+  const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [busy, setBusy] = useState(false);
   const [applyUrl, setApplyUrl] = useState<string | null>(null);
   const [evalPrompt, setEvalPrompt] = useState(""); // Internal: the line to run
@@ -25,16 +27,21 @@ export default function JobDetail({
   const [copied, setCopied] = useState(false);
   const baseline = useRef(""); // job markdown before the run
 
+  // Empty {} from the API (no evaluation yet) -> null.
+  const normEval = (ev: Evaluation | null) => (ev && Object.keys(ev).length ? ev : null);
+
   const load = async () => {
     const { job, markdown } = await api.getJob(jobId);
     setJob(job);
     setMarkdown(markdown);
+    setEvaluation(normEval(await api.getEvaluation(jobId).catch(() => null)));
   };
 
   useEffect(() => {
     setApplyUrl(null);
     setEvalPrompt("");
     setWaitingEval(false);
+    setEvaluation(null);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
@@ -54,6 +61,9 @@ export default function JobDetail({
         if (res && res.markdown !== baseline.current) {
           setJob(res.job);
           setMarkdown(res.markdown);
+          const ev = await api.getEvaluation(jobId).catch(() => null);
+          if (!live) return;
+          setEvaluation(normEval(ev));
           onChanged();
           setWaitingEval(false);
         } else if (Date.now() - started > 180_000) {
@@ -169,6 +179,34 @@ export default function JobDetail({
       </div>
 
       <div className="flex-1 overflow-auto p-4 bg-gray-50">
+        {evaluation && (evaluation.archetype || evaluation.legitimacy_score != null) && (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            {evaluation.archetype && (
+              <span
+                className="px-2 py-0.5 text-xs font-medium rounded-full bg-indigo-100 text-indigo-700"
+                title="Role archetype — the working style of this role"
+              >
+                {evaluation.archetype}
+              </span>
+            )}
+            {evaluation.legitimacy_score != null && (
+              <span
+                className={`px-2 py-0.5 text-xs font-medium rounded-full ${legitimacyClass(evaluation.legitimacy_score)}`}
+                title="Posting legitimacy — higher means less likely a ghost job"
+              >
+                legitimacy {evaluation.legitimacy_score.toFixed(2)}
+              </span>
+            )}
+            {evaluation.legitimacy_flags?.map((f) => (
+              <span
+                key={f}
+                className="px-2 py-0.5 text-xs rounded-full border border-rose-200 bg-rose-50 text-rose-600"
+              >
+                ⚠ {f}
+              </span>
+            ))}
+          </div>
+        )}
         <JobMarkdown md={markdown} />
       </div>
 

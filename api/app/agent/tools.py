@@ -10,6 +10,7 @@ from typing import Any
 from .. import data_store as store
 from .. import status
 from ..config import APPLICATIONS_DIR
+from ..evaluation import assess_legitimacy, classify_archetype
 from ..logging_config import get_logger
 from ..roles import classify_role
 from ..schemas import Application, Job
@@ -152,21 +153,44 @@ def save_evaluation(job_id: str, evaluation: dict[str, Any]) -> dict[str, Any]:
         return {"error": f"job {job_id} not found"}
     ev = dict(evaluation)
     ev["job_id"] = job_id
+    job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
+    # v2 posting signals are computed server-side (deterministic, identical in
+    # External and Internal modes) — never trusted from the caller's payload.
+    description = _posting_description(job_md)
+    ev.update(assess_legitimacy(job, description, today=date.today()))
+    ev["archetype"] = classify_archetype(job.position, description)
     job.fit_score = _as_float(ev.get("fit_score"), 0.5)
     store.upsert_job(job)
-    job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
+    store.write_evaluation(job_id, ev)  # structured sidecar the UI renders
     store.write_job_md(job_id, _merge_evaluation(job_md, ev))
     return ev
+
+
+def _posting_description(job_md: str) -> str:
+    """The posting's description text — the '## Posting' section only, excluding
+    the title/metadata and any appended evaluation block. Used to gauge how
+    detailed (vs. sparse) a posting is for the legitimacy signal."""
+    body = job_md.split("## Agent evaluation")[0]
+    if "## Posting" in body:
+        body = body.split("## Posting", 1)[1]
+    return body.strip()
 
 
 def _merge_evaluation(job_md: str, ev: dict[str, Any]) -> str:
     def bullets(items: list[str]) -> str:
         return "\n".join(f"- {i}" for i in items) or "- _none_"
 
+    legit = ev.get("legitimacy_score")
+    legit_line = ""
+    if legit is not None:
+        flags = ev.get("legitimacy_flags", [])
+        legit_line = f"- **legitimacy:** {legit} ({', '.join(flags) if flags else 'no flags'})\n"
+    archetype_line = f"- **archetype:** {ev['archetype']}\n" if ev.get("archetype") else ""
     section = (
         "## Agent evaluation\n"
         f"- **fit_score:** {ev.get('fit_score')}\n"
-        f"- **recommendation:** {ev.get('recommendation', 'hold')}\n\n"
+        f"- **recommendation:** {ev.get('recommendation', 'hold')}\n"
+        f"{legit_line}{archetype_line}\n"
         f"### Strengths\n{bullets(ev.get('strengths', []))}\n\n"
         f"### Weaknesses / gaps\n{bullets(ev.get('weaknesses', []))}\n\n"
         f"### Materials to prepare\n{bullets(ev.get('materials', []))}\n"
@@ -242,6 +266,11 @@ def save_upskilling(job_id: str, result: dict[str, Any]) -> dict[str, Any]:
 def get_upskilling(job_id: str) -> dict[str, Any] | None:
     """Read the last saved skill-gap analysis (None if never run)."""
     return store.read_upskilling(job_id)
+
+
+def get_evaluation(job_id: str) -> dict[str, Any] | None:
+    """Read the last saved structured fit evaluation (None if never run)."""
+    return store.read_evaluation(job_id)
 
 
 # --------------------------------------------------------------------------- #

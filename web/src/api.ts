@@ -58,6 +58,19 @@ export interface Insights {
   totals: { jobs: number; applications: number; evaluated: number };
 }
 
+// Structured fit evaluation (v2). Empty object ({}) when a job has none yet.
+export interface Evaluation {
+  job_id?: string;
+  fit_score?: number;
+  recommendation?: "apply" | "hold" | "skip";
+  strengths?: string[];
+  weaknesses?: string[];
+  materials?: string[];
+  legitimacy_score?: number | null;
+  legitimacy_flags?: string[];
+  archetype?: string;
+}
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -130,4 +143,7 @@ export const api = {
       summary?: string;
       missing_skills?: { skill: string; why: string; how_to_close: string }[];
     }>(`/api/jobs/${id}/upskilling`),
+  // Read the last saved structured evaluation ({} if none). Used to render the
+  // legitimacy/archetype blocks and to poll after a save in Internal mode.
+  getEvaluation: (id: string) => http<Evaluation>(`/api/jobs/${id}/evaluation`),
 };
