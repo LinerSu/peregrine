@@ -206,6 +206,33 @@ def test_link_404s_on_bad_ids(tmp_store):
     assert client.post(f"/api/applications/{orphan['id']}/link", json={"job_id": "ghost"}).status_code == 404
 
 
+def test_patch_application_syncs_linked_job_status(tmp_store):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1", position="Engineer", status="open"))
+    client = TestClient(app)
+    client.post("/api/applications", json={"company": "Acme", "position": "Engineer"})  # linked, shared id
+    client.patch("/api/applications/2026-001", json={"status": "interviewing"})
+    assert store.get_job("2026-001").status == "interviewing"  # job kept in sync
+
+
+def test_patch_job_syncs_linked_application_status(tmp_store):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1", position="Engineer", status="open"))
+    client = TestClient(app)
+    client.post("/api/applications", json={"company": "Acme", "position": "Engineer"})  # linked, shared id
+    client.patch("/api/jobs/2026-001", json={"status": "offer"})
+    assert store.get_application("2026-001").status == "offer"  # application kept in sync
+    # a pre-application status is NOT pushed onto the application
+    client.patch("/api/jobs/2026-001", json={"status": "open"})
+    assert store.get_application("2026-001").status == "offer"  # unchanged
+
+
 def test_list_applications_flags_job_tracked(tmp_store):
     from fastapi.testclient import TestClient
 

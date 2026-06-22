@@ -109,6 +109,9 @@ def get_job(job_id: str):
 
 
 EDITABLE_JOB_FIELDS = {"starred", "role_category", "status"}
+# Statuses that also make sense on an application (so a job→app status sync can't set
+# a pre-application status like "open"/"removed" on a tracked application).
+_APP_STATUSES = {"applied", "interviewing", "offer", "rejected", "closed"}
 
 
 @router.patch("/{job_id}")
@@ -120,6 +123,12 @@ def update_job(job_id: str, payload: dict):
     changes = {k: v for k, v in payload.items() if k in EDITABLE_JOB_FIELDS}
     updated = job.model_copy(update=changes)
     store.upsert_job(updated)
+    # Keep a linked application's status in sync (shared id) when status changes from
+    # the Jobs view, so the Applications outcomes agree.
+    if "status" in changes and updated.status in _APP_STATUSES:
+        appn = store.get_application(job_id)
+        if appn and appn.status != updated.status:
+            store.upsert_application(appn.model_copy(update={"status": updated.status}))
     return {"job": updated.model_dump()}
 
 

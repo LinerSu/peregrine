@@ -16,6 +16,23 @@ from .schemas import Application, Job
 _APPLIED = {"applied", "interviewing", "offer", "rejected"}
 _INTERVIEWING = {"interviewing", "offer"}
 
+# An "applied" application with no interview scheduled this many days on is stale
+# enough to suggest a follow-up.
+_STALE_DAYS = 10
+
+# Fit-score bands for outcome breakdown, in display order.
+_FIT_BANDS = ("high (≥0.70)", "med (0.50–0.69)", "low (<0.50)", "unscored")
+
+
+def _fit_band(s: float | None) -> str:
+    if s is None or not math.isfinite(s):
+        return "unscored"
+    if s >= 0.7:
+        return "high (≥0.70)"
+    if s >= 0.5:
+        return "med (0.50–0.69)"
+    return "low (<0.50)"
+
 
 def _iso_week(value: str) -> str | None:
     """'2026-06-15' -> '2026-W25'. None for blank/unparseable dates."""
@@ -83,4 +100,94 @@ def compute_insights(jobs: list[Job], applications: list[Application]) -> dict[s
         "by_status": by_status,
         "activity": activity,
         "totals": {"jobs": tracked, "applications": len(applications), "evaluated": evaluated},
+    }
+
+
+def compute_outcomes(applications: list[Application], today: date) -> dict[str, Any]:
+    """Outcome / rejection analytics over APPLICATIONS — the record the user drives in
+    the Applications view (a linked job's status is kept in sync, and orphan apps have
+    no job, so applications are the complete + authoritative source here). Status is
+    single-valued, so the rates are current-state ("where applications stand now"), not
+    a historical funnel. Pure: the clock is injected via `today`."""
+
+    def rate(n: int, d: int) -> float:
+        return round(n / d, 3) if d else 0.0
+
+    applied = [a for a in applications if a.status in _APPLIED]
+    n_applied = len(applied)
+    n_responded = sum(1 for a in applied if a.status in {"interviewing", "offer", "rejected"})
+    n_interviewing = sum(1 for a in applied if a.status in _INTERVIEWING)
+    n_offer = sum(1 for a in applied if a.status == "offer")
+    n_rejected = sum(1 for a in applied if a.status == "rejected")
+
+    # All rates share the stable "applied" base (n ≤ d, so each is in [0,1]).
+    conversion = [
+        {"label": "Heard back", "n": n_responded, "d": n_applied, "rate": rate(n_responded, n_applied)},
+        {"label": "Interviewing or better", "n": n_interviewing, "d": n_applied, "rate": rate(n_interviewing, n_applied)},
+        {"label": "Offer", "n": n_offer, "d": n_applied, "rate": rate(n_offer, n_applied)},
+        {"label": "Rejected", "n": n_rejected, "d": n_applied, "rate": rate(n_rejected, n_applied)},
+    ]
+
+    # How each applied-to cohort stands (advanced = currently interviewing/offer),
+    # grouped by fit-score band and by role category.
+    def _group(key_fn) -> dict[str, dict[str, int]]:
+        groups: dict[str, dict[str, int]] = {}
+        for a in applied:
+            g = groups.setdefault(key_fn(a), {"applied": 0, "advanced": 0, "offer": 0, "rejected": 0})
+            g["applied"] += 1
+            if a.status in _INTERVIEWING:
+                g["advanced"] += 1
+            if a.status == "offer":
+                g["offer"] += 1
+            if a.status == "rejected":
+                g["rejected"] += 1
+        return groups
+
+    fit_groups = _group(lambda a: _fit_band(a.fit_score))
+    by_fit_band = [
+        {"band": b, **fit_groups[b], "advance_rate": rate(fit_groups[b]["advanced"], fit_groups[b]["applied"])}
+        for b in _FIT_BANDS if b in fit_groups
+    ]
+    role_groups = _group(lambda a: a.role_category or "uncategorized")
+    by_role = sorted(
+        ({"role": r, **g, "advance_rate": rate(g["advanced"], g["applied"])} for r, g in role_groups.items()),
+        key=lambda x: (-x["applied"], x["role"]),
+    )
+
+    # Calibration: does our fit score predict outcomes? Compare the average fit of
+    # applications currently advancing vs those rejected.
+    adv = [a.fit_score for a in applied
+           if a.status in _INTERVIEWING and a.fit_score is not None and math.isfinite(a.fit_score)]
+    rej = [a.fit_score for a in applied
+           if a.status == "rejected" and a.fit_score is not None and math.isfinite(a.fit_score)]
+    calibration = {
+        "advanced_avg_fit": round(sum(adv) / len(adv), 3) if adv else None,
+        "advanced_n": len(adv),
+        "rejected_avg_fit": round(sum(rej) / len(rej), 3) if rej else None,
+        "rejected_n": len(rej),
+    }
+
+    # Follow-ups: applications still "applied", no interview scheduled, stale.
+    follow_ups = []
+    for a in applications:
+        if a.status == "applied" and not a.interview_date and a.applied_date:
+            try:
+                d0 = date.fromisoformat(a.applied_date)
+            except (ValueError, TypeError):
+                continue
+            days = (today - d0).days
+            if days >= _STALE_DAYS:
+                follow_ups.append({
+                    "id": a.id, "company": a.company, "position": a.position,
+                    "applied_date": a.applied_date, "days": days,
+                })
+    follow_ups.sort(key=lambda x: (-x["days"], x["company"]))
+
+    return {
+        "conversion": conversion,
+        "by_fit_band": by_fit_band,
+        "by_role": by_role,
+        "calibration": calibration,
+        "follow_ups": follow_ups,
+        "stale_days": _STALE_DAYS,
     }

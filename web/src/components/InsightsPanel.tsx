@@ -1,18 +1,23 @@
 import { useEffect, useState } from "react";
-import { api, type Insights } from "../api";
+import { api, type Insights, type Outcomes } from "../api";
 
-// Pipeline analytics: a conversion funnel, fit-score distribution, and weekly
-// activity — all rendered with plain Tailwind bars (no chart dependency).
+// Pipeline analytics: a conversion funnel, fit-score distribution, weekly activity,
+// plus outcome/rejection analytics (conversion rates, outcomes by fit-band & role,
+// fit-score calibration, and stale-application follow-ups). Plain Tailwind bars.
 export default function InsightsPanel() {
   const [data, setData] = useState<Insights | null>(null);
+  const [outcomes, setOutcomes] = useState<Outcomes | null>(null);
   const [err, setErr] = useState("");
 
   useEffect(() => {
     let live = true;
-    api
-      .getStats()
-      .then((d) => live && setData(d))
-      .catch((e) => live && setErr((e as Error).message));
+    // allSettled so an outcomes failure doesn't block the core funnel/distribution.
+    Promise.allSettled([api.getStats(), api.getOutcomes()]).then(([s, o]) => {
+      if (!live) return;
+      if (s.status === "fulfilled") setData(s.value as Insights);
+      else setErr((s.reason as Error).message);
+      if (o.status === "fulfilled") setOutcomes(o.value as Outcomes);
+    });
     return () => {
       live = false;
     };
@@ -26,6 +31,29 @@ export default function InsightsPanel() {
   const maxAct = Math.max(1, ...data.activity.flatMap((a) => [a.added, a.applied]));
   const section = "rounded-lg border border-gray-200 bg-white p-4";
   const heading = "text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3";
+  const pct = (r: number) => `${Math.round(r * 100)}%`;
+  const fit = (v: number | null) => (v == null ? "—" : v.toFixed(2));
+
+  // A compact outcome row: label, applied count, an advance-rate bar, offer/rejected tallies.
+  const outcomeRow = (label: string, g: Outcomes["by_fit_band"][number] | Outcomes["by_role"][number]) => (
+    <div key={label} className="flex items-center gap-3 text-sm">
+      <div className="w-40 truncate text-gray-600" title={label}>{label}</div>
+      <div className="w-10 text-right text-gray-400">{g.applied}</div>
+      <div className="flex-1 h-4 bg-gray-100 rounded" title={`${g.advanced}/${g.applied} advanced`}>
+        <div
+          className="h-4 rounded bg-indigo-500"
+          style={{ width: `${g.advance_rate * 100}%`, minWidth: g.advanced ? "0.25rem" : 0 }}
+        />
+      </div>
+      <div className="w-10 text-right text-xs text-gray-500">{pct(g.advance_rate)}</div>
+      <div className="w-24 text-right text-xs text-gray-400">
+        <span className="text-emerald-600">{g.offer}●</span> <span className="text-rose-500">{g.rejected}✕</span>
+      </div>
+    </div>
+  );
+
+  const hasOutcomeData =
+    !!outcomes && (outcomes.conversion[0]?.d > 0 || outcomes.follow_ups.length > 0);
 
   return (
     <div className="h-full overflow-auto p-5">
@@ -57,6 +85,107 @@ export default function InsightsPanel() {
             ))}
           </div>
         </section>
+
+        {/* Outcome analytics */}
+        {!hasOutcomeData ? (
+          <section className={section}>
+            <h4 className={heading}>Outcomes</h4>
+            <p className="text-sm text-gray-400">
+              No applications yet — conversion rates, rejection patterns, and follow-up reminders appear here once
+              you've applied to a few jobs.
+            </p>
+          </section>
+        ) : (
+          <>
+            {/* Conversion rates */}
+            <section className={section}>
+              <h4 className={heading}>Conversion</h4>
+              <div className="space-y-2">
+                {outcomes!.conversion.map((c) => (
+                  <div key={c.label} className="flex items-center gap-3 text-sm">
+                    <div className="w-40 text-gray-600">{c.label}</div>
+                    <div className="flex-1 h-4 bg-gray-100 rounded">
+                      <div
+                        className="h-4 rounded bg-indigo-500"
+                        style={{ width: `${c.rate * 100}%`, minWidth: c.n ? "0.25rem" : 0 }}
+                      />
+                    </div>
+                    <div className="w-24 text-right text-xs text-gray-400">{c.n}/{c.d} · {pct(c.rate)}</div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Calibration */}
+            <section className={section}>
+              <h4 className={heading}>Fit-score calibration</h4>
+              <div className="flex flex-wrap gap-6 text-sm">
+                <div>
+                  <div className="text-gray-500">Advanced (interview/offer)</div>
+                  <div className="text-lg font-semibold text-emerald-600">
+                    {fit(outcomes!.calibration.advanced_avg_fit)}
+                    <span className="ml-1 text-xs font-normal text-gray-400">avg fit · n={outcomes!.calibration.advanced_n}</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-500">Rejected</div>
+                  <div className="text-lg font-semibold text-rose-500">
+                    {fit(outcomes!.calibration.rejected_avg_fit)}
+                    <span className="ml-1 text-xs font-normal text-gray-400">avg fit · n={outcomes!.calibration.rejected_n}</span>
+                  </div>
+                </div>
+              </div>
+              {outcomes!.calibration.advanced_avg_fit != null && outcomes!.calibration.rejected_avg_fit != null && (
+                <p className="mt-2 text-xs text-gray-500">
+                  {outcomes!.calibration.advanced_avg_fit > outcomes!.calibration.rejected_avg_fit
+                    ? "Higher-fit jobs are advancing further — the score is tracking outcomes."
+                    : "Fit score isn't separating outcomes yet — worth recalibrating what you apply to."}
+                </p>
+              )}
+            </section>
+
+            {/* Outcomes by fit band */}
+            {outcomes!.by_fit_band.length > 0 && (
+              <section className={section}>
+                <h4 className={heading}>Outcomes by fit band</h4>
+                <div className="space-y-2">{outcomes!.by_fit_band.map((g) => outcomeRow(g.band, g))}</div>
+                <p className="mt-2 text-[10px] text-gray-400">applied · advance-rate bar · advance% · ●offers ✕rejections</p>
+              </section>
+            )}
+
+            {/* Outcomes by role */}
+            {outcomes!.by_role.length > 0 && (
+              <section className={section}>
+                <h4 className={heading}>Outcomes by role</h4>
+                <div className="space-y-2">{outcomes!.by_role.slice(0, 8).map((g) => outcomeRow(g.role, g))}</div>
+                {outcomes!.by_role.length > 8 && (
+                  <p className="mt-2 text-[10px] text-gray-400">+{outcomes!.by_role.length - 8} more roles</p>
+                )}
+              </section>
+            )}
+
+            {/* Follow-ups */}
+            <section className={section}>
+              <h4 className={heading}>Follow-ups</h4>
+              {outcomes!.follow_ups.length === 0 ? (
+                <p className="text-sm text-gray-400">
+                  No stale applications — nothing sitting in "applied" past {outcomes!.stale_days} days without an interview.
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {outcomes!.follow_ups.map((f) => (
+                    <li key={f.id} className="flex items-center gap-3 text-sm">
+                      <span className="px-1.5 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700">{f.days}d</span>
+                      <span className="font-medium text-gray-700">{f.company}</span>
+                      <span className="text-gray-500 truncate">{f.position}</span>
+                      <span className="ml-auto text-xs text-gray-400">applied {f.applied_date}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </>
+        )}
 
         {/* Fit-score distribution */}
         <section className={section}>

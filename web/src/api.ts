@@ -59,6 +59,27 @@ export interface Insights {
   totals: { jobs: number; applications: number; evaluated: number };
 }
 
+interface OutcomeGroup {
+  applied: number;
+  advanced: number;
+  offer: number;
+  rejected: number;
+  advance_rate: number;
+}
+export interface Outcomes {
+  conversion: { label: string; n: number; d: number; rate: number }[];
+  by_fit_band: (OutcomeGroup & { band: string })[];
+  by_role: (OutcomeGroup & { role: string })[];
+  calibration: {
+    advanced_avg_fit: number | null;
+    advanced_n: number;
+    rejected_avg_fit: number | null;
+    rejected_n: number;
+  };
+  follow_ups: { id: string; company: string; position: string; applied_date: string; days: number }[];
+  stale_days: number;
+}
+
 // Structured fit evaluation (v2). Empty object ({}) when a job has none yet.
 export interface Evaluation {
   job_id?: string;
@@ -170,6 +191,7 @@ export const api = {
   deleteApplication: (id: string) =>
     http<{ deleted: string }>(`/api/applications/${id}`, { method: "DELETE" }),
   getStats: () => http<Insights>("/api/stats"),
+  getOutcomes: () => http<Outcomes>("/api/stats/outcomes"),
   getProfile: () => http<Profile>("/api/profile"),
   getPreferences: () => http<Targets>("/api/preferences"),
   savePreferences: (t: Targets) =>
