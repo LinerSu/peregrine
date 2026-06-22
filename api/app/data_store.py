@@ -277,6 +277,40 @@ def write_cv_source(text: str) -> str:
     return "config/cv_source.md"
 
 
+def read_ingest_result() -> dict[str, Any]:
+    """Marker for the last job-ingest (monotonic `seq` + result), so the UI can poll
+    for completion of an Internal ingest even when the job dedups (count unchanged)."""
+    path = config.JOBS_DIR / ".ingest_result.json"
+    if not path.exists():
+        return {"seq": 0}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return {"seq": 0}
+
+
+def write_ingest_result(data: dict[str, Any]) -> None:
+    config.JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    path = config.JOBS_DIR / ".ingest_result.json"
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    tmp.replace(path)  # atomic
+
+
+def read_job_source() -> str:
+    """The raw job posting the user last pasted/uploaded (Internal mode parses this)."""
+    return config.JOB_SOURCE.read_text(encoding="utf-8") if config.JOB_SOURCE.exists() else ""
+
+
+def write_job_source(text: str) -> str:
+    path = config.JOB_SOURCE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)  # atomic
+    return "config/job_source.md"
+
+
 def read_targets() -> dict[str, Any]:
     """What the user is looking for (search intent), stored under profile.targets."""
     return read_profile().get("targets", {}) or {}

@@ -178,6 +178,28 @@ def cv_tailor(profile: dict[str, Any], position: str, company: str, job_md: str)
     return cv_render.fallback_tex(profile, position, company)
 
 
+def job_parser(text: str) -> dict[str, Any]:
+    """Parse a pasted/extracted job posting into structured fields. Returns {} when
+    nothing usable is found (e.g. mock mode), so the caller can report a clear error."""
+    llm = LLMClient()
+    messages = [
+        {
+            "role": "system",
+            "content": "You extract structured fields from a job posting. Use ONLY what's "
+            "present in the text — never invent a company, title, or date.",
+        },
+        {
+            "role": "user",
+            "content": "Job posting (pasted or extracted from a PDF):\n```\n" + text[:12000] + "\n```\n\n"
+            "Return ONLY a JSON object with keys: company, position, company_job_id "
+            "(string, \"\" if none), location, url, posted_date (YYYY-MM-DD or \"\"), "
+            "description (a clean plain-text version of the posting).",
+        },
+    ]
+    parsed = _json_from_text(llm.complete(messages).text)
+    return parsed if (parsed.get("company") or parsed.get("position")) else {}
+
+
 def reviewer(evaluation: dict[str, Any], job_md: str) -> dict[str, Any]:
     """Critique the evaluation in a fresh context and return a revised version."""
     llm = LLMClient()

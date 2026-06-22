@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type Application, type Job } from "./api";
 import AssistantPanel from "./components/AssistantPanel";
 import JobsTable from "./components/JobsTable";
+import AddJobsBar from "./components/AddJobsBar";
 import JobDetail from "./components/JobDetail";
 import ApplicationsTable from "./components/ApplicationsTable";
 import ProfilePanel from "./components/ProfilePanel";
@@ -29,7 +30,6 @@ export default function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   // External = API-backed; Internal = local Claude terminal. Lifted here (and
   // persisted) so EVERY LLM-backed tab switches its behavior to match the global
   // mode — the single source of truth is this toggle in the header.
@@ -62,16 +62,6 @@ export default function App() {
       /* persistence is best-effort */
     }
   }, [mode]);
-
-  const scan = async () => {
-    setLoading(true);
-    try {
-      await api.scan();
-      await refresh();
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="flex flex-col h-screen text-gray-900">
@@ -153,15 +143,16 @@ export default function App() {
           <div className="flex-1 min-h-0">
             {tab === "jobs" && (
               <div className="flex h-full min-h-0">
-                <div className="w-2/5 min-w-[320px] border-r border-gray-200">
-                  <JobsTable
-                    jobs={jobs}
-                    selectedId={selectedId}
-                    onSelect={setSelectedId}
-                    onScan={scan}
-                    onChanged={refresh}
-                    loading={loading}
-                  />
+                <div className="w-2/5 min-w-[320px] border-r border-gray-200 flex flex-col min-h-0">
+                  <AddJobsBar mode={mode} onChanged={refresh} />
+                  <div className="flex-1 min-h-0">
+                    <JobsTable
+                      jobs={jobs}
+                      selectedId={selectedId}
+                      onSelect={setSelectedId}
+                      onChanged={refresh}
+                    />
+                  </div>
                 </div>
                 <div className="flex-1 min-w-0">
                   {selectedId ? (

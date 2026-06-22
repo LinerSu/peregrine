@@ -46,16 +46,12 @@ export default function JobsTable({
   jobs,
   selectedId,
   onSelect,
-  onScan,
   onChanged,
-  loading,
 }: {
   jobs: Job[];
   selectedId: string | null;
   onSelect: (id: string) => void;
-  onScan: () => void;
   onChanged: () => void;
-  loading: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [role, setRole] = useState("All");
@@ -314,13 +310,6 @@ export default function JobsTable({
             </div>
           )}
         </div>
-        <button
-          onClick={onScan}
-          disabled={loading}
-          className="px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
-        >
-          {loading ? "Scanning…" : "Scan"}
-        </button>
       </div>
 
       {/* Status tabs */}

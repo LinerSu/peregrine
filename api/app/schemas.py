@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 JobStatus = Literal["open", "closed", "removed", "applied", "interviewing", "rejected", "offer"]
 
@@ -103,6 +103,32 @@ class CvTexInput(BaseModel):
     """Body for PUT /api/jobs/{id}/cv — store-only tailored-CV LaTeX (Internal mode:
     Claude writes the .tex in the terminal, then saves it; the API compiles a PDF)."""
     tex: str
+
+
+class JobSourceInput(BaseModel):
+    """Body for PUT /api/jobs/ingest-source — store-only raw posting text the user
+    pasted/uploaded (Internal mode parses it into a tracked job)."""
+    text: str = ""
+
+
+class JobIngestInput(BaseModel):
+    """Body for POST /api/jobs/ingest-doc/save — store-only (Internal mode: Claude
+    parses the pasted/uploaded posting, then POSTs the structured fields). No LLM.
+
+    Optional fields are null-tolerant: a model emitting JSON `null` for an absent
+    field is coerced to "" rather than rejected (see _coerce_none)."""
+    company: str
+    position: str
+    company_job_id: Optional[str] = ""
+    location: Optional[str] = ""
+    url: Optional[str] = ""
+    posted_date: Optional[str] = ""
+    description: Optional[str] = ""
+
+    @field_validator("company_job_id", "location", "url", "posted_date", "description")
+    @classmethod
+    def _coerce_none(cls, v: Optional[str]) -> str:
+        return v or ""
 
 
 class ChatMessage(BaseModel):

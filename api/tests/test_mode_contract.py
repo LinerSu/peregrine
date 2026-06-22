@@ -55,3 +55,18 @@ def test_llm_feature_supports_both_modes(feature, legs):
     routes = _routes()
     missing = [leg for leg in legs if leg not in routes]
     assert not missing, f"{feature}: missing mode-contract route(s) {missing}"
+
+
+def test_job_ingestion_supports_both_modes():
+    """Ingestion creates a job (so it's not the per-job POST/PUT/GET trio), but it
+    must still work in both modes: External parses with the LLM; Internal stashes
+    the raw posting store-only and saves Claude's parsed fields store-only."""
+    routes = _routes()
+    external = [("POST", "/api/jobs/ingest-doc"), ("POST", "/api/jobs/ingest-doc/upload")]
+    internal = [
+        ("PUT", "/api/jobs/ingest-source"),
+        ("POST", "/api/jobs/ingest-source/upload"),
+        ("POST", "/api/jobs/ingest-doc/save"),
+    ]
+    missing = [leg for leg in external + internal if leg not in routes]
+    assert not missing, f"job ingestion missing route(s): {missing}"

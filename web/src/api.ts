@@ -88,7 +88,33 @@ export const api = {
     }),
   listJobs: (query = "") =>
     http<{ count: number; jobs: Job[] }>(`/api/jobs?query=${encodeURIComponent(query)}`),
-  scan: () => http<{ new: number; duplicates: number; filtered: number }>("/api/jobs/scan", { method: "POST" }),
+  scan: () =>
+    http<{ new: number; duplicates: number; filtered: number; capped: boolean }>("/api/jobs/scan", { method: "POST" }),
+  // Add a job from content you provide (no scraping). URL fetch, or paste/upload.
+  ingestUrl: (url: string) =>
+    http<{ job?: Job; created?: boolean }>("/api/jobs/ingest", { method: "POST", body: JSON.stringify({ url }) }),
+  ingestJobDoc: (text: string) =>
+    http<{ job?: Job; created?: boolean }>("/api/jobs/ingest-doc", { method: "POST", body: JSON.stringify({ text }) }),
+  uploadJobDoc: async (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${BASE}/api/jobs/ingest-doc/upload`, { method: "POST", body: fd });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json() as Promise<{ job?: Job; created?: boolean }>;
+  },
+  // Internal mode: stash the raw posting (paste or file) for local Claude to parse.
+  saveJobSource: (text: string) =>
+    http<{ chars: number }>("/api/jobs/ingest-source", { method: "PUT", body: JSON.stringify({ text }) }),
+  uploadJobSource: async (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${BASE}/api/jobs/ingest-source/upload`, { method: "POST", body: fd });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json() as Promise<{ chars: number }>;
+  },
+  // Marker the Internal-mode add-job poll watches (bumps on every ingest, even dedup).
+  getIngestResult: () =>
+    http<{ seq: number; job_id?: string; created?: boolean; position?: string }>("/api/jobs/ingest-result"),
   getJob: (id: string) => http<{ job: Job; markdown: string }>(`/api/jobs/${id}`),
   updateJob: (id: string, patch: Partial<Job>) =>
     http<{ job: Job }>(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),

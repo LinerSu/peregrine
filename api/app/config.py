@@ -42,6 +42,7 @@ JOBS_CSV = DATA_DIR / "jobs.csv"
 APPLICATIONS_CSV = DATA_DIR / "applications.csv"
 PROFILE_YML = CONFIG_DIR / "profile.yml"
 CV_SOURCE = CONFIG_DIR / "cv_source.md"  # raw CV text the user submits (Internal mode reads it)
+JOB_SOURCE = CONFIG_DIR / "job_source.md"  # raw job posting the user pastes/uploads (Internal mode reads it)
 MEMORY_YML = CONFIG_DIR / "memory.yml"
 PORTALS_YML = CONFIG_DIR / "portals.yml"
 STATUS_FILE = ROOT / "STATUS.md"
@@ -97,6 +98,7 @@ def ensure_dirs() -> None:
     for live, example in (
         (JOBS_CSV, DATA_DIR / "jobs.example.csv"),
         (APPLICATIONS_CSV, DATA_DIR / "applications.example.csv"),
+        (PORTALS_YML, CONFIG_DIR / "portals.example.yml"),  # so Scan has sources out of the box
     ):
         if not live.exists() and example.exists():
             shutil.copy(example, live)

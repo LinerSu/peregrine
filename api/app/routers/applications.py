@@ -1,13 +1,13 @@
 """Applications + profile/CV endpoints."""
 from __future__ import annotations
 
-import io
 from datetime import date
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from .. import data_store as store
 from ..agent import tools
+from ..extract import extract_text
 from ..schemas import Application, CvSourceInput, ProfileInput
 
 router = APIRouter(prefix="/api", tags=["applications"])
@@ -94,20 +94,11 @@ def submit_cv(payload: dict):
     return tools.parse_cv(payload.get("cv_text", ""))
 
 
-def _extract_text(filename: str, raw: bytes) -> str:
-    if (filename or "").lower().endswith(".pdf"):
-        from pypdf import PdfReader
-
-        reader = PdfReader(io.BytesIO(raw))
-        return "\n".join((page.extract_text() or "") for page in reader.pages)
-    return raw.decode("utf-8", errors="ignore")
-
-
 @router.post("/cv/upload")
 async def upload_cv(file: UploadFile = File(...)):
     """Upload a CV file (PDF / .txt / .md), extract text, parse into the profile."""
     try:
-        text = _extract_text(file.filename or "", await file.read())
+        text = extract_text(file.filename or "", await file.read())
     except Exception as exc:  # corrupt/unsupported file
         raise HTTPException(422, f"could not read file: {exc}")
     if not text.strip():
@@ -128,7 +119,7 @@ async def upload_cv_source(file: UploadFile = File(...)):
     """Store-only: extract text from an uploaded CV (PDF/.txt/.md) and save it as the
     raw source for Internal-mode parsing — no LLM call."""
     try:
-        text = _extract_text(file.filename or "", await file.read())
+        text = extract_text(file.filename or "", await file.read())
     except Exception as exc:  # corrupt/unsupported file
         raise HTTPException(422, f"could not read file: {exc}")
     if not text.strip():

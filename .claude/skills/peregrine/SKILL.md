@@ -1,6 +1,6 @@
 ---
 name: peregrine-internal
-description: Run Peregrine job-search analyses locally and save the result so the web UI updates. Use when working in the Peregrine repo and the user asks to "evaluate fit", "analyze skill gaps", or "draft a cover letter" or "tailor my cv" for a job id like 2026-001, or "parse my cv" to build the profile.
+description: Run Peregrine job-search analyses locally and save the result so the web UI updates. Use when working in the Peregrine repo and the user asks to "evaluate fit", "analyze skill gaps", or "draft a cover letter" or "tailor my cv" for a job id like 2026-001, or "parse my cv" to build the profile, or "ingest the job I pasted" to add a posting.
 ---
 
 # Peregrine — Internal-mode worker
@@ -94,9 +94,24 @@ the local API** so the web page reflects it exactly like External (API) mode.
    (Write the LaTeX to `cv.tex` first, or inline it into the `--arg`.)
 4. Tell the user it's saved — the Tailored CV panel shows it with a PDF download.
 
+## "ingest the job I pasted"
+
+1. Read the raw posting the user pasted/uploaded at `config/job_source.md`.
+2. Parse it into fields — `company`, `position`, `company_job_id` (\"\" if none),
+   `location`, `url`, `posted_date` (YYYY-MM-DD or \"\"), `description` (clean plain
+   text). Use ONLY what's in the posting; never invent.
+3. Create the tracked job (store-only — this is what adds it to the Jobs tab):
+   ```bash
+   curl -s -X POST http://localhost:8000/api/jobs/ingest-doc/save \
+     -H 'content-type: application/json' \
+     -d '{"company":"...","position":"...","location":"...","url":"...","posted_date":"...","description":"..."}'
+   ```
+4. Tell the user it's added — the Jobs tab will show it (then they can evaluate it, etc.).
+
 ## Rules
 - **Never fabricate** skills or experience the profile doesn't support — ground every
   strength in evidence (same rule as External mode).
-- Use the **`PUT`** routes above — they only *store* what you send; the reasoning is
-  yours. Do **not** call the metered `POST` routes (`.../evaluate`, `.../upskilling`,
-  `.../cover-letter`, `.../cv`, `/api/cv`) — those spend an API key, which Internal mode exists to avoid.
+- Use the **`PUT`/store-only** routes above — they only *store* what you send; the
+  reasoning is yours. Do **not** call the metered routes (`POST .../evaluate`,
+  `.../upskilling`, `.../cover-letter`, `.../cv`, `/api/cv`, `/api/jobs/ingest-doc`,
+  `/api/jobs/ingest`) — those spend an API key, which Internal mode exists to avoid.

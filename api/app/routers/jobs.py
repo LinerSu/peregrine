@@ -1,12 +1,20 @@
 """Jobs API — list, detail (with markdown), scan, evaluate, prepare-to-apply."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from .. import data_store as store
 from ..agent import tools
-from ..schemas import CoverLetterInput, CvTexInput, EvaluationInput, UpskillingInput
+from ..extract import extract_text
+from ..schemas import (
+    CoverLetterInput,
+    CvTexInput,
+    EvaluationInput,
+    JobIngestInput,
+    JobSourceInput,
+    UpskillingInput,
+)
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -28,6 +36,68 @@ def ingest(payload: dict):
     if "error" in result:
         raise HTTPException(422, result["error"])
     return result
+
+
+# --- Add a job from content the user provides (no scraping) — both modes. --------
+@router.post("/ingest-doc")
+def ingest_doc(payload: JobSourceInput):
+    """External: parse a pasted job posting into a tracked job with the LLM."""
+    result = tools.ingest_job_doc(payload.text)
+    if "error" in result:
+        raise HTTPException(422, result["error"])
+    return result
+
+
+@router.post("/ingest-doc/upload")
+async def ingest_doc_upload(file: UploadFile = File(...)):
+    """External: extract text from an uploaded posting (PDF/.txt/.md) and parse it."""
+    try:
+        text = extract_text(file.filename or "", await file.read())
+    except Exception as exc:  # corrupt/unsupported file
+        raise HTTPException(422, f"could not read file: {exc}")
+    if not text.strip():
+        raise HTTPException(422, "no text could be extracted from the file")
+    result = tools.ingest_job_doc(text)
+    if "error" in result:
+        raise HTTPException(422, result["error"])
+    return result
+
+
+@router.post("/ingest-doc/save")
+def ingest_doc_save(payload: JobIngestInput):
+    """Internal: create a tracked job from fields Claude already parsed (store-only)."""
+    result = tools.save_ingested_job(payload.model_dump())
+    if "error" in result:
+        raise HTTPException(422, result["error"])
+    return result
+
+
+@router.get("/ingest-result")
+def ingest_result():
+    """Last ingest marker (monotonic seq + result) — the Internal-mode UI polls this
+    to detect when a paste/upload it stashed has been turned into a job by Claude."""
+    return tools.get_ingest_result()
+
+
+@router.put("/ingest-source")
+def put_job_source(payload: JobSourceInput):
+    """Internal: stash the raw posting text so local Claude can parse it."""
+    if not payload.text.strip():
+        raise HTTPException(422, "empty posting text")
+    return tools.save_job_source(payload.text)
+
+
+@router.post("/ingest-source/upload")
+async def upload_job_source(file: UploadFile = File(...)):
+    """Internal: extract text from an uploaded posting (PDF/.txt/.md) and stash it
+    for local Claude to parse — no LLM call."""
+    try:
+        text = extract_text(file.filename or "", await file.read())
+    except Exception as exc:  # corrupt/unsupported file
+        raise HTTPException(422, f"could not read file: {exc}")
+    if not text.strip():
+        raise HTTPException(422, "no text could be extracted from the file")
+    return tools.save_job_source(text)
 
 
 @router.get("/{job_id}")
