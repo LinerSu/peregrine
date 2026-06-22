@@ -145,9 +145,14 @@ def evaluate_fit(job_id: str) -> dict[str, Any]:
     return saved
 
 
-def save_evaluation(job_id: str, evaluation: dict[str, Any]) -> dict[str, Any]:
+def save_evaluation(
+    job_id: str, evaluation: dict[str, Any], today: date | None = None
+) -> dict[str, Any]:
     """Persist a fit evaluation — same store path whether it came from the External
-    subagents or from Internal mode (Claude reasons, then PUTs the result here). No LLM."""
+    subagents or from Internal mode (Claude reasons, then PUTs the result here). No LLM.
+
+    `today` (used only for the legitimacy staleness check) is injectable so tests
+    are deterministic; it defaults to the wall clock for live saves."""
     job = store.get_job(job_id)
     if not job:
         return {"error": f"job {job_id} not found"}
@@ -157,7 +162,7 @@ def save_evaluation(job_id: str, evaluation: dict[str, Any]) -> dict[str, Any]:
     # v2 posting signals are computed server-side (deterministic, identical in
     # External and Internal modes) — never trusted from the caller's payload.
     description = _posting_description(job_md)
-    ev.update(assess_legitimacy(job, description, today=date.today()))
+    ev.update(assess_legitimacy(job, description, today=today or date.today()))
     ev["archetype"] = classify_archetype(job.position, description)
     job.fit_score = _as_float(ev.get("fit_score"), 0.5)
     store.upsert_job(job)

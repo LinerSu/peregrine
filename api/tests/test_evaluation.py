@@ -38,6 +38,18 @@ def test_evergreen_and_agency_language_flagged():
     assert any("agency" in f.lower() for f in flags)
 
 
+@pytest.mark.parametrize("phrase", [
+    "We post future opportunities here.",
+    "Apply for a future opportunity with us.",
+    "Join our talent pool for future openings.",
+    "This is a general application for our hiring pipeline.",
+])
+def test_evergreen_phrases_are_flagged(phrase):
+    j = _job(salary_min=120000, salary_max=160000)
+    flags = assess_legitimacy(j, LONG + " " + phrase, today=TODAY)["legitimacy_flags"]
+    assert any("Evergreen" in f for f in flags), phrase
+
+
 def test_staleness_requires_today():
     j = _job(salary_min=120000, salary_max=160000, posted_date="2026-01-01")
     assert any("Stale" in f for f in assess_legitimacy(j, LONG, today=TODAY)["legitimacy_flags"])
@@ -90,7 +102,7 @@ def test_save_evaluation_adds_v2_blocks(tmp_path, monkeypatch):
     ev = tools.save_evaluation("2026-001", {
         "fit_score": 0.8, "recommendation": "apply",
         "strengths": ["infra depth"], "weaknesses": [], "materials": [],
-    })
+    }, today=TODAY)
     # Computed server-side, regardless of the (absent) client values.
     assert ev["archetype"] == "Platform / Infrastructure"
     assert ev["legitimacy_score"] is not None
@@ -99,3 +111,20 @@ def test_save_evaluation_adds_v2_blocks(tmp_path, monkeypatch):
     assert side and side["archetype"] == "Platform / Infrastructure"
     md = store.read_job_md("2026-001")
     assert "**archetype:**" in md and "**legitimacy:**" in md
+
+
+def test_save_evaluation_staleness_uses_injected_today(tmp_path, monkeypatch):
+    from app import config
+    from app import data_store as store
+    from app.agent import tools
+
+    monkeypatch.setattr(config, "JOBS_CSV", tmp_path / "jobs.csv")
+    monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(config, "APPLICATIONS_CSV", tmp_path / "applications.csv")
+
+    store.upsert_job(Job(id="2026-002", company="Acme", company_job_id="R2",
+                         position="Engineer", salary_min=120000, salary_max=160000,
+                         posted_date="2026-01-01"))
+    store.write_job_md("2026-002", "# Engineer — Acme\n\n## Posting\n" + LONG)
+    ev = tools.save_evaluation("2026-002", {"fit_score": 0.7}, today=TODAY)
+    assert any("Stale" in f for f in ev["legitimacy_flags"])

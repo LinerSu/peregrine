@@ -21,7 +21,8 @@ _GHOST_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "Evergreen / talent-pool posting",
         re.compile(
             r"\b(always (?:looking|hiring|accepting)|talent (?:pool|community|network)|"
-            r"pipeline|future (?:opening|opportunit)|general application|expression of interest)\b",
+            r"pipeline|future (?:openings?|opportunit(?:y|ies))|general application|"
+            r"expression of interest)\b",
             re.I,
         ),
     ),
