@@ -4,9 +4,11 @@ import type { AssistantMode } from "../App";
 
 // Job acquisition, separate from the view controls in JobsTable:
 //   Scan  — zero-token fetch from configured ATS sources (config/portals.yml).
-//   Add   — from a URL, or by pasting / uploading a posting (no scraping; you
-//           provide the content). Parsing is mode-aware: External uses the LLM,
-//           Internal hands a command to local Claude and polls for the new job.
+//   Add   — from a URL (fetches the allowlisted posting, subject to crawl policy),
+//           or by pasting / uploading a posting (no fetching — you provide the
+//           content, so it works for sites that block bots). Parsing is mode-aware:
+//           External uses the LLM; Internal hands a command to local Claude and
+//           polls the ingest marker for completion.
 type AddTab = "url" | "doc";
 
 export default function AddJobsBar({
@@ -110,12 +112,16 @@ export default function AddJobsBar({
     if (!text.trim() || busy || waiting) return;
     if (mode === "internal") {
       setBusy(true);
+      let ok = true;
       try {
         await api.saveJobSource(text);
+      } catch {
+        ok = false;
+        setMsg("Couldn't save the posting. Try again.");
       } finally {
         setBusy(false);
       }
-      await startInternal("Posting saved — run the command in the Claude terminal.");
+      if (ok) await startInternal("Posting saved — run the command in the Claude terminal.");
       return;
     }
     setBusy(true);
@@ -136,12 +142,16 @@ export default function AddJobsBar({
     if (!file || busy || waiting) return;
     if (mode === "internal") {
       setBusy(true);
+      let ok = true;
       try {
         await api.uploadJobSource(file);
+      } catch {
+        ok = false;
+        setMsg("Couldn't read / save that file. Try again.");
       } finally {
         setBusy(false);
       }
-      await startInternal("File saved — run the command in the Claude terminal.");
+      if (ok) await startInternal("File saved — run the command in the Claude terminal.");
       return;
     }
     setBusy(true);

@@ -389,7 +389,12 @@ def _ingest_from_fields(fields: dict[str, Any]) -> dict[str, Any]:
     position = (fields.get("position") or "").strip()
     if not (company and position):
         return {"error": "need at least a company and a position"}
-    location = fields.get("location", "")
+    # Coerce optional fields to strings — the LLM/Claude often emits null for these,
+    # which would fail RawPosting/Job validation.
+    location = fields.get("location") or ""
+    url = fields.get("url") or ""
+    posted_date = fields.get("posted_date") or ""
+    description = fields.get("description") or ""
     # Mix location into the derived id so two same-titled reqs don't collide.
     company_job_id = (fields.get("company_job_id") or "").strip() or _slug(f"{position} {location}")
     existing = store.find_job_by_key(company, company_job_id)
@@ -398,8 +403,7 @@ def _ingest_from_fields(fields: dict[str, Any]) -> dict[str, Any]:
     else:
         job = _persist_posting(providers.RawPosting(
             company=company, company_job_id=company_job_id, position=position,
-            location=location, url=fields.get("url", ""),
-            posted_date=fields.get("posted_date", ""), description=fields.get("description", ""),
+            location=location, url=url, posted_date=posted_date, description=description,
         ))
         created = True
     seq = store.read_ingest_result().get("seq", 0) + 1
@@ -422,7 +426,11 @@ def ingest_job_doc(text: str) -> dict[str, Any]:
         status.record("ingest_doc_failed", "no fields parsed", current_task="idle")
         return {"error": "couldn't parse a job from that text — paste more of the posting, or use Internal mode"}
     result = _ingest_from_fields(parsed)
-    status.record("ingest_doc_done", parsed.get("company", "?"), current_task="idle")
+    status.record(
+        "ingest_doc_failed" if "error" in result else "ingest_doc_done",
+        result.get("error") or parsed.get("company", "?"),
+        current_task="idle",
+    )
     return result
 
 
@@ -582,4 +590,4 @@ def ingest_job_url(url: str) -> dict[str, Any]:
     status.record(
         "ingest_done", f"{job.id} {job.company} {job.company_job_id}", current_task="idle"
     )
-    return {"job": job.model_dump(), "deduped": bool(existing)}
+    return {"job": job.model_dump(), "deduped": bool(existing), "created": existing is None}

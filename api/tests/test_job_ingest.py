@@ -29,6 +29,17 @@ def test_save_ingested_job_creates_then_dedupes(tmp_store):
     assert len(store.list_jobs()) == 1
 
 
+def test_ingest_coerces_none_optional_fields(tmp_store):
+    from app.agent import tools
+
+    # LLMs often emit null for optional fields — must not crash Pydantic validation.
+    r = tools.save_ingested_job(
+        {"company": "Acme", "position": "Eng", "location": None, "url": None, "description": None}
+    )
+    assert r["created"] is True
+    assert r["job"]["location"] == ""
+
+
 def test_save_ingested_job_requires_company_and_position(tmp_store):
     from app.agent import tools
 
