@@ -26,13 +26,16 @@ if DATASET:
     _root = ROOT / ".demo" / DATASET
     DATA_DIR = _root / "data"
     CONFIG_DIR = _root / "config"
+    # Isolate generated application materials too, so demo runs never write into
+    # the real applications/ dir.
+    APPLICATIONS_DIR = _root / "applications"
 else:
     DATA_DIR = ROOT / "data"
     CONFIG_DIR = ROOT / "config"
+    APPLICATIONS_DIR = ROOT / "applications"
 
 JOBS_DIR = DATA_DIR / "jobs"
 SKILLS_DIR = ROOT / ".agents" / "skills"
-APPLICATIONS_DIR = ROOT / "applications"
 LOGS_DIR = ROOT / "logs"
 
 JOBS_CSV = DATA_DIR / "jobs.csv"
@@ -79,10 +82,13 @@ def ensure_dirs() -> None:
                 f"PEREGRINE_DATASET='{DATASET}' is not a known persona. "
                 f"Choose one of: {', '.join(demo_seed.list_personas())}"
             )
-        # Consider the dataset seeded only when its key artifacts both exist;
-        # otherwise (re)seed, so a partial/cleared dir self-heals on boot.
-        if not (JOBS_CSV.exists() and PROFILE_YML.exists()):
+        # A marker written only after seed() completes is the source of truth for
+        # "already seeded" — so a partial or cleared dir (no marker) self-heals by
+        # re-seeding on the next boot. Reset a persona by deleting .demo/<persona>/.
+        marker = DATA_DIR.parent / ".seeded"
+        if not marker.exists():
             demo_seed.seed(DATASET)
+            marker.write_text(f"{DATASET}\n", encoding="utf-8")
         return
 
     # Normal mode: the live CSVs are gitignored (personal data). On a fresh clone

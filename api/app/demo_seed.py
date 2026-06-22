@@ -441,14 +441,18 @@ def list_personas() -> list[str]:
 # Seeder
 # --------------------------------------------------------------------------- #
 def _bullets(items: list[str]) -> str:
-    return "\n".join(f"- {x}" for x in items) if items else "- (none)"
+    # Mirror the app's evaluation formatter (tools._merge_evaluation).
+    return "\n".join(f"- {x}" for x in items) or "- _none_"
 
 
 def _job_md(spec: dict[str, Any], evaluation: dict[str, Any] | None) -> str:
-    md = f"# {spec['position']} — {spec['company']}\n\n{spec.get('description', '').strip()}\n"
+    md = f"# {spec['position']} — {spec['company']}\n\n{spec.get('description', '').strip()}"
     if evaluation:
+        # Use the exact "## Agent evaluation" section the app writes, so clicking
+        # "Evaluate fit" on a seeded job REPLACES this block instead of appending.
         md += (
-            "\n## Fit evaluation\n\n"
+            "\n\n---\n\n"
+            "## Agent evaluation\n"
             f"- **fit_score:** {evaluation['fit_score']}\n"
             f"- **recommendation:** {evaluation.get('recommendation', 'hold')}\n\n"
             f"### Strengths\n{_bullets(evaluation.get('strengths', []))}\n\n"

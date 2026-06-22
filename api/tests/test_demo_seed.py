@@ -44,7 +44,8 @@ def test_persona_seeds_valid_dataset(tmp_dataset, dataset):
     assert all(math.isfinite(j.fit_score) for j in evaluated)
     top = evaluated[0]
     assert store.read_upskilling(top.id) is not None
-    assert "Fit evaluation" in store.read_job_md(top.id)
+    # Heading must match the app's evaluation updater so re-evaluation replaces it.
+    assert "## Agent evaluation" in store.read_job_md(top.id)
 
     # At least one application, each with an applied date (so Insights populates).
     apps = store.list_applications()
