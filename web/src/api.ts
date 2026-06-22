@@ -26,6 +26,7 @@ export interface Application extends Job {
   interview_date: string;
   contacts: string;
   notes: string;
+  job_tracked?: boolean; // does a tracked job posting back this application?
 }
 
 export interface Profile {
@@ -155,7 +156,7 @@ export const api = {
       body: JSON.stringify(patch),
     }),
   createApplication: (payload: Partial<Application>) =>
-    http<{ application: Application }>("/api/applications", {
+    http<{ application: Application; job_tracked: boolean }>("/api/applications", {
       method: "POST",
       body: JSON.stringify(payload),
     }),

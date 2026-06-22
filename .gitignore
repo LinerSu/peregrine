@@ -50,6 +50,10 @@ applications/*
 logs/
 *.log
 
+# Stray runtime status file written when tests mount ./api as /app (the real
+# continuity doc is the repo-root STATUS.md).
+api/STATUS.md
+
 # --- OS ---
 .DS_Store
 Thumbs.db

@@ -150,7 +150,17 @@ export default function ApplicationsTable({
             <tbody>
               {rows.map((a) => (
                 <tr key={a.id} className="border-t border-gray-100 align-top">
-                  <td className="px-3 py-2 font-medium">{a.company}</td>
+                  <td className="px-3 py-2 font-medium">
+                    {a.company}
+                    {a.job_tracked === false && (
+                      <span
+                        title="No tracked job posting backs this application — add one to evaluate / tailor for it"
+                        className="ml-1.5 px-1.5 py-0.5 text-[10px] rounded-full bg-amber-100 text-amber-700 align-middle"
+                      >
+                        ⚠ no posting
+                      </span>
+                    )}
+                  </td>
                   <td className="px-3 py-2">{a.position}</td>
                   <td className="px-3 py-2">
                     <select
