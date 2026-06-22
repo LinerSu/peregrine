@@ -178,6 +178,26 @@ def write_cover_letter(job_id: str, content: str) -> str:
     return f"data/jobs/{job_id}.cover_letter.md"
 
 
+def read_cv_tex(job_id: str) -> Optional[str]:
+    """The last tailored-CV LaTeX source for a job (None if never generated)."""
+    path = config.JOBS_DIR / f"{job_id}.cv.tex"
+    return path.read_text(encoding="utf-8") if path.exists() else None
+
+
+def write_cv_tex(job_id: str, tex: str) -> str:
+    config.JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    path = config.JOBS_DIR / f"{job_id}.cv.tex"
+    tmp = path.with_suffix(path.suffix + ".tmp")  # write+rename so a poller never reads a partial file
+    tmp.write_text(tex, encoding="utf-8")
+    tmp.replace(path)  # atomic
+    return f"data/jobs/{job_id}.cv.tex"
+
+
+def cv_pdf_path(job_id: str) -> Path:
+    """Path to the compiled tailored-CV PDF (may not exist if LaTeX is unavailable)."""
+    return config.JOBS_DIR / f"{job_id}.cv.pdf"
+
+
 # --------------------------------------------------------------------------- #
 # Applications
 # --------------------------------------------------------------------------- #

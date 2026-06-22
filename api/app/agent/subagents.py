@@ -144,6 +144,40 @@ def _mock_cover_letter(job: Any, profile: dict[str, Any]) -> str:
     )
 
 
+def _extract_latex(text: str) -> str:
+    a = text.find("\\documentclass")
+    b = text.find("\\end{document}", a + 1) if a != -1 else -1  # first end-marker after the start
+    return text[a : b + len("\\end{document}")] if a != -1 and b != -1 else ""
+
+
+def cv_tailor(profile: dict[str, Any], position: str, company: str, job_md: str) -> str:
+    """Produce a one-page CV tailored to a job, as LaTeX source. Returns the .tex."""
+    llm = LLMClient()
+    messages = [
+        {"role": "system", "content": load_skill("cv-tailor")},
+        {
+            "role": "user",
+            "content": (
+                "Candidate profile (JSON):\n```\n"
+                + json.dumps(profile, ensure_ascii=False, indent=2)
+                + "\n```\n\nJob posting:\n```\n" + job_md + "\n```\n\n"
+                "Produce a one-page CV tailored to THIS job, grounded ONLY in the profile "
+                "(never invent experience). Emphasize the most relevant skills and mirror the "
+                "posting's key terms where truthful. Return ONLY a complete, compilable LaTeX "
+                "document using standard packages (article, geometry, enumitem, hyperref) — no "
+                "\\write18, no shell-escape, no external files."
+            ),
+        },
+    ]
+    text = llm.complete(messages).text
+    extracted = _extract_latex(text)
+    if extracted and _MOCK_MARKER not in text:
+        return extracted
+    from .. import cv_render  # fallback for mock / no-key / unusable output
+
+    return cv_render.fallback_tex(profile, position, company)
+
+
 def reviewer(evaluation: dict[str, Any], job_md: str) -> dict[str, Any]:
     """Critique the evaluation in a fresh context and return a revised version."""
     llm = LLMClient()

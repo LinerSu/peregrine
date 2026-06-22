@@ -99,6 +99,12 @@ class CvSourceInput(BaseModel):
     text: str = ""
 
 
+class CvTexInput(BaseModel):
+    """Body for PUT /api/jobs/{id}/cv — store-only tailored-CV LaTeX (Internal mode:
+    Claude writes the .tex in the terminal, then saves it; the API compiles a PDF)."""
+    tex: str
+
+
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
     content: str

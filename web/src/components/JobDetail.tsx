@@ -31,8 +31,16 @@ export default function JobDetail({
   const [coverPromptCopied, setCoverPromptCopied] = useState(false);
   const [coverTextCopied, setCoverTextCopied] = useState(false);
   const [coverError, setCoverError] = useState("");
+  const [cvTex, setCvTex] = useState<string | null>(null);
+  const [cvPdf, setCvPdf] = useState(false);
+  const [cvTexPrompt, setCvTexPrompt] = useState(""); // Internal: the line to run
+  const [waitingCvTex, setWaitingCvTex] = useState(false);
+  const [cvTexPromptCopied, setCvTexPromptCopied] = useState(false);
+  const [cvTexCopied, setCvTexCopied] = useState(false);
+  const [cvError, setCvError] = useState("");
   const baseline = useRef(""); // job markdown before the run
   const coverBaseline = useRef<string | null>(null); // cover letter before the run
+  const cvTexBaseline = useRef<string | null>(null); // tailored CV before the run
 
   // Empty {} from the API (no evaluation yet) -> null.
   const normEval = (ev: Evaluation | null) => (ev && Object.keys(ev).length ? ev : null);
@@ -40,10 +48,11 @@ export default function JobDetail({
   // Fetch job + evaluation in parallel. `isLive` lets the mount effect drop a
   // stale response if jobId changed while the requests were in flight.
   const load = async (isLive: () => boolean = () => true) => {
-    const [{ job, markdown }, ev, cover] = await Promise.all([
+    const [{ job, markdown }, ev, cover, cv] = await Promise.all([
       api.getJob(jobId),
       api.getEvaluation(jobId).catch(() => null),
       api.getCoverLetter(jobId).catch(() => null),
+      api.getCv(jobId).catch(() => null),
     ]);
     if (!isLive()) return;
     setJob(job);
@@ -51,6 +60,9 @@ export default function JobDetail({
     setEvaluation(normEval(ev));
     setCoverLetter(cover?.content ?? null);
     setCoverTextCopied(false); // new/refreshed content -> reset the Copy button
+    setCvTex(cv?.tex ?? null);
+    setCvPdf(!!cv?.pdf_available);
+    setCvTexCopied(false);
   };
 
   useEffect(() => {
@@ -64,6 +76,13 @@ export default function JobDetail({
     setCoverError("");
     setCoverPromptCopied(false);
     setCoverTextCopied(false);
+    setCvTex(null);
+    setCvPdf(false);
+    setCvTexPrompt("");
+    setWaitingCvTex(false);
+    setCvTexPromptCopied(false);
+    setCvTexCopied(false);
+    setCvError("");
     let live = true;
     load(() => live);
     return () => {
@@ -138,6 +157,40 @@ export default function JobDetail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waitingCover, jobId]);
 
+  // Internal: poll until Claude saves the tailored CV (its .tex changes).
+  useEffect(() => {
+    if (!waitingCvTex) return;
+    const started = Date.now();
+    let inFlight = false;
+    let live = true;
+    const id = setInterval(async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const res = await api.getCv(jobId).catch(() => null);
+        if (!live) return;
+        const tex = res?.tex ?? null;
+        const snap = JSON.stringify({ tex, pdf: !!res?.pdf_available });
+        if (tex != null && snap !== cvTexBaseline.current) {
+          setCvTex(tex);
+          setCvPdf(!!res?.pdf_available);
+          setCvTexCopied(false);
+          setCvTexPrompt("");
+          setWaitingCvTex(false);
+          return;
+        }
+        if (Date.now() - started > 180_000) setWaitingCvTex(false);
+      } finally {
+        inFlight = false;
+      }
+    }, 3000);
+    return () => {
+      live = false;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waitingCvTex, jobId]);
+
   const evaluate = async () => {
     if (mode === "internal") {
       if (waitingEval) return; // already waiting on a save — don't restart/overlap
@@ -175,6 +228,30 @@ export default function JobDetail({
     } catch {
       // The cover-letter LLM call is the longest in the app — surface failures.
       setCoverError("Couldn't generate the cover letter. Try again, or use Internal mode.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const tailorCv = async () => {
+    setCvError("");
+    if (mode === "internal") {
+      if (waitingCvTex) return; // already waiting on a save — don't restart/overlap
+      // snapshot both .tex and pdf so a PDF flip on an unchanged .tex still resolves
+      cvTexBaseline.current = JSON.stringify({ tex: cvTex, pdf: cvPdf });
+      setCvTexPrompt(`tailor my cv for ${jobId}`);
+      setCvTexPromptCopied(false);
+      setWaitingCvTex(true);
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await api.generateCv(jobId);
+      setCvTex(res.tex);
+      setCvPdf(res.pdf_available);
+      setCvTexCopied(false);
+    } catch {
+      setCvError("Couldn't generate the tailored CV. Try again, or use Internal mode.");
     } finally {
       setBusy(false);
     }
@@ -235,6 +312,13 @@ export default function JobDetail({
           >
             {busy ? "Working…" : waitingCover ? "Waiting…" : coverLetter != null ? "Redraft cover letter" : "Cover letter"}
           </button>
+          <button
+            onClick={tailorCv}
+            disabled={busy || waitingCvTex}
+            className="px-3 py-1.5 text-sm font-medium text-teal-700 bg-teal-100 rounded-md hover:bg-teal-200 disabled:opacity-50"
+          >
+            {busy ? "Working…" : waitingCvTex ? "Waiting…" : cvTex != null ? "Re-tailor CV" : "Tailor CV"}
+          </button>
         </div>
 
         {/* Internal mode: the guided prompt to run in the Claude terminal. */}
@@ -294,6 +378,35 @@ export default function JobDetail({
         )}
 
         {coverError && <p className="mt-3 text-sm text-rose-600">{coverError}</p>}
+
+        {/* Internal mode: the guided prompt to tailor the CV. */}
+        {mode === "internal" && cvTexPrompt && (
+          <div className="mt-3 rounded-md border border-teal-200 bg-teal-50 p-3 text-sm">
+            <p className="text-teal-900 font-medium">Run this in the Internal (Claude) terminal:</p>
+            <div className="mt-1.5 flex items-center gap-2">
+              <code className="flex-1 px-2 py-1 rounded bg-white border border-teal-200 text-gray-800">
+                {cvTexPrompt}
+              </code>
+              <button
+                onClick={() =>
+                  navigator.clipboard
+                    ?.writeText(cvTexPrompt)
+                    .then(() => setCvTexPromptCopied(true))
+                    .catch(() => {})
+                }
+                className="px-2 py-1 text-xs font-medium text-teal-700 bg-white border border-teal-300 rounded hover:bg-teal-100"
+              >
+                {cvTexPromptCopied ? "Copied" : "Copy"}
+              </button>
+            </div>
+            <p className="mt-1.5 text-xs text-teal-700">
+              {waitingCvTex
+                ? "Waiting for Claude to save the tailored CV…"
+                : "Run it in the Claude terminal — the CV (and a PDF) appear below."}
+            </p>
+          </div>
+        )}
+        {cvError && <p className="mt-3 text-sm text-rose-600">{cvError}</p>}
       </div>
 
       <div className="flex-1 overflow-auto p-4 bg-gray-50">
@@ -349,6 +462,48 @@ export default function JobDetail({
               </button>
             </div>
             <pre className="whitespace-pre-wrap px-3 py-3 text-sm text-gray-800 font-sans">{coverLetter}</pre>
+          </div>
+        )}
+
+        {cvTex != null && (
+          <div className="mt-4 rounded-lg border border-teal-200 bg-white">
+            <div className="flex items-center justify-between border-b border-teal-100 px-3 py-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-teal-700">
+                Tailored CV (LaTeX)
+              </h4>
+              <div className="flex items-center gap-2">
+                {cvPdf && (
+                  <a
+                    href={api.cvPdfUrl(jobId)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2 py-0.5 text-xs font-medium text-white bg-teal-600 rounded hover:bg-teal-700"
+                  >
+                    Download PDF ↓
+                  </a>
+                )}
+                <button
+                  onClick={() =>
+                    navigator.clipboard
+                      ?.writeText(cvTex)
+                      .then(() => setCvTexCopied(true))
+                      .catch(() => {})
+                  }
+                  className="px-2 py-0.5 text-xs font-medium text-teal-700 border border-teal-300 rounded hover:bg-teal-50"
+                >
+                  {cvTexCopied ? "Copied" : "Copy .tex"}
+                </button>
+              </div>
+            </div>
+            <pre className="whitespace-pre-wrap px-3 py-3 text-xs text-gray-700 font-mono max-h-80 overflow-auto">
+              {cvTex}
+            </pre>
+            {!cvPdf && (
+              <p className="px-3 pb-2 text-xs text-gray-400">
+                No PDF — LaTeX isn't installed here, or the document didn't compile. Copy the .tex
+                and compile it locally.
+              </p>
+            )}
           </div>
         )}
       </div>

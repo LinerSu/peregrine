@@ -161,4 +161,10 @@ export const api = {
     http<{ job_id: string; content: string }>(`/api/jobs/${id}/cover-letter`, { method: "POST" }),
   getCoverLetter: (id: string) =>
     http<{ job_id?: string; content?: string }>(`/api/jobs/${id}/cover-letter`),
+  // Tailored CV: External generates LaTeX (+ PDF); Internal saves Claude's .tex.
+  generateCv: (id: string) =>
+    http<{ job_id: string; tex: string; pdf_available: boolean }>(`/api/jobs/${id}/cv`, { method: "POST" }),
+  getCv: (id: string) =>
+    http<{ job_id?: string; tex?: string; pdf_available?: boolean }>(`/api/jobs/${id}/cv`),
+  cvPdfUrl: (id: string) => `${BASE}/api/jobs/${id}/cv.pdf`,
 };

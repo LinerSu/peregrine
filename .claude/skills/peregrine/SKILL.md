@@ -1,6 +1,6 @@
 ---
 name: peregrine-internal
-description: Run Peregrine job-search analyses locally and save the result so the web UI updates. Use when working in the Peregrine repo and the user asks to "evaluate fit", "analyze skill gaps", or "draft a cover letter" for a job id like 2026-001, or "parse my cv" to build the profile.
+description: Run Peregrine job-search analyses locally and save the result so the web UI updates. Use when working in the Peregrine repo and the user asks to "evaluate fit", "analyze skill gaps", or "draft a cover letter" or "tailor my cv" for a job id like 2026-001, or "parse my cv" to build the profile.
 ---
 
 # Peregrine — Internal-mode worker
@@ -78,9 +78,25 @@ the local API** so the web page reflects it exactly like External (API) mode.
    ```
 4. Tell the user it's saved — the Profile tab will refresh.
 
+## "tailor my cv for <id>"
+
+1. Read `data/jobs/<id>.md` and `config/profile.yml`.
+2. Follow the rubric in `.agents/skills/cv-tailor/SKILL.md`: a **one-page** CV
+   tailored to this job, as a complete, **compilable LaTeX** document, grounded only
+   in the profile. Standard packages only; no `\write18`/shell-escape/external files.
+3. Persist it (the API saves the `.tex` and compiles a PDF — this is what fills the
+   **Tailored CV** panel). Send the LaTeX as a JSON string in `tex`:
+   ```bash
+   curl -s -X PUT http://localhost:8000/api/jobs/<id>/cv \
+     -H 'content-type: application/json' \
+     -d "$(jq -n --arg t "$(cat cv.tex)" '{tex:$t}')"
+   ```
+   (Write the LaTeX to `cv.tex` first, or inline it into the `--arg`.)
+4. Tell the user it's saved — the Tailored CV panel shows it with a PDF download.
+
 ## Rules
 - **Never fabricate** skills or experience the profile doesn't support — ground every
   strength in evidence (same rule as External mode).
 - Use the **`PUT`** routes above — they only *store* what you send; the reasoning is
   yours. Do **not** call the metered `POST` routes (`.../evaluate`, `.../upskilling`,
-  `.../cover-letter`, `/api/cv`) — those spend an API key, which Internal mode exists to avoid.
+  `.../cover-letter`, `.../cv`, `/api/cv`) — those spend an API key, which Internal mode exists to avoid.
