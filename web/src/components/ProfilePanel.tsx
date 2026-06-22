@@ -1,12 +1,27 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type Profile } from "../api";
+import type { AssistantMode } from "../App";
 
-// Profile / CV tab: shows the parsed profile (config/profile.yml) and lets the
-// user paste CV text to (re)build it via the cv-intake skill.
-export default function ProfilePanel({ onChanged }: { onChanged: () => void }) {
+// Profile / CV tab. CV intake is mode-aware:
+//   External — POST /api/cv (LLM parses the CV into the profile).
+//   Internal — the raw CV is stashed (store-only), then you run one line in the
+//   Claude terminal; this panel polls the profile and reflects Claude's save.
+export default function ProfilePanel({
+  onChanged,
+  mode,
+}: {
+  onChanged: () => void;
+  mode: AssistantMode;
+}) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [cv, setCv] = useState("");
   const [busy, setBusy] = useState(false);
+  const [cvPrompt, setCvPrompt] = useState(""); // Internal: the line to run
+  const [waiting, setWaiting] = useState(false); // Internal: polling for Claude's save
+  const [copied, setCopied] = useState(false);
+  const baseline = useRef<string | null>(null); // serialized profile before parse; null = not yet established
+  const modeRef = useRef(mode); // current mode, for async guards (closures go stale)
+  modeRef.current = mode;
 
   const load = async () => setProfile(await api.getProfile());
 
@@ -14,8 +29,76 @@ export default function ProfilePanel({ onChanged }: { onChanged: () => void }) {
     load();
   }, []);
 
+  // Internal: poll until the profile changes (Claude saved it).
+  useEffect(() => {
+    if (!waiting) return;
+    const started = Date.now();
+    let inFlight = false;
+    let live = true;
+    const id = setInterval(async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const p = await api.getProfile().catch(() => null);
+        if (!live) return;
+        if (p) {
+          const snap = JSON.stringify(p);
+          if (baseline.current === null) {
+            baseline.current = snap; // first good read establishes the baseline (don't complete yet)
+          } else if (snap !== baseline.current) {
+            setProfile(p);
+            onChanged();
+            setWaiting(false);
+            setCvPrompt(""); // parse done — hide the guided-prompt box
+            setCopied(false);
+            return;
+          }
+        }
+        if (Date.now() - started > 180_000) setWaiting(false);
+      } finally {
+        inFlight = false;
+      }
+    }, 3000);
+    return () => {
+      live = false;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting]);
+
+  // Switching the global mode mid-wait must not leave a dangling poll/prompt
+  // (which would disable the External button with no explanation).
+  useEffect(() => {
+    setWaiting(false);
+    setCvPrompt("");
+  }, [mode]);
+
+  // Internal: after stashing the raw CV, show the guided prompt and start polling.
+  // Capture the baseline from a FRESH server read (not React state, which may not
+  // have loaded yet) so the poll can't resolve instantly without Claude saving.
+  const startInternal = async () => {
+    const p = await api.getProfile().catch(() => null);
+    if (modeRef.current !== "internal") return; // user flipped to External mid-stash
+    // null sentinel when the read failed → the poll establishes the baseline on its
+    // first successful read instead of false-completing against an empty {}.
+    baseline.current = p ? JSON.stringify(p) : null;
+    setCvPrompt("parse my cv");
+    setCopied(false);
+    setWaiting(true);
+  };
+
   const submit = async () => {
-    if (!cv.trim() || busy) return;
+    if (!cv.trim() || busy || waiting) return;
+    if (mode === "internal") {
+      setBusy(true);
+      try {
+        await api.saveCvSource(cv);
+      } finally {
+        setBusy(false);
+      }
+      await startInternal();
+      return;
+    }
     setBusy(true);
     try {
       await api.submitCv(cv);
@@ -28,7 +111,17 @@ export default function ProfilePanel({ onChanged }: { onChanged: () => void }) {
   };
 
   const upload = async (file: File | undefined) => {
-    if (!file || busy) return;
+    if (!file || busy || waiting) return;
+    if (mode === "internal") {
+      setBusy(true);
+      try {
+        await api.uploadCvSource(file);
+      } finally {
+        setBusy(false);
+      }
+      await startInternal();
+      return;
+    }
     setBusy(true);
     try {
       await api.uploadCv(file);
@@ -75,12 +168,12 @@ export default function ProfilePanel({ onChanged }: { onChanged: () => void }) {
       <section>
         <h3 className="text-sm font-semibold text-gray-700 mb-2">Upload CV</h3>
         <label className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 rounded-md cursor-pointer hover:bg-indigo-100">
-          {busy ? "Working…" : "Choose file (PDF, .txt, .md)"}
+          {busy ? "Working…" : waiting ? "Waiting…" : "Choose file (PDF, .txt, .md)"}
           <input
             type="file"
             accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown"
             className="hidden"
-            disabled={busy}
+            disabled={busy || waiting}
             onChange={(e) => upload(e.target.files?.[0])}
           />
         </label>
@@ -97,16 +190,44 @@ export default function ProfilePanel({ onChanged }: { onChanged: () => void }) {
         <div className="mt-2 flex items-center gap-3">
           <button
             onClick={submit}
-            disabled={busy || !cv.trim()}
+            disabled={busy || waiting || !cv.trim()}
             className="px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
           >
-            {busy ? "Parsing…" : "Parse CV → profile"}
+            {busy ? "Saving…" : waiting ? "Waiting…" : mode === "internal" ? "Parse CV (Claude)" : "Parse CV → profile"}
           </button>
           <span className="text-xs text-gray-400">
             Stored locally in <code>config/profile.yml</code>. Used to score fit.
           </span>
         </div>
       </section>
+
+      {/* Internal mode: the guided prompt to run in the Claude terminal. */}
+      {mode === "internal" && cvPrompt && (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm">
+          <p className="text-emerald-900 font-medium">Run this in the Internal (Claude) terminal:</p>
+          <div className="mt-1.5 flex items-center gap-2">
+            <code className="flex-1 px-2 py-1 rounded bg-white border border-emerald-200 text-gray-800">
+              {cvPrompt}
+            </code>
+            <button
+              onClick={() =>
+                navigator.clipboard
+                  ?.writeText(cvPrompt)
+                  .then(() => setCopied(true))
+                  .catch(() => {})
+              }
+              className="px-2 py-1 text-xs font-medium text-emerald-700 bg-white border border-emerald-300 rounded hover:bg-emerald-100"
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+          <p className="mt-1.5 text-xs text-emerald-700">
+            {waiting
+              ? "Waiting for Claude to parse your CV and save the profile…"
+              : "Your CV is saved — run it in the Claude terminal; the profile updates below."}
+          </p>
+        </div>
+      )}
 
       <section>
         <h3 className="text-sm font-semibold text-gray-700 mb-2">External resources</h3>

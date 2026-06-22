@@ -36,6 +36,7 @@ data/cover_letter_samples/
 config/profile.yml
 config/memory.yml
 config/portals.yml
+config/cv_source.md
 
 # Your résumé, cover letters, and any application materials
 resume/*

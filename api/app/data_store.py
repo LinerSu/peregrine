@@ -230,7 +230,9 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 def _write_yaml(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    tmp.replace(path)  # atomic — concurrent reads (e.g. the profile poll) never see a partial file
 
 
 def read_profile() -> dict[str, Any]:
@@ -239,6 +241,20 @@ def read_profile() -> dict[str, Any]:
 
 def write_profile(data: dict[str, Any]) -> None:
     _write_yaml(config.PROFILE_YML, data)
+
+
+def read_cv_source() -> str:
+    """The raw CV text the user last submitted (Internal mode reads this to parse)."""
+    return config.CV_SOURCE.read_text(encoding="utf-8") if config.CV_SOURCE.exists() else ""
+
+
+def write_cv_source(text: str) -> str:
+    path = config.CV_SOURCE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)  # atomic — the Internal poll never reads a partial file
+    return "config/cv_source.md"
 
 
 def read_targets() -> dict[str, Any]:

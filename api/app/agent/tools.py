@@ -314,6 +314,23 @@ def get_cover_letter(job_id: str) -> dict[str, Any] | None:
     return {"job_id": job_id, "content": content} if content is not None else None
 
 
+def save_profile(fields: dict[str, Any]) -> dict[str, Any]:
+    """Store-only profile merge (Internal mode: Claude parses the CV in the terminal,
+    then PUTs the extracted fields here). No LLM. Merges non-empty values into the
+    existing profile, matching parse_cv's merge so both modes behave the same."""
+    profile = store.read_profile()
+    profile.update({k: v for k, v in fields.items() if v})  # same filter as parse_cv
+    store.write_profile(profile)
+    return profile
+
+
+def save_cv_source(text: str) -> dict[str, Any]:
+    """Store the raw CV text the user submitted so Internal-mode Claude can read and
+    parse it (config/cv_source.md). No LLM."""
+    store.write_cv_source(text)
+    return {"chars": len(text)}
+
+
 # --------------------------------------------------------------------------- #
 @registry.register(
     "mark_applied",

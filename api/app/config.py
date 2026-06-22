@@ -41,6 +41,7 @@ LOGS_DIR = ROOT / "logs"
 JOBS_CSV = DATA_DIR / "jobs.csv"
 APPLICATIONS_CSV = DATA_DIR / "applications.csv"
 PROFILE_YML = CONFIG_DIR / "profile.yml"
+CV_SOURCE = CONFIG_DIR / "cv_source.md"  # raw CV text the user submits (Internal mode reads it)
 MEMORY_YML = CONFIG_DIR / "memory.yml"
 PORTALS_YML = CONFIG_DIR / "portals.yml"
 STATUS_FILE = ROOT / "STATUS.md"

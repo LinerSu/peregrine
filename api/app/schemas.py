@@ -78,6 +78,27 @@ class CoverLetterInput(BaseModel):
     content: str
 
 
+class SkillInput(BaseModel):
+    name: str
+    level: str = ""
+    evidence: str = ""
+
+
+class ProfileInput(BaseModel):
+    """Body for PUT /api/profile — store-only profile merge (Internal mode: Claude
+    parses the CV, then PUTs the extracted fields). Only CV-derived keys are
+    accepted, so it can't clobber targets / comp / work_auth / preferences."""
+    name: Optional[str] = None
+    headline: Optional[str] = None
+    location: Optional[str] = None
+    skills: Optional[list[SkillInput]] = None
+
+
+class CvSourceInput(BaseModel):
+    """Body for PUT /api/cv/source — store-only raw CV text (Internal mode reads it)."""
+    text: str = ""
+
+
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
     content: str
