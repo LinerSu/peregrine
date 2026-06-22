@@ -9,10 +9,16 @@ queries:
   - "machine learning engineer"
   - "applied scientist"
 
-# Per-company direct ATS feeds (most reliable, no scraping HTML).
+# Per-company direct ATS feeds (most reliable, no scraping HTML). Each hits the
+# board's own public API/feed (host-pinned + rate-limited via crawl_policy).
+# provider: greenhouse | ashby | lever | recruitee | smartrecruiters | workable | generic
+# `slug` is the company's handle on that ATS — read it from the careers URL, e.g.:
+#   recruitee       <slug>.recruitee.com                  -> slug: channable
+#   smartrecruiters careers.smartrecruiters.com/<slug>    -> slug: adyen
+#   workable        apply.workable.com/<slug>             -> slug: huggingface
 companies:
   - name: Anthropic
-    provider: greenhouse        # greenhouse | ashby | lever | generic
+    provider: greenhouse
     slug: anthropic
   - name: OpenAI
     provider: ashby

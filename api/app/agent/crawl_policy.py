@@ -45,6 +45,9 @@ ALLOWED_HOSTS: frozenset[str] = frozenset(
         "jobs.apple.com",
         "api.ashbyhq.com",
         "api.lever.co",
+        "recruitee.com",          # public per-tenant offers API: <slug>.recruitee.com
+        "api.smartrecruiters.com",  # public postings API
+        "apply.workable.com",     # public markdown job feed
     }
 )
 
