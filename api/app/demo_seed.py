@@ -446,7 +446,13 @@ def _bullets(items: list[str]) -> str:
 
 
 def _job_md(spec: dict[str, Any], evaluation: dict[str, Any] | None) -> str:
-    md = f"# {spec['position']} — {spec['company']}\n\n{spec.get('description', '').strip()}"
+    # Mirror the app's snapshot layout (tools._job_md): the description lives under
+    # a "## Posting" heading, since the web renderer drops level-1 (# title)
+    # sections — so a description under the title alone would never render.
+    md = (
+        f"# {spec['position']} — {spec['company']}\n\n"
+        f"## Posting\n{spec.get('description', '').strip() or '_no description captured_'}"
+    )
     if evaluation:
         # Use the exact "## Agent evaluation" section the app writes, so clicking
         # "Evaluate fit" on a seeded job REPLACES this block instead of appending.
