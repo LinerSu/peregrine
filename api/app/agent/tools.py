@@ -4,6 +4,7 @@ truth) and records progress to STATUS.md.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import date
 from typing import Any
@@ -67,6 +68,14 @@ def scan_jobs() -> dict[str, Any]:
             break
         postings = providers.fetch(c.get("provider", "generic"), c.get("name", ""), c.get("slug", ""))
         for p in postings:
+            if not p.company_job_id.strip():
+                # No id in the feed -> derive a STABLE, collision-resistant key: a readable
+                # slug of title+location plus a short hash of the url, so two id-less
+                # postings stay distinct even past _slug's length cap.
+                base = _slug(f"{p.position} {p.location}")
+                seed = p.url or f"{p.position}|{p.location}"
+                digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:10]
+                p.company_job_id = f"{base}-{digest}" if base else digest
             if not _passes_filters(p, filters, targets):
                 filtered += 1
                 continue

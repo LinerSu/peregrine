@@ -38,6 +38,13 @@ def _strip_html(html: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
+def _host_ok(url: str, *suffixes: str) -> bool:
+    """Keep a URL from untrusted feed content only if its host is on an expected
+    domain (a tenant feed could embed off-domain links)."""
+    host = crawl_policy.host_of(url)
+    return bool(host) and any(host == s or host.endswith("." + s) for s in suffixes)
+
+
 def greenhouse(company: str, slug: str, timeout: float = 30.0) -> list[RawPosting]:
     """Public Greenhouse board API. Host is pinned."""
     url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"
@@ -134,6 +141,135 @@ def lever(company: str, slug: str, timeout: float = 30.0) -> list[RawPosting]:
     return out
 
 
+def _parse_recruitee(data: dict, company: str) -> list[RawPosting]:
+    """Parse a Recruitee /api/offers/ response. Pure (unit-tested)."""
+    out = []
+    for j in data.get("offers", []) or []:
+        parts = [j.get("city") or "", j.get("country") or ""]
+        if j.get("remote"):
+            parts.append("Remote")
+        location = j.get("location") or ", ".join(p for p in parts if p)
+        raw_url = j.get("careers_url") or j.get("url") or ""
+        out.append(
+            RawPosting(
+                company=company,
+                company_job_id=str(j.get("id") or ""),
+                position=j.get("title") or "",  # present-but-null must not become None
+                location=location,
+                url=raw_url if _host_ok(raw_url, "recruitee.com") else "",
+                posted_date=(j.get("created_at") or "")[:10],
+                description=_strip_html(j.get("description") or ""),
+            )
+        )
+    return out
+
+
+def recruitee(company: str, slug: str, timeout: float = 30.0) -> list[RawPosting]:
+    """Recruitee public per-tenant offers API. Host pinned via crawl_policy."""
+    url = f"https://{slug}.recruitee.com/api/offers/"
+    try:
+        r = crawl_policy.safe_get(url, timeout=timeout)
+        r.raise_for_status()
+        return _parse_recruitee(r.json(), company)  # parse inside try: a bad payload -> []
+    except Exception as exc:
+        log.warning("recruitee(%s) failed: %s", slug, exc)
+        return []
+
+
+def _parse_smartrecruiters(data: dict, company: str, slug: str) -> list[RawPosting]:
+    """Parse a SmartRecruiters /postings response. Pure (unit-tested)."""
+    out = []
+    for j in data.get("content", []) or []:
+        loc = j.get("location") if isinstance(j.get("location"), dict) else {}
+        full = loc.get("fullLocation") or ", ".join(
+            p for p in (loc.get("city"), loc.get("region"), loc.get("country")) if p
+        )
+        if loc.get("remote"):
+            full = f"{full}, Remote" if full else "Remote"
+        jid = str(j.get("id") or "")
+        out.append(
+            RawPosting(
+                company=company,
+                company_job_id=jid,
+                position=j.get("name") or "",  # present-but-null must not become None
+                location=full,
+                # Synthesize the public job URL (the API `ref` points back at the API host).
+                url=f"https://jobs.smartrecruiters.com/{slug}/{jid}" if jid else "",
+                posted_date=(j.get("releasedDate") or "")[:10],
+            )
+        )
+    return out
+
+
+_SR_PAGE = 100
+
+
+def smartrecruiters(company: str, slug: str, timeout: float = 30.0) -> list[RawPosting]:
+    """SmartRecruiters public postings API (first page only — the scan's new-job cap
+    bounds it; a full page is logged so a >100-posting board isn't silently truncated)."""
+    url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings?limit={_SR_PAGE}&offset=0&status=PUBLIC"
+    try:
+        r = crawl_policy.safe_get(url, timeout=timeout)
+        r.raise_for_status()
+        data = r.json()
+        if len(data.get("content") or []) >= _SR_PAGE:
+            log.warning("smartrecruiters(%s): first %d postings only; more may exist", slug, _SR_PAGE)
+        return _parse_smartrecruiters(data, company, slug)  # parse inside try: bad payload -> []
+    except Exception as exc:
+        log.warning("smartrecruiters(%s) failed: %s", slug, exc)
+        return []
+
+
+_WORKABLE_VIEW_RE = re.compile(r"/jobs/view/([^/.]+)")
+
+
+def _parse_workable(text: str, company: str) -> list[RawPosting]:
+    """Parse Workable's public markdown feed (its only no-auth surface). Rows look like:
+    `| Title | Dept | Location | Type | Salary | Posted | [View](…/jobs/view/<id>.md) |`.
+    Pure (unit-tested)."""
+    out = []
+    for line in text.splitlines():
+        if not line.lstrip().startswith("|"):
+            continue
+        cols = [c.strip() for c in line.split("|")]
+        if len(cols) < 8:
+            continue
+        title = cols[1]
+        if not title or title.lower() == "title" or set(title) <= set("-: "):
+            continue  # header / separator row
+        m = re.search(r"\[View\]\(([^)]+)\)", line)
+        url = m.group(1) if m else ""
+        if url.endswith(".md"):
+            url = url[:-3]
+        if not _host_ok(url, "apply.workable.com"):
+            continue  # skip rows with no resolvable on-domain URL
+        vm = _WORKABLE_VIEW_RE.search(url)
+        out.append(
+            RawPosting(
+                company=company,
+                company_job_id=vm.group(1) if vm else "",
+                position=title,
+                location=cols[3],
+                url=url,
+                # The feed carries no body, so description stays empty (keyword filters
+                # then match on the title only for workable jobs).
+            )
+        )
+    return out
+
+
+def workable(company: str, slug: str, timeout: float = 30.0) -> list[RawPosting]:
+    """Workable public markdown feed (its only no-auth public surface)."""
+    url = f"https://apply.workable.com/{slug}/jobs.md"
+    try:
+        r = crawl_policy.safe_get(url, timeout=timeout)
+        r.raise_for_status()
+        return _parse_workable(r.text, company)  # parse inside try: a bad feed -> []
+    except Exception as exc:
+        log.warning("workable(%s) failed: %s", slug, exc)
+        return []
+
+
 def generic(company: str, slug: str, timeout: float = 30.0) -> list[RawPosting]:
     log.info("generic provider stub for %s — add HTML scraping here", company)
     return []
@@ -143,6 +279,9 @@ PROVIDERS = {
     "greenhouse": greenhouse,
     "ashby": ashby,
     "lever": lever,
+    "recruitee": recruitee,
+    "smartrecruiters": smartrecruiters,
+    "workable": workable,
     "generic": generic,
 }
 
