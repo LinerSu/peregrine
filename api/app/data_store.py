@@ -72,6 +72,37 @@ def find_job_by_key(company: str, company_job_id: str) -> Optional[Job]:
     return None
 
 
+def match_job(
+    jobs: list[Job], company: str, position: str, company_job_id: str = "", location: str = ""
+) -> Optional[Job]:
+    """Find the tracked job an application corresponds to, against a preloaded list:
+    exact company+company_job_id first, else company+position (case-insensitive, with
+    location as a tiebreaker when several share the title). Returns None if untracked."""
+    c = (company or "").strip().lower()
+    cj = (company_job_id or "").strip().lower()
+    # Only a real, non-manual key counts (a whitespace/"manual-" key must fall through
+    # to the company+position match, not key-match a job with an empty id).
+    if cj and not cj.startswith("manual-"):
+        for j in jobs:
+            if j.company.strip().lower() == c and j.company_job_id.strip().lower() == cj:
+                return j
+    p = (position or "").strip().lower()
+    matches = [j for j in jobs if j.company.strip().lower() == c and j.position.strip().lower() == p]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1 and (location or "").strip():
+        loc = location.strip().lower()
+        loc_matches = [j for j in matches if j.location.strip().lower() == loc]
+        if len(loc_matches) == 1:
+            return loc_matches[0]
+    return None  # no match, or ambiguous — don't guess by CSV row order
+
+
+def find_job_for_posting(company: str, position: str, company_job_id: str = "", location: str = "") -> Optional[Job]:
+    """match_job against all tracked jobs (one read)."""
+    return match_job(list_jobs(), company, position, company_job_id, location)
+
+
 def upsert_job(job: Job) -> Job:
     jobs = list_jobs()
     for i, j in enumerate(jobs):

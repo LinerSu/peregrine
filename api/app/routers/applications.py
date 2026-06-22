@@ -19,24 +19,66 @@ EDITABLE_APPLICATION_FIELDS = {"status", "interview_date", "applied_date", "cont
 @router.get("/applications")
 def list_applications():
     apps = store.list_applications()
-    return {"count": len(apps), "applications": [a.model_dump() for a in apps]}
+    jobs = store.list_jobs()  # load once; flag each app with whether a posting is tracked
+    out = []
+    for a in apps:
+        # job_tracked = a tracked posting MATCHES this app (drives the "no posting"
+        # badge). For apps created via Apply/auto-link it's also formally linked by id;
+        # for an older orphan it may be matchable-but-not-yet-linked — both hide the badge.
+        tracked = store.match_job(jobs, a.company, a.position, a.company_job_id, a.location) is not None
+        out.append({**a.model_dump(), "job_tracked": tracked})
+    return {"count": len(out), "applications": out}
 
 
 @router.post("/applications")
 def create_application(payload: dict):
-    """Manually track an application (e.g. one you applied to outside Peregrine)."""
-    data = {k: v for k, v in payload.items() if k in Application.model_fields}
-    data["id"] = store.next_id()
-    data.setdefault("status", "applied")
-    data.setdefault("company_job_id", f"manual-{data['id']}")
-    if not data.get("applied_date"):
-        data["applied_date"] = date.today().isoformat()
+    """Manually track an application (e.g. one you applied to outside Peregrine).
+
+    If it matches a tracked job (company+position), link it (adopt the job's
+    company_job_id, mark the job applied). Otherwise it's an orphan — the response's
+    `job_tracked: false` lets the UI nudge the user to add the posting."""
+    company, position = (payload.get("company") or "").strip(), (payload.get("position") or "").strip()
+    job = (
+        store.find_job_for_posting(company, position, payload.get("company_job_id", ""), payload.get("location", ""))
+        if company and position
+        else None
+    )
+
+    if job:
+        # Unify with the Apply flow: take the FULL job fields (url/salary/posted_date/…),
+        # share the job's id (so delete reverts it and re-adding dedups). Promote an
+        # un-actioned job to "applied" first; the app then MIRRORS the job's status
+        # (we don't let the create payload set status independently — that would desync
+        # app vs job, or downgrade an actioned job). Use PATCH to change status later.
+        if job.status in ("open", "closed", "removed"):
+            job.status = "applied"
+            store.upsert_job(job)
+        existing = store.get_application(job.id)
+        data = job.model_dump()  # carries the job's (post-promotion) status
+        data["id"] = job.id
+        if existing and existing.status:  # on re-add, keep the app's own lifecycle status
+            data["status"] = existing.status
+        for f in ("applied_date", "interview_date", "contacts", "notes"):
+            if payload.get(f):
+                data[f] = payload[f]
+            elif existing and getattr(existing, f):
+                data[f] = getattr(existing, f)
+        if not data.get("applied_date"):
+            data["applied_date"] = date.today().isoformat()
+    else:
+        data = {k: v for k, v in payload.items() if k in Application.model_fields}
+        data["id"] = store.next_id()
+        data.setdefault("status", "applied")
+        data.setdefault("company_job_id", f"manual-{data['id']}")
+        if not data.get("applied_date"):
+            data["applied_date"] = date.today().isoformat()
+
     try:
         app = Application(**data)
     except Exception as exc:  # missing company/position etc.
         raise HTTPException(422, f"invalid application: {exc}")
     store.upsert_application(app)
-    return {"application": app.model_dump()}
+    return {"application": app.model_dump(), "job_tracked": job is not None}
 
 
 @router.delete("/applications/{app_id}")
