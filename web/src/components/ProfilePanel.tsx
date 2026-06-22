@@ -19,6 +19,7 @@ export default function ProfilePanel({
   const [cvPrompt, setCvPrompt] = useState(""); // Internal: the line to run
   const [waiting, setWaiting] = useState(false); // Internal: polling for Claude's save
   const [copied, setCopied] = useState(false);
+  const [resumeMsg, setResumeMsg] = useState(""); // result of "import from resume/"
   const baseline = useRef<string | null>(null); // serialized profile before parse; null = not yet established
   const modeRef = useRef(mode); // current mode, for async guards (closures go stale)
   modeRef.current = mode;
@@ -132,6 +133,38 @@ export default function ProfilePanel({
     }
   };
 
+  // Import the résumé already sitting in the resume/ folder (no upload needed).
+  const importFromResume = async () => {
+    if (busy || waiting) return;
+    setResumeMsg("");
+    const noResume = (e: unknown) => (e as Error).message.includes("404");
+    if (mode === "internal") {
+      setBusy(true);
+      let ok = true;
+      try {
+        await api.cvSourceFromResume();
+      } catch (e) {
+        ok = false;
+        setResumeMsg(noResume(e) ? "No résumé found — add a file under resume/ first." : "Couldn't read the résumé.");
+      } finally {
+        setBusy(false);
+      }
+      if (ok) await startInternal();
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.cvFromResume();
+      await load();
+      onChanged();
+      setResumeMsg("Imported your résumé from resume/.");
+    } catch (e) {
+      setResumeMsg(noResume(e) ? "No résumé found — add a file under resume/ first." : "Couldn't parse the résumé.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const skills = profile?.skills ?? [];
 
   return (
@@ -167,16 +200,28 @@ export default function ProfilePanel({
 
       <section>
         <h3 className="text-sm font-semibold text-gray-700 mb-2">Upload CV</h3>
-        <label className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 rounded-md cursor-pointer hover:bg-indigo-100">
-          {busy ? "Working…" : waiting ? "Waiting…" : "Choose file (PDF, .txt, .md)"}
-          <input
-            type="file"
-            accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown"
-            className="hidden"
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 rounded-md cursor-pointer hover:bg-indigo-100">
+            {busy ? "Working…" : waiting ? "Waiting…" : "Choose file (PDF, .txt, .md)"}
+            <input
+              type="file"
+              accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown"
+              className="hidden"
+              disabled={busy || waiting}
+              onChange={(e) => upload(e.target.files?.[0])}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={importFromResume}
             disabled={busy || waiting}
-            onChange={(e) => upload(e.target.files?.[0])}
-          />
-        </label>
+            title="Use the résumé already saved in the resume/ folder"
+            className="px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 rounded-md hover:bg-indigo-100 disabled:opacity-50"
+          >
+            Import from <code className="text-xs">resume/</code> folder
+          </button>
+        </div>
+        {resumeMsg && <p className="mt-2 text-xs text-gray-500">{resumeMsg}</p>}
       </section>
 
       <section>

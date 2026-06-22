@@ -172,6 +172,12 @@ export const api = {
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.json() as Promise<{ chars: number }>;
   },
+  // Import the résumé already in the resume/ folder — External parses it into the
+  // profile; Internal stashes it for local Claude (then poll the profile).
+  cvFromResume: () =>
+    http<{ updated?: boolean; profile?: Profile; resume_path: string }>("/api/cv/from-resume", { method: "POST" }),
+  cvSourceFromResume: () =>
+    http<{ chars: number; resume_path: string }>("/api/cv/source/from-resume", { method: "POST" }),
   listApplications: () =>
     http<{ count: number; applications: Application[] }>("/api/applications"),
   markApplied: (id: string, applied_date?: string) =>
