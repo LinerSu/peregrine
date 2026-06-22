@@ -160,6 +160,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  // Link an orphan application to a (just-ingested) job posting — re-keys it to the
+  // job, carries the job's fields, keeps the orphan's tracker fields. Deterministic.
+  linkApplication: (id: string, job_id: string) =>
+    http<{ application: Application; job_tracked: boolean }>(`/api/applications/${id}/link`, {
+      method: "POST",
+      body: JSON.stringify({ job_id }),
+    }),
   deleteApplication: (id: string) =>
     http<{ deleted: string }>(`/api/applications/${id}`, { method: "DELETE" }),
   getStats: () => http<Insights>("/api/stats"),

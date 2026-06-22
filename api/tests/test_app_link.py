@@ -104,6 +104,108 @@ def test_create_application_orphan_when_no_job(tmp_store):
     assert r.json()["application"]["company_job_id"].startswith("manual-")
 
 
+def test_link_orphan_application_to_job(tmp_store):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+    orphan = client.post("/api/applications", json={
+        "company": "Acme", "position": "Engineer", "notes": "referred by X", "interview_date": "2026-07-01",
+    }).json()["application"]
+    assert orphan["company_job_id"].startswith("manual-")
+    oid = orphan["id"]
+    store.upsert_job(Job(id="2026-050", company="Acme", company_job_id="R9",
+                         position="Engineer", status="open", url="http://x"))
+    r = client.post(f"/api/applications/{oid}/link", json={"job_id": "2026-050"})
+    assert r.status_code == 200
+    linked = r.json()["application"]
+    assert linked["id"] == "2026-050"            # re-keyed to the job
+    assert linked["company_job_id"] == "R9"      # adopts the job's key
+    assert linked["url"] == "http://x"           # carries the job's fields
+    assert linked["notes"] == "referred by X"    # preserves the orphan's tracker fields
+    assert linked["interview_date"] == "2026-07-01"
+    assert store.get_job("2026-050").status == "applied"  # job synced to the app's status
+    ids = [a.id for a in store.list_applications()]
+    assert oid not in ids and "2026-050" in ids and len(ids) == 1  # orphan row replaced
+
+
+def test_link_syncs_job_to_orphan_status(tmp_store):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+    orphan = client.post("/api/applications", json={
+        "company": "Beta", "position": "Designer", "status": "interviewing",
+    }).json()["application"]
+    store.upsert_job(Job(id="2026-051", company="Beta", company_job_id="R1", position="Designer", status="open"))
+    client.post(f"/api/applications/{orphan['id']}/link", json={"job_id": "2026-051"})
+    assert store.get_job("2026-051").status == "interviewing"  # synced to the user's progress
+
+
+def test_orphan_ingest_marker_link_chain(tmp_store, monkeypatch):
+    """End-to-end orphan -> add-posting -> link: an ingest writes the job + a marker
+    carrying its id (what the Internal poll and the External response both surface),
+    then the deterministic link re-keys the orphan onto it. Same chain in both modes."""
+    from fastapi.testclient import TestClient
+
+    from app.agent import tools
+    from app.main import app
+
+    monkeypatch.setattr(tools.status, "record", lambda *a, **k: None)
+    client = TestClient(app)
+    orphan = client.post("/api/applications", json={"company": "Acme", "position": "Engineer"}).json()["application"]
+    saved = tools.save_ingested_job({"company": "Acme", "position": "Engineer", "description": "build things"})
+    assert saved["created"] is True
+    marker = tools.get_ingest_result()  # the poll/response payload
+    assert marker["job_id"] and marker["seq"] > 0
+    linked = client.post(f"/api/applications/{orphan['id']}/link", json={"job_id": marker["job_id"]}).json()
+    assert linked["application"]["id"] == marker["job_id"]
+    assert linked["job_tracked"] is True
+
+
+def test_link_endpoint_does_not_downgrade_actioned_job(tmp_store):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+    orphan = client.post("/api/applications", json={"company": "Acme", "position": "Eng"}).json()["application"]
+    assert orphan["status"] == "applied"  # orphan default
+    store.upsert_job(Job(id="2026-060", company="Acme", company_job_id="R1", position="Eng", status="offer"))
+    linked = client.post(f"/api/applications/{orphan['id']}/link", json={"job_id": "2026-060"}).json()["application"]
+    assert store.get_job("2026-060").status == "offer"  # NOT downgraded to the orphan's "applied"
+    assert linked["status"] == "offer"                  # app mirrors the (more-advanced) job
+
+
+def test_link_idempotent_when_already_job_keyed(tmp_store):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+    store.upsert_job(Job(id="2026-061", company="Acme", company_job_id="R1", position="Eng", status="open"))
+    created = client.post("/api/applications", json={"company": "Acme", "position": "Eng"}).json()["application"]
+    assert created["id"] == "2026-061"  # auto-linked on create -> shares the job id
+    r = client.post("/api/applications/2026-061/link", json={"job_id": "2026-061"})
+    assert r.status_code == 200
+    assert len(store.list_applications()) == 1            # not deleted by the self-link
+    assert store.get_application("2026-061") is not None
+
+
+def test_link_404s_on_bad_ids(tmp_store):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+    store.upsert_job(Job(id="2026-052", company="Gamma", company_job_id="R1", position="PM"))
+    assert client.post("/api/applications/nope/link", json={"job_id": "2026-052"}).status_code == 404
+    orphan = client.post("/api/applications", json={"company": "Solo", "position": "Founder"}).json()["application"]
+    assert client.post(f"/api/applications/{orphan['id']}/link", json={"job_id": "ghost"}).status_code == 404
+
+
 def test_list_applications_flags_job_tracked(tmp_store):
     from fastapi.testclient import TestClient
 
