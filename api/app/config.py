@@ -79,8 +79,9 @@ def ensure_dirs() -> None:
                 f"PEREGRINE_DATASET='{DATASET}' is not a known persona. "
                 f"Choose one of: {', '.join(demo_seed.list_personas())}"
             )
-        # Seed once; reset a persona by deleting its .demo/<persona>/ dir.
-        if not JOBS_CSV.exists():
+        # Consider the dataset seeded only when its key artifacts both exist;
+        # otherwise (re)seed, so a partial/cleared dir self-heals on boot.
+        if not (JOBS_CSV.exists() and PROFILE_YML.exists()):
             demo_seed.seed(DATASET)
         return
 

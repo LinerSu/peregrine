@@ -14,17 +14,23 @@ import sys
 
 
 def main(persona: str) -> int:
+    persona = persona.strip().lower()  # config.DATASET lowercases too
+
+    # Validate the persona FIRST. demo_seed has no import side effects, whereas
+    # app.main calls ensure_dirs() at import time (which raises SystemExit on an
+    # unknown persona) — so we check here to print a clean message instead.
+    from app.demo_seed import PERSONAS
+
+    if persona not in PERSONAS:
+        print(f"FAIL {persona}: not a known persona ({', '.join(sorted(PERSONAS))})")
+        return 1
+
     # Must be set before importing app.config (it reads the env at import time).
     os.environ["PEREGRINE_DATASET"] = persona
 
     from fastapi.testclient import TestClient
 
-    from app.demo_seed import PERSONAS
     from app.main import app
-
-    if persona not in PERSONAS:
-        print(f"FAIL {persona}: not a known persona ({', '.join(sorted(PERSONAS))})")
-        return 1
 
     client = TestClient(app)
     jobs = client.get("/api/jobs").json()["jobs"]

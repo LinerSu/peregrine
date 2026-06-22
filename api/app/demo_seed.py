@@ -1,8 +1,8 @@
 """Synthetic demo personas + a seeder, for PEREGRINE_DATASET=<persona> mode.
 
 Every person, company, school and project below is **fictional** — invented to
-feel real (plausible names, comp, timelines) but matching no actual entity — so
-the dataset is safe to commit and ship. Selecting a persona via the
+feel real (plausible names, comp, timelines) and not intended to represent any
+real entity — so the dataset is safe to commit and ship. Selecting a persona via the
 PEREGRINE_DATASET env var seeds an isolated, gitignored runtime dataset on boot
 (see config.ensure_dirs), leaving any real user data untouched. Used for live
 demos, exercising new features, and CI.
