@@ -30,11 +30,17 @@ export default function JobDetail({
   // Empty {} from the API (no evaluation yet) -> null.
   const normEval = (ev: Evaluation | null) => (ev && Object.keys(ev).length ? ev : null);
 
-  const load = async () => {
-    const { job, markdown } = await api.getJob(jobId);
+  // Fetch job + evaluation in parallel. `isLive` lets the mount effect drop a
+  // stale response if jobId changed while the requests were in flight.
+  const load = async (isLive: () => boolean = () => true) => {
+    const [{ job, markdown }, ev] = await Promise.all([
+      api.getJob(jobId),
+      api.getEvaluation(jobId).catch(() => null),
+    ]);
+    if (!isLive()) return;
     setJob(job);
     setMarkdown(markdown);
-    setEvaluation(normEval(await api.getEvaluation(jobId).catch(() => null)));
+    setEvaluation(normEval(ev));
   };
 
   useEffect(() => {
@@ -42,7 +48,11 @@ export default function JobDetail({
     setEvalPrompt("");
     setWaitingEval(false);
     setEvaluation(null);
-    load();
+    let live = true;
+    load(() => live);
+    return () => {
+      live = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
 
@@ -179,7 +189,10 @@ export default function JobDetail({
       </div>
 
       <div className="flex-1 overflow-auto p-4 bg-gray-50">
-        {evaluation && (evaluation.archetype || evaluation.legitimacy_score != null) && (
+        {evaluation &&
+          (evaluation.archetype ||
+            Number.isFinite(evaluation.legitimacy_score) ||
+            evaluation.legitimacy_flags?.length) && (
           <div className="mb-4 flex flex-wrap items-center gap-2">
             {evaluation.archetype && (
               <span
@@ -189,12 +202,12 @@ export default function JobDetail({
                 {evaluation.archetype}
               </span>
             )}
-            {evaluation.legitimacy_score != null && (
+            {Number.isFinite(evaluation.legitimacy_score) && (
               <span
                 className={`px-2 py-0.5 text-xs font-medium rounded-full ${legitimacyClass(evaluation.legitimacy_score)}`}
                 title="Posting legitimacy — higher means less likely a ghost job"
               >
-                legitimacy {evaluation.legitimacy_score.toFixed(2)}
+                legitimacy {evaluation.legitimacy_score!.toFixed(2)}
               </span>
             )}
             {evaluation.legitimacy_flags?.map((f) => (
