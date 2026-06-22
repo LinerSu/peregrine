@@ -84,7 +84,7 @@ def compile_pdf(tex: str, out_pdf: Path) -> bool:
         work = Path(d)
         (work / "cv.tex").write_text(tex, encoding="utf-8")
         try:
-            subprocess.run(
+            proc = subprocess.run(
                 [engine, "-interaction=nonstopmode", "-halt-on-error", "cv.tex"],
                 cwd=work, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 timeout=60, env=env,
@@ -92,8 +92,12 @@ def compile_pdf(tex: str, out_pdf: Path) -> bool:
         except (OSError, subprocess.SubprocessError):
             return False
         produced = work / "cv.pdf"
-        if not produced.exists():
+        # A non-zero exit means the run failed (and may have left a partial cv.pdf) —
+        # don't treat that as success.
+        if proc.returncode != 0 or not produced.exists():
             return False
         out_pdf.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(produced, out_pdf)
+        tmp = out_pdf.with_suffix(out_pdf.suffix + ".tmp")
+        shutil.copy(produced, tmp)
+        tmp.replace(out_pdf)  # atomic — a concurrent GET /cv.pdf never sees a partial copy
         return True

@@ -52,7 +52,11 @@ def test_compile_pdf_hardens_io_and_no_shell_escape(tmp_path, monkeypatch):
         captured["cmd"] = cmd
         captured["env"] = kw.get("env", {})
         (Path(kw["cwd"]) / "cv.pdf").write_bytes(b"%PDF-1.4")  # simulate a successful compile
-        return None
+
+        class _Proc:
+            returncode = 0
+
+        return _Proc()
 
     monkeypatch.setattr(cv_render.subprocess, "run", fake_run)
     out = tmp_path / "o.pdf"
@@ -61,6 +65,23 @@ def test_compile_pdf_hardens_io_and_no_shell_escape(tmp_path, monkeypatch):
     assert captured["env"].get("openin_any") == "p"
     assert captured["env"].get("openout_any") == "p"
     assert "-shell-escape" not in captured["cmd"]
+
+
+def test_compile_pdf_fails_on_nonzero_exit(tmp_path, monkeypatch):
+    monkeypatch.setattr(cv_render.shutil, "which", lambda e: "/usr/bin/pdflatex" if e == "pdflatex" else None)
+
+    def fake_run(cmd, **kw):
+        (Path(kw["cwd"]) / "cv.pdf").write_bytes(b"%PDF-partial")  # a partial PDF is left behind
+
+        class _Proc:
+            returncode = 1  # LaTeX failed
+
+        return _Proc()
+
+    monkeypatch.setattr(cv_render.subprocess, "run", fake_run)
+    out = tmp_path / "o.pdf"
+    assert cv_render.compile_pdf("x", out) is False  # non-zero exit -> not success
+    assert not out.exists()  # the partial/broken PDF is not served
 
 
 def test_extract_latex_takes_first_end_marker():
