@@ -198,6 +198,9 @@ export const api = {
     }),
   deleteApplication: (id: string) =>
     http<{ deleted: string }>(`/api/applications/${id}`, { method: "DELETE" }),
+  // Whether External-mode LLM calls are real or mock placeholders (no key). The UI
+  // warns in External mode when mock so results aren't mistaken for real analysis.
+  getLlmStatus: () => http<{ mock: boolean; provider: string }>("/api/llm-status"),
   getStats: () => http<Insights>("/api/stats"),
   getOutcomes: () => http<Outcomes>("/api/stats/outcomes"),
   // Pattern insights: External generates the narrative via the LLM; Internal polls the

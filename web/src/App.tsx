@@ -30,6 +30,7 @@ export default function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [llmMock, setLlmMock] = useState(false); // External mode has no LLM key -> mock
   // External = API-backed; Internal = local Claude terminal. Lifted here (and
   // persisted) so EVERY LLM-backed tab switches its behavior to match the global
   // mode — the single source of truth is this toggle in the header.
@@ -54,6 +55,15 @@ export default function App() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Is the API backed by a real LLM, or returning mock placeholders (no key)?
+  useEffect(() => {
+    let live = true;
+    api.getLlmStatus().then((s) => live && setLlmMock(s.mock)).catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -112,10 +122,22 @@ export default function App() {
           <span className="text-[10px] text-gray-400">
             {mode === "internal"
               ? "LLM actions run on local Claude (free)"
+              : llmMock
+              ? "No LLM key — responses are mock"
               : "LLM actions use the API (metered)"}
           </span>
         </div>
       </header>
+
+      {mode === "external" && llmMock && (
+        <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-800">
+          <span className="font-semibold">External mode is using mock responses</span> — AI
+          results (fit scores, cover letters, CVs, chat) are <span className="font-semibold">placeholders,
+          not real analysis</span>. Configure a real <code className="px-1 rounded bg-amber-100">LLM_PROVIDER</code> + key
+          in <code className="px-1 rounded bg-amber-100">.env</code>, or switch to{" "}
+          <span className="font-semibold">Internal (Claude)</span> above — free, runs on your local Claude.
+        </div>
+      )}
 
       <main className="flex flex-1 min-h-0">
         <section className="w-1/3 max-w-md border-r border-gray-200 bg-white">

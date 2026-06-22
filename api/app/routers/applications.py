@@ -148,6 +148,16 @@ def update_application(app_id: str, payload: dict):
     return {"application": updated.model_dump()}
 
 
+@router.get("/llm-status")
+def llm_status():
+    """Whether External-mode LLM calls are real or mock placeholders (no key configured).
+    The web UI warns when External + mock so results aren't mistaken for real analysis."""
+    from ..agent.llm import active_provider_is_mock
+    from ..config import get_settings
+
+    return {"mock": active_provider_is_mock(), "provider": get_settings().llm_provider.lower()}
+
+
 @router.get("/profile")
 def get_profile():
     return store.read_profile()
