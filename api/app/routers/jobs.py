@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 
 from .. import data_store as store
 from ..agent import tools
-from ..schemas import CoverLetterInput, EvaluationInput, UpskillingInput
+from ..schemas import CoverLetterInput, CvTexInput, EvaluationInput, UpskillingInput
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -150,3 +151,42 @@ def read_cover_letter(job_id: str):
     if not store.get_job(job_id):
         raise HTTPException(404, f"job {job_id} not found")
     return tools.get_cover_letter(job_id) or {}
+
+
+@router.post("/{job_id}/cv")
+def generate_tailored_cv(job_id: str):
+    """External mode: draft a job-tailored CV (LaTeX) with the LLM + compile a PDF."""
+    result = tools.generate_tailored_cv(job_id)
+    if "error" in result:
+        raise HTTPException(404, result["error"])
+    return result
+
+
+@router.put("/{job_id}/cv")
+def save_tailored_cv(job_id: str, payload: CvTexInput):
+    """Persist a tailored-CV LaTeX produced outside the API (e.g. local Claude) and
+    compile its PDF."""
+    result = tools.save_tailored_cv(job_id, payload.tex)
+    if "error" in result:
+        raise HTTPException(404, result["error"])
+    return result
+
+
+@router.get("/{job_id}/cv")
+def read_tailored_cv(job_id: str):
+    """Read the last tailored CV ({} if none yet) — used by the UI poll. 404s on an
+    unknown job, consistent with GET /{job_id}."""
+    if not store.get_job(job_id):
+        raise HTTPException(404, f"job {job_id} not found")
+    return tools.get_tailored_cv(job_id) or {}
+
+
+@router.get("/{job_id}/cv.pdf")
+def download_tailored_cv_pdf(job_id: str):
+    """Download the compiled tailored-CV PDF (404 if not compiled — e.g. no LaTeX)."""
+    if not store.get_job(job_id):
+        raise HTTPException(404, f"job {job_id} not found")
+    path = store.cv_pdf_path(job_id)
+    if not path.exists():
+        raise HTTPException(404, "no compiled PDF for this job")
+    return FileResponse(path, media_type="application/pdf", filename=f"cv-{job_id}.pdf")

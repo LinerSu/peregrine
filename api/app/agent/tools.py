@@ -7,6 +7,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+from .. import cv_render
 from .. import data_store as store
 from .. import status
 from ..config import APPLICATIONS_DIR
@@ -17,7 +18,7 @@ from ..roles import classify_role
 from ..schemas import Application, Job
 from . import providers
 from .registry import registry
-from .subagents import cover_letter_writer, evaluator, reviewer, upskiller
+from .subagents import cover_letter_writer, cv_tailor, evaluator, reviewer, upskiller
 
 log = get_logger(__name__)
 
@@ -329,6 +330,39 @@ def save_cv_source(text: str) -> dict[str, Any]:
     parse it (config/cv_source.md). No LLM."""
     store.write_cv_source(text)
     return {"chars": len(text)}
+
+
+def generate_tailored_cv(job_id: str) -> dict[str, Any]:
+    """External mode: draft a job-tailored CV (LaTeX) with the LLM, persist it, and
+    compile a PDF if a LaTeX engine is available."""
+    job = store.get_job(job_id)
+    if not job:
+        return {"error": f"job {job_id} not found"}
+    status.record("tailor_cv_start", job_id, current_task=f"Tailoring CV for {job_id}")
+    job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
+    tex = cv_tailor(store.read_profile(), job.position, job.company, job_md)
+    saved = save_tailored_cv(job_id, tex)
+    status.record("tailor_cv_done", job_id, current_task="idle")
+    return saved
+
+
+def save_tailored_cv(job_id: str, tex: str) -> dict[str, Any]:
+    """Persist tailored-CV LaTeX and (best-effort) compile a PDF — same store path
+    for External and Internal (Internal: Claude writes the .tex, then PUTs it). No LLM."""
+    job = store.get_job(job_id)
+    if not job:
+        return {"error": f"job {job_id} not found"}
+    store.write_cv_tex(job_id, tex)
+    pdf_available = cv_render.compile_pdf(tex, store.cv_pdf_path(job_id))
+    return {"job_id": job_id, "tex": tex, "pdf_available": pdf_available}
+
+
+def get_tailored_cv(job_id: str) -> dict[str, Any] | None:
+    """Read the last tailored CV (None if never generated)."""
+    tex = store.read_cv_tex(job_id)
+    if tex is None:
+        return None
+    return {"job_id": job_id, "tex": tex, "pdf_available": store.cv_pdf_path(job_id).exists()}
 
 
 # --------------------------------------------------------------------------- #

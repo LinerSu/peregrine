@@ -42,6 +42,11 @@ CONTRACT = {
         ("PUT", "/api/profile"),      # Internal: store-only profile merge
         ("GET", "/api/profile"),      # poll
     ],
+    "tailored-cv": [
+        ("POST", "/api/jobs/{job_id}/cv"),
+        ("PUT", "/api/jobs/{job_id}/cv"),
+        ("GET", "/api/jobs/{job_id}/cv"),
+    ],
 }
 
 

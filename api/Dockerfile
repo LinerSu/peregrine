@@ -5,6 +5,13 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
+# LaTeX toolchain for tailored-CV PDF compilation. The app degrades gracefully to
+# tex-only when LaTeX is absent (so CI, which doesn't build this image, stays fast),
+# but the running image ships an engine so PDFs actually render.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
