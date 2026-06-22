@@ -1,6 +1,8 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { api, type Application } from "../api";
+import type { AssistantMode } from "../App";
 import { salaryRange, statusClass } from "../format";
+import JobIngestPanel from "./JobIngestPanel";
 
 const STATUSES = ["applied", "interviewing", "offer", "rejected", "closed"];
 
@@ -20,9 +22,11 @@ const blankForm = { company: "", position: "", status: "applied", applied_date: 
 // filter, and sortable columns.
 export default function ApplicationsTable({
   applications,
+  mode,
   onChanged,
 }: {
   applications: Application[];
+  mode: AssistantMode;
   onChanged: () => void;
 }) {
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -30,6 +34,8 @@ export default function ApplicationsTable({
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "applied_date", dir: "desc" });
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(blankForm);
+  const [addingPostingFor, setAddingPostingFor] = useState<string | null>(null); // orphan id
+  const [linkErr, setLinkErr] = useState<string | null>(null);
 
   const patch = async (id: string, change: Partial<Application>) => {
     setSavingId(id);
@@ -149,16 +155,22 @@ export default function ApplicationsTable({
             </thead>
             <tbody>
               {rows.map((a) => (
-                <tr key={a.id} className="border-t border-gray-100 align-top">
+                <Fragment key={a.id}>
+                <tr className="border-t border-gray-100 align-top">
                   <td className="px-3 py-2 font-medium">
                     {a.company}
                     {a.job_tracked === false && (
-                      <span
-                        title="No tracked job posting backs this application — add one to evaluate / tailor for it"
-                        className="ml-1.5 px-1.5 py-0.5 text-[10px] rounded-full bg-amber-100 text-amber-700 align-middle"
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLinkErr(null); // don't carry one row's error to another
+                          setAddingPostingFor((id) => (id === a.id ? null : a.id));
+                        }}
+                        title="No tracked posting backs this application — click to add the job posting (URL / paste / PDF) and link it"
+                        className="ml-1.5 px-1.5 py-0.5 text-[10px] rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 align-middle"
                       >
-                        ⚠ no posting
-                      </span>
+                        {addingPostingFor === a.id ? "× cancel" : "⚠ add posting"}
+                      </button>
                     )}
                   </td>
                   <td className="px-3 py-2">{a.position}</td>
@@ -221,6 +233,39 @@ export default function ApplicationsTable({
                     </button>
                   </td>
                 </tr>
+                {addingPostingFor === a.id && (
+                  <tr className="bg-amber-50/50">
+                    <td colSpan={9} className="px-3 py-3 border-t border-amber-100">
+                      <p className="mb-2 text-xs text-gray-600">
+                        Add the posting for{" "}
+                        <span className="font-medium">{a.company} — {a.position}</span>; it will be
+                        parsed into a tracked job and linked here (this row will then show the
+                        posting's company &amp; title).
+                      </p>
+                      {/* Only one ingest panel is mounted at a time — addingPostingFor holds a
+                          single id, and AddJobsBar lives on another tab — so the shared Internal
+                          ingest marker can't resolve two applications to the same job. */}
+                      <JobIngestPanel
+                        mode={mode}
+                        textPlaceholder={`Paste the ${a.company} job posting (or save the page as PDF and upload it)…`}
+                        onIngested={async (jobId) => {
+                          try {
+                            await api.linkApplication(a.id, jobId);
+                            setLinkErr(null);
+                            setAddingPostingFor(null);
+                            onChanged();
+                          } catch {
+                            setLinkErr(
+                              "The job was added but couldn't be linked to this application — refresh and try the badge again."
+                            );
+                          }
+                        }}
+                      />
+                      {linkErr && <p className="mt-2 text-xs text-rose-600">{linkErr}</p>}
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>
