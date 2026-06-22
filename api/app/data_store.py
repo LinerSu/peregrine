@@ -328,6 +328,27 @@ def write_ingest_result(data: dict[str, Any]) -> None:
     tmp.replace(path)  # atomic
 
 
+def read_patterns() -> dict[str, Any]:
+    """The last saved pattern-insights narrative ({} if none). Same store path for
+    External (POST) and Internal (PUT) — the UI polls this."""
+    path = config.PATTERNS_FILE
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return {}
+
+
+def write_patterns(data: dict[str, Any]) -> str:
+    config.PATTERNS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    path = config.PATTERNS_FILE
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    tmp.replace(path)  # atomic — the Internal poll never reads a partial file
+    return "data/patterns.json"
+
+
 def read_job_source() -> str:
     """The raw job posting the user last pasted/uploaded (Internal mode parses this)."""
     return config.JOB_SOURCE.read_text(encoding="utf-8") if config.JOB_SOURCE.exists() else ""

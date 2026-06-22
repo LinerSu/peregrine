@@ -26,6 +26,7 @@ data/*.csv
 !data/*.example.csv
 data/*.tmp
 data/*.bak
+data/patterns.json
 data/jobs/*.md
 data/jobs/*.json
 !data/jobs/.gitkeep

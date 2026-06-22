@@ -1,27 +1,88 @@
-import { useEffect, useState } from "react";
-import { api, type Insights, type Outcomes } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { api, type Insights, type Outcomes, type PatternInsights } from "../api";
+import type { AssistantMode } from "../App";
 
 // Pipeline analytics: a conversion funnel, fit-score distribution, weekly activity,
-// plus outcome/rejection analytics (conversion rates, outcomes by fit-band & role,
-// fit-score calibration, and stale-application follow-ups). Plain Tailwind bars.
-export default function InsightsPanel() {
+// outcome/rejection analytics, and an LLM "pattern insights" narrative (both modes).
+export default function InsightsPanel({ mode }: { mode: AssistantMode }) {
   const [data, setData] = useState<Insights | null>(null);
   const [outcomes, setOutcomes] = useState<Outcomes | null>(null);
   const [err, setErr] = useState("");
+  const [patterns, setPatterns] = useState<PatternInsights | null>(null);
+  const [analyzing, setAnalyzing] = useState(false); // External: POST in flight
+  const [waiting, setWaiting] = useState(false); // Internal: polling for Claude's save
+  const [patErr, setPatErr] = useState("");
+  const [copied, setCopied] = useState(false);
+  const baseline = useRef<string>("{}"); // JSON snapshot before an Internal run
 
   useEffect(() => {
     let live = true;
-    // allSettled so an outcomes failure doesn't block the core funnel/distribution.
-    Promise.allSettled([api.getStats(), api.getOutcomes()]).then(([s, o]) => {
+    // allSettled so any one failure doesn't block the rest of the panel.
+    Promise.allSettled([api.getStats(), api.getOutcomes(), api.getPatterns()]).then(([s, o, p]) => {
       if (!live) return;
       if (s.status === "fulfilled") setData(s.value as Insights);
       else setErr((s.reason as Error).message);
       if (o.status === "fulfilled") setOutcomes(o.value as Outcomes);
+      if (p.status === "fulfilled") setPatterns(p.value as PatternInsights);
     });
     return () => {
       live = false;
     };
   }, []);
+
+  // Internal: poll the patterns store until local Claude's save changes the snapshot
+  // (whole object, not just the summary, so a same-summary re-run still resolves).
+  useEffect(() => {
+    if (!waiting) return;
+    if (mode !== "internal") {
+      setWaiting(false);
+      return;
+    }
+    const started = Date.now();
+    let live = true;
+    let inFlight = false;
+    const id = setInterval(async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const p = await api.getPatterns().catch(() => null);
+        if (!live) return;
+        if (p && p.summary && JSON.stringify(p) !== baseline.current) {
+          setPatterns(p);
+          setWaiting(false);
+        } else if (Date.now() - started > 180_000) {
+          setWaiting(false);
+          setPatErr("Didn't detect a saved analysis yet — run the command, then check back.");
+        }
+      } finally {
+        inFlight = false;
+      }
+    }, 3000);
+    return () => {
+      live = false;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting, mode]);
+
+  const runExternal = async () => {
+    setAnalyzing(true);
+    setPatErr("");
+    try {
+      setPatterns(await api.analyzePatterns());
+    } catch {
+      setPatErr("Couldn't analyze — check the LLM provider/key, or switch to Internal mode.");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const startInternal = () => {
+    baseline.current = JSON.stringify(patterns ?? {});
+    setPatErr("");
+    setCopied(false);
+    setWaiting(true);
+  };
 
   if (err) return <div className="p-6 text-sm text-rose-600">Couldn't load insights: {err}</div>;
   if (!data) return <div className="p-6 text-gray-400">Loading…</div>;
@@ -64,6 +125,88 @@ export default function InsightsPanel() {
             {data.totals.jobs} jobs · {data.totals.evaluated} evaluated · {data.totals.applications} applications.
           </p>
         </div>
+
+        {/* Pattern insights — LLM narrative over the outcomes (both modes) */}
+        <section className={section}>
+          <div className="flex items-center justify-between gap-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Pattern insights</h4>
+            {mode === "external" ? (
+              <button
+                type="button"
+                onClick={runExternal}
+                disabled={analyzing}
+                className="px-2.5 py-1 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {analyzing ? "Analyzing…" : patterns?.summary ? "Re-analyze" : "Analyze patterns"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={startInternal}
+                disabled={waiting}
+                className="px-2.5 py-1 text-xs font-medium text-indigo-700 bg-indigo-50 rounded-md hover:bg-indigo-100 disabled:opacity-50"
+              >
+                {waiting ? "Waiting…" : patterns?.summary ? "Re-analyze (Internal)" : "Analyze (Internal)"}
+              </button>
+            )}
+          </div>
+
+          {mode === "internal" && waiting && (
+            <div className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-sm">
+              <div className="flex items-center gap-2">
+                <code className="flex-1 px-2 py-1 rounded bg-white border border-emerald-200 text-gray-800">
+                  analyze my patterns
+                </code>
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigator.clipboard?.writeText("analyze my patterns").then(() => setCopied(true)).catch(() => {})
+                  }
+                  className="px-2 py-1 text-xs font-medium text-emerald-700 bg-white border border-emerald-300 rounded hover:bg-emerald-100"
+                >
+                  {copied ? "Copied" : "Copy"}
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-emerald-700">
+                Run it in the Claude terminal — this card updates when it saves.
+              </p>
+            </div>
+          )}
+
+          {patErr && <p className="mt-2 text-xs text-rose-600">{patErr}</p>}
+
+          {patterns?.summary ? (
+            <div className="mt-3 space-y-3 text-sm">
+              <p className="text-gray-700">{patterns.summary}</p>
+              {(["wins", "risks", "actions"] as const).map((k) =>
+                Array.isArray(patterns[k]) && patterns[k]!.length > 0 ? (
+                  <div key={k}>
+                    <div
+                      className={`text-xs font-semibold uppercase tracking-wide mb-1 ${
+                        k === "wins" ? "text-emerald-600" : k === "risks" ? "text-rose-500" : "text-indigo-600"
+                      }`}
+                    >
+                      {k === "wins" ? "What's working" : k === "risks" ? "Risks" : "Do next"}
+                    </div>
+                    <ul className="list-disc list-inside space-y-0.5 text-gray-600">
+                      {patterns[k]!.map((item, i) => (
+                        <li key={i}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null
+              )}
+            </div>
+          ) : (
+            !waiting && (
+              <p className="mt-2 text-sm text-gray-400">
+                {mode === "external"
+                  ? "Generate a grounded read of what's working, what's at risk, and what to do next."
+                  : "Analyze your outcomes locally with Claude (free) — click Analyze (Internal)."}
+              </p>
+            )
+          )}
+        </section>
 
         {/* Funnel */}
         <section className={section}>

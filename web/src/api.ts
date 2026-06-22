@@ -80,6 +80,14 @@ export interface Outcomes {
   stale_days: number;
 }
 
+// LLM narrative over the outcomes ({} when none yet). External generates; Internal saves.
+export interface PatternInsights {
+  summary?: string;
+  wins?: string[];
+  risks?: string[];
+  actions?: string[];
+}
+
 // Structured fit evaluation (v2). Empty object ({}) when a job has none yet.
 export interface Evaluation {
   job_id?: string;
@@ -192,6 +200,10 @@ export const api = {
     http<{ deleted: string }>(`/api/applications/${id}`, { method: "DELETE" }),
   getStats: () => http<Insights>("/api/stats"),
   getOutcomes: () => http<Outcomes>("/api/stats/outcomes"),
+  // Pattern insights: External generates the narrative via the LLM; Internal polls the
+  // store after local Claude saves it (PUT is done by the skill, not the web).
+  analyzePatterns: () => http<PatternInsights>("/api/stats/patterns", { method: "POST" }),
+  getPatterns: () => http<PatternInsights>("/api/stats/patterns"),
   getProfile: () => http<Profile>("/api/profile"),
   getPreferences: () => http<Targets>("/api/preferences"),
   savePreferences: (t: Targets) =>
