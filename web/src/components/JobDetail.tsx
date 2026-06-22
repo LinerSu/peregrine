@@ -498,7 +498,8 @@ export default function JobDetail({
             </pre>
             {!cvPdf && (
               <p className="px-3 pb-2 text-xs text-gray-400">
-                PDF not compiled here (no LaTeX engine) — copy the .tex and compile it locally.
+                No PDF — LaTeX isn't installed here, or the document didn't compile. Copy the .tex
+                and compile it locally.
               </p>
             )}
           </div>
