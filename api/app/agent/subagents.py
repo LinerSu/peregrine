@@ -100,6 +100,52 @@ def upskiller(job_md: str, profile: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _as_str_list(value: Any) -> list[str]:
+    """Coerce untrusted LLM output to a list of strings: a list -> stringified items, a
+    lone string -> a single item (never split into characters), anything else -> []."""
+    if isinstance(value, list):
+        return [str(x) for x in value]
+    if isinstance(value, str):
+        return [value]
+    return []
+
+
+def patterns_analyst(outcomes: dict[str, Any]) -> dict[str, Any]:
+    """Turn the deterministic outcome analytics into a short, grounded narrative:
+    what's working, what's at risk, and what to do next."""
+    llm = LLMClient()
+    messages = [
+        {"role": "system", "content": load_skill("patterns")},
+        {
+            "role": "user",
+            "content": (
+                "Application outcome analytics (JSON):\n```\n"
+                + json.dumps(outcomes, ensure_ascii=False, indent=2)
+                + "\n```\n\nGround every statement in these numbers — do NOT invent data. If the "
+                "sample is small (few applications), say so and keep conclusions tentative.\n\n"
+                "Return ONLY a JSON object with keys: summary (string), wins (string[]), "
+                "risks (string[]), actions (string[])."
+            ),
+        },
+    ]
+    result = _json_from_text(llm.complete(messages).text)
+    if "summary" not in result:
+        # mock / provider echo — deterministic fallback so the UI always has something.
+        result = {
+            "summary": "(mock) Configure an LLM provider for a real pattern analysis, "
+            "or use Internal mode to analyze with local Claude.",
+            "actions": ["Set an LLM provider + key (External), or switch to Internal mode."],
+        }
+    # Normalize untrusted output: always the four keys, lists of strings (never null,
+    # never a non-iterable, never a string split into characters).
+    return {
+        "summary": str(result.get("summary", "")),
+        "wins": _as_str_list(result.get("wins")),
+        "risks": _as_str_list(result.get("risks")),
+        "actions": _as_str_list(result.get("actions")),
+    }
+
+
 _MOCK_MARKER = "Running in **mock** LLM mode"
 
 

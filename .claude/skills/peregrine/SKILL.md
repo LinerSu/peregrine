@@ -1,6 +1,6 @@
 ---
 name: peregrine-internal
-description: Run Peregrine job-search analyses locally and save the result so the web UI updates. Use when working in the Peregrine repo and the user asks to "evaluate fit", "analyze skill gaps", or "draft a cover letter" or "tailor my cv" for a job id like 2026-001, or "parse my cv" to build the profile, or "ingest the job I pasted" to add a posting.
+description: Run Peregrine job-search analyses locally and save the result so the web UI updates. Use when working in the Peregrine repo and the user asks to "evaluate fit", "analyze skill gaps", or "draft a cover letter" or "tailor my cv" for a job id like 2026-001, or "parse my cv" to build the profile, or "ingest the job I pasted" to add a posting, or "analyze my patterns" to read application outcomes.
 ---
 
 # Peregrine — Internal-mode worker
@@ -108,10 +108,28 @@ the local API** so the web page reflects it exactly like External (API) mode.
    ```
 4. Tell the user it's added — the Jobs tab will show it (then they can evaluate it, etc.).
 
+## "analyze my patterns"
+
+1. Fetch the deterministic outcome analytics:
+   ```bash
+   curl -s http://localhost:8000/api/stats/outcomes
+   ```
+2. Follow the rubric in `.agents/skills/patterns/SKILL.md`: a grounded read of what's
+   working / at risk / to do. **Ground every claim in those numbers — never invent
+   data**, and keep it tentative when the sample is small.
+3. Persist it (this is what fills the **Pattern insights** card in the Insights tab):
+   ```bash
+   curl -s -X PUT http://localhost:8000/api/stats/patterns \
+     -H 'content-type: application/json' \
+     -d '{"summary":"<1–3 sentences>","wins":["..."],"risks":["..."],"actions":["..."]}'
+   ```
+4. Tell the user it's saved — the Insights tab will show it.
+
 ## Rules
 - **Never fabricate** skills or experience the profile doesn't support — ground every
   strength in evidence (same rule as External mode).
 - Use the **`PUT`/store-only** routes above — they only *store* what you send; the
   reasoning is yours. Do **not** call the metered routes (`POST .../evaluate`,
   `.../upskilling`, `.../cover-letter`, `.../cv`, `/api/cv`, `/api/jobs/ingest-doc`,
-  `/api/jobs/ingest`) — those spend an API key, which Internal mode exists to avoid.
+  `/api/jobs/ingest`, `POST /api/stats/patterns`) — those spend an API key, which
+  Internal mode exists to avoid.

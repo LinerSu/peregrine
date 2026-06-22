@@ -19,7 +19,15 @@ from ..roles import classify_role
 from ..schemas import Application, Job
 from . import providers
 from .registry import registry
-from .subagents import cover_letter_writer, cv_tailor, evaluator, job_parser, reviewer, upskiller
+from .subagents import (
+    cover_letter_writer,
+    cv_tailor,
+    evaluator,
+    job_parser,
+    patterns_analyst,
+    reviewer,
+    upskiller,
+)
 
 log = get_logger(__name__)
 
@@ -323,6 +331,33 @@ def get_cover_letter(job_id: str) -> dict[str, Any] | None:
     """Read the last saved cover-letter draft (None if never generated)."""
     content = store.read_cover_letter(job_id)
     return {"job_id": job_id, "content": content} if content is not None else None
+
+
+def analyze_patterns() -> dict[str, Any]:
+    """External: compute the outcome analytics, ask the LLM for a grounded narrative
+    (what's working / at risk / to do), and persist it. Same store path as Internal."""
+    from datetime import date
+
+    from ..stats import compute_outcomes
+
+    status.record("patterns_start", "patterns", current_task="Analyzing application patterns")
+    outcomes = compute_outcomes(store.list_applications(), date.today())
+    insight = patterns_analyst(outcomes)
+    saved = save_patterns(insight)
+    status.record("patterns_done", "patterns", current_task="idle")
+    return saved
+
+
+def save_patterns(insight: dict[str, Any]) -> dict[str, Any]:
+    """Persist a pattern-insights narrative — same store path for External and Internal
+    (Internal: local Claude analyzes the outcomes, then PUTs the result here). No LLM."""
+    store.write_patterns(insight)
+    return insight
+
+
+def get_patterns() -> dict[str, Any]:
+    """Read the last saved pattern-insights narrative ({} if none) — the UI poll target."""
+    return store.read_patterns()
 
 
 def save_profile(fields: dict[str, Any]) -> dict[str, Any]:

@@ -182,7 +182,7 @@ export default function App() {
               <ApplicationsTable applications={applications} mode={mode} onChanged={refresh} />
             )}
 
-            {tab === "insights" && <InsightsPanel />}
+            {tab === "insights" && <InsightsPanel mode={mode} />}
 
             {tab === "targets" && <PreferencesPanel onChanged={refresh} />}
 

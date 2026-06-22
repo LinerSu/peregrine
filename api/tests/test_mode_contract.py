@@ -47,6 +47,11 @@ CONTRACT = {
         ("PUT", "/api/jobs/{job_id}/cv"),
         ("GET", "/api/jobs/{job_id}/cv"),
     ],
+    "patterns": [
+        ("POST", "/api/stats/patterns"),   # External: LLM narrative over the outcomes
+        ("PUT", "/api/stats/patterns"),    # Internal: store-only (local Claude's narrative)
+        ("GET", "/api/stats/patterns"),    # poll
+    ],
 }
 
 

@@ -40,6 +40,7 @@ LOGS_DIR = ROOT / "logs"
 
 JOBS_CSV = DATA_DIR / "jobs.csv"
 APPLICATIONS_CSV = DATA_DIR / "applications.csv"
+PATTERNS_FILE = DATA_DIR / "patterns.json"  # saved pattern-insights narrative (singleton)
 PROFILE_YML = CONFIG_DIR / "profile.yml"
 CV_SOURCE = CONFIG_DIR / "cv_source.md"  # raw CV text the user submits (Internal mode reads it)
 JOB_SOURCE = CONFIG_DIR / "job_source.md"  # raw job posting the user pastes/uploads (Internal mode reads it)
