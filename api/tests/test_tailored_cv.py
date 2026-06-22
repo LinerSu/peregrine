@@ -64,7 +64,7 @@ def test_compile_pdf_hardens_io_and_no_shell_escape(tmp_path, monkeypatch):
     # File I/O restricted to cwd; \write18 shell-escape never enabled.
     assert captured["env"].get("openin_any") == "p"
     assert captured["env"].get("openout_any") == "p"
-    assert "-shell-escape" not in captured["cmd"]
+    assert "-no-shell-escape" in captured["cmd"]  # explicitly disabled, not distro-default
 
 
 def test_compile_pdf_fails_on_nonzero_exit(tmp_path, monkeypatch):

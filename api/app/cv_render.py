@@ -85,7 +85,7 @@ def compile_pdf(tex: str, out_pdf: Path) -> bool:
         (work / "cv.tex").write_text(tex, encoding="utf-8")
         try:
             proc = subprocess.run(
-                [engine, "-interaction=nonstopmode", "-halt-on-error", "cv.tex"],
+                [engine, "-no-shell-escape", "-interaction=nonstopmode", "-halt-on-error", "cv.tex"],
                 cwd=work, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 timeout=60, env=env,
             )

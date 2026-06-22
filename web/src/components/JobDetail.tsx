@@ -170,7 +170,8 @@ export default function JobDetail({
         const res = await api.getCv(jobId).catch(() => null);
         if (!live) return;
         const tex = res?.tex ?? null;
-        if (tex != null && tex !== cvTexBaseline.current) {
+        const snap = JSON.stringify({ tex, pdf: !!res?.pdf_available });
+        if (tex != null && snap !== cvTexBaseline.current) {
           setCvTex(tex);
           setCvPdf(!!res?.pdf_available);
           setCvTexCopied(false);
@@ -236,7 +237,8 @@ export default function JobDetail({
     setCvError("");
     if (mode === "internal") {
       if (waitingCvTex) return; // already waiting on a save — don't restart/overlap
-      cvTexBaseline.current = cvTex;
+      // snapshot both .tex and pdf so a PDF flip on an unchanged .tex still resolves
+      cvTexBaseline.current = JSON.stringify({ tex: cvTex, pdf: cvPdf });
       setCvTexPrompt(`tailor my cv for ${jobId}`);
       setCvTexPromptCopied(false);
       setWaitingCvTex(true);
