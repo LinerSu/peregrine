@@ -241,6 +241,17 @@ def write_profile(data: dict[str, Any]) -> None:
     _write_yaml(config.PROFILE_YML, data)
 
 
+def read_cv_source() -> str:
+    """The raw CV text the user last submitted (Internal mode reads this to parse)."""
+    return config.CV_SOURCE.read_text(encoding="utf-8") if config.CV_SOURCE.exists() else ""
+
+
+def write_cv_source(text: str) -> str:
+    config.CV_SOURCE.parent.mkdir(parents=True, exist_ok=True)
+    config.CV_SOURCE.write_text(text, encoding="utf-8")
+    return "config/cv_source.md"
+
+
 def read_targets() -> dict[str, Any]:
     """What the user is looking for (search intent), stored under profile.targets."""
     return read_profile().get("targets", {}) or {}

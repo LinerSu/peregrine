@@ -71,11 +71,21 @@ docker compose up --build     # web -> http://localhost:5173 , api -> :8000
 - **New job board** → add a provider fn in `app/agent/providers.py` + register in `PROVIDERS`;
   add its host to `crawl_policy.ALLOWED_HOSTS` and fetch via `crawl_policy.safe_get` (never raw httpx).
 - **New capability** → add a `SKILL.md` under `.agents/skills/` + a tool in `tools.py`.
+- **New LLM feature → BOTH modes (required).** Every LLM-triggering capability ships
+  External (a metered `POST`) **and** Internal (a store-only `PUT` + a `GET` to poll),
+  and the web UI branches on the global `mode`: External calls the `POST`; Internal
+  shows a copyable guided prompt for local Claude and polls the `GET`. Add the Internal
+  command to `.claude/skills/peregrine/SKILL.md` **and** list its trigger phrase in that
+  skill's frontmatter `description` (else local Claude won't auto-invoke it).
+  `tests/test_mode_contract.py` enforces the POST/PUT/GET trio — a single-mode feature
+  fails CI.
 - **Real LLM** → set `LLM_PROVIDER` + key in `.env`.
 
-## Quality gate (local git hooks)
-Solo/local-first, no CI — checks run at commit time via tracked hooks in `hooks/`
-(enabled with `core.hooksPath`). Run **`bash scripts/install-hooks.sh`** once per clone.
+## Quality gate (CI + local git hooks)
+**CI** runs on every PR/push to `main` (`.github/workflows/ci.yml`: backend pytest +
+frontend tsc/vite build + a 5-persona demo smoke) and is **required to merge**. Local
+checks also run at commit time via tracked hooks in `hooks/` (enabled with
+`core.hooksPath`). Run **`bash scripts/install-hooks.sh`** once per clone.
 - `commit-msg` — subject must be `<type>: <summary>` (feat/fix/docs/chore/…), ≤72 chars.
 - `pre-commit` — `py_compile` staged Python + **crawl-policy guard** (blocks raw `httpx`/
   `requests`/browser-UA outside `crawl_policy.py`, so the good-bot rule can't be bypassed).

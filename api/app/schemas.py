@@ -78,6 +78,16 @@ class CoverLetterInput(BaseModel):
     content: str
 
 
+class ProfileInput(BaseModel):
+    """Body for PUT /api/profile — store-only profile merge (Internal mode: Claude
+    parses the CV, then PUTs the extracted fields). Only CV-derived keys are
+    accepted, so it can't clobber targets / comp / work_auth / preferences."""
+    name: Optional[str] = None
+    headline: Optional[str] = None
+    location: Optional[str] = None
+    skills: Optional[list[dict]] = None
+
+
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
     content: str

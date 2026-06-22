@@ -1,6 +1,6 @@
 ---
 name: peregrine-internal
-description: Run Peregrine job-search analyses locally and save the result so the web UI updates. Use when working in the Peregrine repo and the user asks to "evaluate fit", "analyze skill gaps", or "draft a cover letter" for a job id like 2026-001.
+description: Run Peregrine job-search analyses locally and save the result so the web UI updates. Use when working in the Peregrine repo and the user asks to "evaluate fit", "analyze skill gaps", or "draft a cover letter" for a job id like 2026-001, or "parse my cv" to build the profile.
 ---
 
 # Peregrine — Internal-mode worker
@@ -62,9 +62,25 @@ the local API** so the web page reflects it exactly like External (API) mode.
    ```
 5. Tell the user it's saved — the Cover letter panel will show it.
 
+## "parse my cv"
+
+1. Read the raw CV the user submitted in the web app at `config/cv_source.md`, and
+   the current `config/profile.yml`. (Under a `PEREGRINE_DATASET` demo persona these
+   live in `.demo/<persona>/config/` instead.) Extract only the CV-derived fields —
+   don't set `resume_path` (the Internal flow has only the text, no original file).
+2. Follow the rubric in `.agents/skills/cv-intake/SKILL.md`: extract name, headline,
+   location, and skills (array of `{name, level, evidence}`). Never invent skills.
+3. Persist it (this updates the **Profile** tab — store-only merge):
+   ```bash
+   curl -s -X PUT http://localhost:8000/api/profile \
+     -H 'content-type: application/json' \
+     -d '{"name":"...","headline":"...","location":"...","skills":[{"name":"...","level":"...","evidence":"..."}]}'
+   ```
+4. Tell the user it's saved — the Profile tab will refresh.
+
 ## Rules
 - **Never fabricate** skills or experience the profile doesn't support — ground every
   strength in evidence (same rule as External mode).
 - Use the **`PUT`** routes above — they only *store* what you send; the reasoning is
   yours. Do **not** call the metered `POST` routes (`.../evaluate`, `.../upskilling`,
-  `.../cover-letter`) — those spend an API key, which Internal mode exists to avoid.
+  `.../cover-letter`, `/api/cv`) — those spend an API key, which Internal mode exists to avoid.

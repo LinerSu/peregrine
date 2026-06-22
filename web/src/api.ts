@@ -106,6 +106,16 @@ export const api = {
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.json() as Promise<Record<string, unknown>>;
   },
+  // Internal mode: store the raw CV (paste or file) so local Claude can parse it.
+  saveCvSource: (text: string) =>
+    http<{ chars: number }>("/api/cv/source", { method: "PUT", body: JSON.stringify({ text }) }),
+  uploadCvSource: async (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${BASE}/api/cv/source/upload`, { method: "POST", body: fd });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json() as Promise<{ chars: number }>;
+  },
   listApplications: () =>
     http<{ count: number; applications: Application[] }>("/api/applications"),
   markApplied: (id: string, applied_date?: string) =>

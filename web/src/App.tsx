@@ -22,15 +22,20 @@ const TABS: { id: Tab; label: string }[] = [
 
 export type AssistantMode = "external" | "internal";
 
+const MODE_KEY = "peregrine.mode";
+
 export default function App() {
   const [tab, setTab] = useState<Tab>("jobs");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  // External = API-backed; Internal = local Claude terminal. Lifted here so the
-  // LLM-backed tabs (Upskilling, Job detail) can switch their behavior to match.
-  const [mode, setMode] = useState<AssistantMode>("external");
+  // External = API-backed; Internal = local Claude terminal. Lifted here (and
+  // persisted) so EVERY LLM-backed tab switches its behavior to match the global
+  // mode — the single source of truth is this toggle in the header.
+  const [mode, setMode] = useState<AssistantMode>(
+    () => (localStorage.getItem(MODE_KEY) as AssistantMode | null) ?? "external"
+  );
 
   const refresh = useCallback(async () => {
     const [{ jobs }, { applications }] = await Promise.all([
@@ -44,6 +49,10 @@ export default function App() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    localStorage.setItem(MODE_KEY, mode);
+  }, [mode]);
 
   const scan = async () => {
     setLoading(true);
@@ -69,6 +78,37 @@ export default function App() {
         <div>
           <h1 className="text-base font-bold">Peregrine</h1>
           <p className="text-xs text-gray-500">Personal AI job-search assistant</p>
+        </div>
+
+        {/* Global assistant mode — every LLM action follows this. */}
+        <div className="ml-auto flex flex-col items-end gap-0.5">
+          <div className="flex items-center rounded-md border border-gray-200 p-0.5">
+            {(["external", "internal"] as AssistantMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                title={
+                  m === "external"
+                    ? "API-backed — uses LLM_PROVIDER + key (metered)"
+                    : "Local Claude in the terminal — free on your own subscription"
+                }
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                  mode === m
+                    ? m === "internal"
+                      ? "bg-emerald-600 text-white"
+                      : "bg-indigo-600 text-white"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {m === "external" ? "External" : "Internal (Claude)"}
+              </button>
+            ))}
+          </div>
+          <span className="text-[10px] text-gray-400">
+            {mode === "internal"
+              ? "LLM actions run on local Claude (free)"
+              : "LLM actions use the API (metered)"}
+          </span>
         </div>
       </header>
 
@@ -132,7 +172,7 @@ export default function App() {
 
             {tab === "targets" && <PreferencesPanel onChanged={refresh} />}
 
-            {tab === "profile" && <ProfilePanel onChanged={refresh} />}
+            {tab === "profile" && <ProfilePanel onChanged={refresh} mode={mode} />}
 
             {tab === "upskilling" && <UpskillingPanel jobs={jobs} mode={mode} />}
           </div>

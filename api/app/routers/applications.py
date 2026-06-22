@@ -8,7 +8,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from .. import data_store as store
 from ..agent import tools
-from ..schemas import Application
+from ..schemas import Application, ProfileInput
 
 router = APIRouter(prefix="/api", tags=["applications"])
 
@@ -68,6 +68,14 @@ def get_profile():
     return store.read_profile()
 
 
+@router.put("/profile")
+def put_profile(payload: ProfileInput):
+    """Store-only profile merge (Internal mode: Claude parses the CV in the terminal,
+    then PUTs the extracted fields here). No LLM — mirrors POST /cv's merge, and only
+    the CV-derived keys are accepted (can't clobber targets/comp/etc)."""
+    return tools.save_profile(payload.model_dump(exclude_none=True))
+
+
 @router.get("/preferences")
 def get_preferences():
     """What the user is looking for (drives scan filtering + fit scoring)."""
@@ -105,3 +113,22 @@ async def upload_cv(file: UploadFile = File(...)):
     if not text.strip():
         raise HTTPException(422, "no text could be extracted from the file")
     return tools.parse_cv(text)
+
+
+@router.put("/cv/source")
+def put_cv_source(payload: dict):
+    """Store-only: save the raw CV text so Internal-mode Claude can read + parse it."""
+    return tools.save_cv_source(payload.get("text", ""))
+
+
+@router.post("/cv/source/upload")
+async def upload_cv_source(file: UploadFile = File(...)):
+    """Store-only: extract text from an uploaded CV (PDF/.txt/.md) and save it as the
+    raw source for Internal-mode parsing — no LLM call."""
+    try:
+        text = _extract_text(file.filename or "", await file.read())
+    except Exception as exc:  # corrupt/unsupported file
+        raise HTTPException(422, f"could not read file: {exc}")
+    if not text.strip():
+        raise HTTPException(422, "no text could be extracted from the file")
+    return tools.save_cv_source(text)
