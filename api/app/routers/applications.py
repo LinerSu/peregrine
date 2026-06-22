@@ -220,3 +220,37 @@ async def upload_cv_source(file: UploadFile = File(...)):
     if not text.strip():
         raise HTTPException(422, "no text could be extracted from the file")
     return tools.save_cv_source(text)
+
+
+def _resume_text() -> tuple[str, str]:
+    """Resolve the master résumé under resume/ and return (text, rel_path), or 404/422."""
+    src = store.resolve_resume_file()
+    if src is None:
+        raise HTTPException(404, "no résumé found — add a PDF / .tex / .md / .txt under resume/")
+    try:
+        text = extract_text(src.name, src.read_bytes())
+    except Exception as exc:  # corrupt/unreadable file
+        raise HTTPException(422, f"could not read {src.name}: {exc}")
+    if not text.strip():
+        raise HTTPException(422, f"no text could be extracted from {src.name}")
+    return text, store.resume_rel(src)
+
+
+@router.post("/cv/from-resume")
+def cv_from_resume():
+    """External: parse the résumé in resume/ (or profile.resume_path) into the profile,
+    and record it as resume_path."""
+    text, rel = _resume_text()
+    result = tools.parse_cv(text)
+    tools.save_profile({"resume_path": rel})  # remember the master résumé
+    return {**result, "resume_path": rel}
+
+
+@router.post("/cv/source/from-resume")
+def cv_source_from_resume():
+    """Store-only: stash the résumé text from resume/ for Internal-mode Claude to parse,
+    and record it as resume_path."""
+    text, rel = _resume_text()
+    saved = tools.save_cv_source(text)
+    tools.save_profile({"resume_path": rel})
+    return {**saved, "resume_path": rel}

@@ -331,6 +331,45 @@ def write_profile(data: dict[str, Any]) -> None:
     _write_yaml(config.PROFILE_YML, data)
 
 
+_RESUME_EXTS = (".pdf", ".tex", ".md", ".txt")
+
+
+def resolve_resume_file() -> Optional[Path]:
+    """The user's master résumé to ingest: profile.resume_path if set + present, else
+    the most-recently-modified real file under resume/ (PDF/.tex/.md/.txt; ignores the
+    README and dotfiles). None if there's nothing to ingest.
+
+    The résumé must live under resume/: a resume_path that is absolute or escapes the
+    folder (`../…`) is rejected (no arbitrary-file read) and falls through to newest."""
+    rp = str(read_profile().get("resume_path") or "").strip()
+    if rp:
+        try:
+            p = (config.ROOT / rp).resolve()
+            p.relative_to(config.RESUME_DIR.resolve())  # confine to resume/
+            if p.is_file():
+                return p
+        except (ValueError, OSError):
+            pass  # absolute / traversal / unresolvable -> ignore, use the newest instead
+    if not config.RESUME_DIR.is_dir():
+        return None
+    cands = [
+        f for f in config.RESUME_DIR.iterdir()
+        # plain files only — NOT symlinks (a symlink could point outside resume/, e.g.
+        # to /etc/passwd); skip dotfiles + any README.*.
+        if f.is_file() and not f.is_symlink() and not f.name.startswith(".")
+        and f.suffix.lower() in _RESUME_EXTS and f.stem.lower() != "readme"
+    ]
+    return max(cands, key=lambda f: f.stat().st_mtime) if cands else None
+
+
+def resume_rel(p: Path) -> str:
+    """A repo-relative string for storing as profile.resume_path (else the bare name)."""
+    try:
+        return str(p.relative_to(config.ROOT))
+    except ValueError:
+        return p.name
+
+
 def read_cv_source() -> str:
     """The raw CV text the user last submitted (Internal mode reads this to parse)."""
     return config.CV_SOURCE.read_text(encoding="utf-8") if config.CV_SOURCE.exists() else ""

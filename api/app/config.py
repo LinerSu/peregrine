@@ -29,10 +29,12 @@ if DATASET:
     # Isolate generated application materials too, so demo runs never write into
     # the real applications/ dir.
     APPLICATIONS_DIR = _root / "applications"
+    RESUME_DIR = _root / "resume"
 else:
     DATA_DIR = ROOT / "data"
     CONFIG_DIR = ROOT / "config"
     APPLICATIONS_DIR = ROOT / "applications"
+    RESUME_DIR = ROOT / "resume"  # your master résumé(s) live here (CV intake reads them)
 
 JOBS_DIR = DATA_DIR / "jobs"
 SKILLS_DIR = ROOT / ".agents" / "skills"
@@ -74,7 +76,7 @@ def ensure_dirs() -> None:
     In demo mode (PEREGRINE_DATASET set) the dataset is generated from the chosen
     persona; otherwise the live CSVs are seeded from the committed examples.
     """
-    for d in (DATA_DIR, JOBS_DIR, CONFIG_DIR, APPLICATIONS_DIR, LOGS_DIR):
+    for d in (DATA_DIR, JOBS_DIR, CONFIG_DIR, APPLICATIONS_DIR, RESUME_DIR, LOGS_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
     if DATASET:
