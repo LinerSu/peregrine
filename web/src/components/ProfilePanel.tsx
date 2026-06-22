@@ -19,7 +19,7 @@ export default function ProfilePanel({
   const [cvPrompt, setCvPrompt] = useState(""); // Internal: the line to run
   const [waiting, setWaiting] = useState(false); // Internal: polling for Claude's save
   const [copied, setCopied] = useState(false);
-  const baseline = useRef<string | null>(""); // serialized profile before parse; null = not yet established
+  const baseline = useRef<string | null>(null); // serialized profile before parse; null = not yet established
   const modeRef = useRef(mode); // current mode, for async guards (closures go stale)
   modeRef.current = mode;
 

@@ -118,6 +118,8 @@ async def upload_cv(file: UploadFile = File(...)):
 @router.put("/cv/source")
 def put_cv_source(payload: CvSourceInput):
     """Store-only: save the raw CV text so Internal-mode Claude can read + parse it."""
+    if not payload.text.strip():  # don't overwrite an existing CV with nothing
+        raise HTTPException(422, "empty CV text")
     return tools.save_cv_source(payload.text)
 
 

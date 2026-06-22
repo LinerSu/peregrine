@@ -34,8 +34,12 @@ export default function App() {
   // persisted) so EVERY LLM-backed tab switches its behavior to match the global
   // mode — the single source of truth is this toggle in the header.
   const [mode, setMode] = useState<AssistantMode>(() => {
-    const saved = localStorage.getItem(MODE_KEY);
-    return saved === "internal" || saved === "external" ? saved : "external";
+    try {
+      const saved = localStorage.getItem(MODE_KEY);
+      return saved === "internal" || saved === "external" ? saved : "external";
+    } catch {
+      return "external"; // localStorage can throw in private/sandboxed contexts
+    }
   });
 
   const refresh = useCallback(async () => {
@@ -52,7 +56,11 @@ export default function App() {
   }, [refresh]);
 
   useEffect(() => {
-    localStorage.setItem(MODE_KEY, mode);
+    try {
+      localStorage.setItem(MODE_KEY, mode);
+    } catch {
+      /* persistence is best-effort */
+    }
   }, [mode]);
 
   const scan = async () => {
@@ -87,6 +95,8 @@ export default function App() {
             {(["external", "internal"] as AssistantMode[]).map((m) => (
               <button
                 key={m}
+                type="button"
+                aria-pressed={mode === m}
                 onClick={() => setMode(m)}
                 title={
                   m === "external"

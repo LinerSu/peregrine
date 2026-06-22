@@ -56,6 +56,9 @@ def test_put_cv_source_endpoint(tmp_cfg):
     r = client.put("/api/cv/source", json={"text": "raw cv"})
     assert r.status_code == 200 and r.json()["chars"] == 6
     assert store.read_cv_source() == "raw cv"
+    # empty/whitespace text is rejected (won't clobber an existing CV with nothing)
+    assert client.put("/api/cv/source", json={"text": "   "}).status_code == 422
+    assert store.read_cv_source() == "raw cv"
 
 
 def test_put_profile_validates_skill_shape(tmp_cfg):
