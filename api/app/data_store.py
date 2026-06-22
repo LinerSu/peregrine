@@ -162,6 +162,22 @@ def write_evaluation(job_id: str, result: dict[str, Any]) -> str:
     return f"data/jobs/{job_id}.evaluation.json"
 
 
+def read_cover_letter(job_id: str) -> Optional[str]:
+    """The last saved cover-letter draft for a job (None if none yet). Stored as a
+    plain-markdown sidecar next to the per-job markdown."""
+    path = config.JOBS_DIR / f"{job_id}.cover_letter.md"
+    return path.read_text(encoding="utf-8") if path.exists() else None
+
+
+def write_cover_letter(job_id: str, content: str) -> str:
+    config.JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    path = config.JOBS_DIR / f"{job_id}.cover_letter.md"
+    tmp = path.with_suffix(path.suffix + ".tmp")  # write+rename so a poller never reads a partial file
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)  # atomic
+    return f"data/jobs/{job_id}.cover_letter.md"
+
+
 # --------------------------------------------------------------------------- #
 # Applications
 # --------------------------------------------------------------------------- #

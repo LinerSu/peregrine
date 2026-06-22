@@ -25,7 +25,14 @@ export default function JobDetail({
   const [evalPrompt, setEvalPrompt] = useState(""); // Internal: the line to run
   const [waitingEval, setWaitingEval] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [coverLetter, setCoverLetter] = useState<string | null>(null);
+  const [coverPrompt, setCoverPrompt] = useState(""); // Internal: the line to run
+  const [waitingCover, setWaitingCover] = useState(false);
+  const [coverPromptCopied, setCoverPromptCopied] = useState(false);
+  const [coverTextCopied, setCoverTextCopied] = useState(false);
+  const [coverError, setCoverError] = useState("");
   const baseline = useRef(""); // job markdown before the run
+  const coverBaseline = useRef<string | null>(null); // cover letter before the run
 
   // Empty {} from the API (no evaluation yet) -> null.
   const normEval = (ev: Evaluation | null) => (ev && Object.keys(ev).length ? ev : null);
@@ -33,14 +40,17 @@ export default function JobDetail({
   // Fetch job + evaluation in parallel. `isLive` lets the mount effect drop a
   // stale response if jobId changed while the requests were in flight.
   const load = async (isLive: () => boolean = () => true) => {
-    const [{ job, markdown }, ev] = await Promise.all([
+    const [{ job, markdown }, ev, cover] = await Promise.all([
       api.getJob(jobId),
       api.getEvaluation(jobId).catch(() => null),
+      api.getCoverLetter(jobId).catch(() => null),
     ]);
     if (!isLive()) return;
     setJob(job);
     setMarkdown(markdown);
     setEvaluation(normEval(ev));
+    setCoverLetter(cover?.content ?? null);
+    setCoverTextCopied(false); // new/refreshed content -> reset the Copy button
   };
 
   useEffect(() => {
@@ -48,6 +58,12 @@ export default function JobDetail({
     setEvalPrompt("");
     setWaitingEval(false);
     setEvaluation(null);
+    setCoverPrompt("");
+    setWaitingCover(false);
+    setCoverLetter(null);
+    setCoverError("");
+    setCoverPromptCopied(false);
+    setCoverTextCopied(false);
     let live = true;
     load(() => live);
     return () => {
@@ -90,6 +106,38 @@ export default function JobDetail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waitingEval, jobId]);
 
+  // Internal: poll until Claude saves the cover letter (its content changes).
+  useEffect(() => {
+    if (!waitingCover) return;
+    const started = Date.now();
+    let inFlight = false;
+    let live = true;
+    const id = setInterval(async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const res = await api.getCoverLetter(jobId).catch(() => null);
+        if (!live) return;
+        const content = res?.content ?? null;
+        // null = not saved yet; a non-null value (even "") that differs is a save.
+        if (content != null && content !== coverBaseline.current) {
+          setCoverLetter(content);
+          setCoverTextCopied(false);
+          setWaitingCover(false);
+        } else if (Date.now() - started > 180_000) {
+          setWaitingCover(false);
+        }
+      } finally {
+        inFlight = false;
+      }
+    }, 3000);
+    return () => {
+      live = false;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waitingCover, jobId]);
+
   const evaluate = async () => {
     if (mode === "internal") {
       if (waitingEval) return; // already waiting on a save — don't restart/overlap
@@ -104,6 +152,29 @@ export default function JobDetail({
       await api.evaluate(jobId);
       await load();
       onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const draftCoverLetter = async () => {
+    setCoverError("");
+    if (mode === "internal") {
+      if (waitingCover) return; // already waiting on a save — don't restart/overlap
+      coverBaseline.current = coverLetter;
+      setCoverPrompt(`draft a cover letter for ${jobId}`);
+      setCoverPromptCopied(false);
+      setWaitingCover(true);
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await api.generateCoverLetter(jobId);
+      setCoverLetter(res.content);
+      setCoverTextCopied(false);
+    } catch {
+      // The cover-letter LLM call is the longest in the app — surface failures.
+      setCoverError("Couldn't generate the cover letter. Try again, or use Internal mode.");
     } finally {
       setBusy(false);
     }
@@ -157,6 +228,13 @@ export default function JobDetail({
           >
             Prepare to apply
           </button>
+          <button
+            onClick={draftCoverLetter}
+            disabled={busy || waitingCover}
+            className="px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-100 rounded-md hover:bg-purple-200 disabled:opacity-50"
+          >
+            {busy ? "Working…" : waitingCover ? "Waiting…" : coverLetter != null ? "Redraft cover letter" : "Cover letter"}
+          </button>
         </div>
 
         {/* Internal mode: the guided prompt to run in the Claude terminal. */}
@@ -186,6 +264,36 @@ export default function JobDetail({
             </p>
           </div>
         )}
+
+        {/* Internal mode: the guided prompt to draft the cover letter. */}
+        {mode === "internal" && coverPrompt && (
+          <div className="mt-3 rounded-md border border-purple-200 bg-purple-50 p-3 text-sm">
+            <p className="text-purple-900 font-medium">Run this in the Internal (Claude) terminal:</p>
+            <div className="mt-1.5 flex items-center gap-2">
+              <code className="flex-1 px-2 py-1 rounded bg-white border border-purple-200 text-gray-800">
+                {coverPrompt}
+              </code>
+              <button
+                onClick={() =>
+                  navigator.clipboard
+                    ?.writeText(coverPrompt)
+                    .then(() => setCoverPromptCopied(true))
+                    .catch(() => {})
+                }
+                className="px-2 py-1 text-xs font-medium text-purple-700 bg-white border border-purple-300 rounded hover:bg-purple-100"
+              >
+                {coverPromptCopied ? "Copied" : "Copy"}
+              </button>
+            </div>
+            <p className="mt-1.5 text-xs text-purple-700">
+              {waitingCover
+                ? "Waiting for Claude to save the cover letter… it'll appear below."
+                : "Switch the assistant to Internal (Claude) and run it — the draft appears below."}
+            </p>
+          </div>
+        )}
+
+        {coverError && <p className="mt-3 text-sm text-rose-600">{coverError}</p>}
       </div>
 
       <div className="flex-1 overflow-auto p-4 bg-gray-50">
@@ -221,6 +329,28 @@ export default function JobDetail({
           </div>
         )}
         <JobMarkdown md={markdown} />
+
+        {coverLetter != null && (
+          <div className="mt-4 rounded-lg border border-purple-200 bg-white">
+            <div className="flex items-center justify-between border-b border-purple-100 px-3 py-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-purple-700">
+                Cover letter
+              </h4>
+              <button
+                onClick={() =>
+                  navigator.clipboard
+                    ?.writeText(coverLetter)
+                    .then(() => setCoverTextCopied(true))
+                    .catch(() => {})
+                }
+                className="px-2 py-0.5 text-xs font-medium text-purple-700 border border-purple-300 rounded hover:bg-purple-50"
+              >
+                {coverTextCopied ? "Copied" : "Copy"}
+              </button>
+            </div>
+            <pre className="whitespace-pre-wrap px-3 py-3 text-sm text-gray-800 font-sans">{coverLetter}</pre>
+          </div>
+        )}
       </div>
 
       <div className="p-4 border-t border-gray-200 bg-gray-50">

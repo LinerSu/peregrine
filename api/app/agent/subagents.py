@@ -100,6 +100,50 @@ def upskiller(job_md: str, profile: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+_MOCK_MARKER = "Running in **mock** LLM mode"
+
+
+def cover_letter_writer(
+    job: Any, job_md: str, profile: dict[str, Any], evaluation: dict[str, Any] | None, style_refs: str
+) -> str:
+    """Draft a tailored cover letter. Returns the letter text (markdown)."""
+    llm = LLMClient()
+    parts = [
+        "Candidate profile (JSON):\n```\n" + json.dumps(profile, ensure_ascii=False, indent=2) + "\n```",
+        "Job posting:\n```\n" + job_md + "\n```",
+    ]
+    if evaluation:
+        parts.append(
+            "Fit evaluation (JSON):\n```\n" + json.dumps(evaluation, ensure_ascii=False, indent=2) + "\n```"
+        )
+    if style_refs:
+        parts.append(style_refs)
+    parts.append("Write the cover letter now. Return ONLY the letter text.")
+
+    messages = [
+        {"role": "system", "content": load_skill("cover-letter")},
+        {"role": "user", "content": "\n\n".join(parts)},
+    ]
+    text = llm.complete(messages).text.strip()
+    if not text or _MOCK_MARKER in text:
+        # Mock / no-key / provider-error fallback so the UI always gets a draft.
+        return _mock_cover_letter(job, profile)
+    return text
+
+
+def _mock_cover_letter(job: Any, profile: dict[str, Any]) -> str:
+    name = profile.get("name") or "Your Name"
+    return (
+        f"Dear {job.company} Hiring Team,\n\n"
+        f"I am writing to apply for the {job.position} role at {job.company}. "
+        "_(Mock draft — set an LLM provider in `.env`, or use Internal mode, for a "
+        "tailored letter grounded in your profile and this posting.)_\n\n"
+        "My background aligns with the core responsibilities in your posting, and I "
+        "would welcome the chance to discuss how I can contribute.\n\n"
+        f"Sincerely,\n{name}\n"
+    )
+
+
 def reviewer(evaluation: dict[str, Any], job_md: str) -> dict[str, Any]:
     """Critique the evaluation in a fresh context and return a revised version."""
     llm = LLMClient()

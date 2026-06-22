@@ -146,4 +146,9 @@ export const api = {
   // Read the last saved structured evaluation ({} if none). Used to render the
   // legitimacy/archetype blocks and to poll after a save in Internal mode.
   getEvaluation: (id: string) => http<Evaluation>(`/api/jobs/${id}/evaluation`),
+  // Cover letter: External generates via the LLM; Internal saves Claude's draft.
+  generateCoverLetter: (id: string) =>
+    http<{ job_id: string; content: string }>(`/api/jobs/${id}/cover-letter`, { method: "POST" }),
+  getCoverLetter: (id: string) =>
+    http<{ job_id?: string; content?: string }>(`/api/jobs/${id}/cover-letter`),
 };

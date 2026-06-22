@@ -37,6 +37,7 @@ def main(persona: str) -> int:
     apps = client.get("/api/applications").json()["applications"]
     stats = client.get("/api/stats").json()
     profile = client.get("/api/profile").json()
+    cover = client.get("/api/jobs/2026-001/cover-letter").json()
 
     totals = stats["totals"]
     checks = {
@@ -45,6 +46,7 @@ def main(persona: str) -> int:
         "at least one evaluated": totals["evaluated"] >= 1,
         "at least one application": len(apps) >= 1,
         "funnel tracked matches jobs": totals["jobs"] == len(jobs),
+        "flagship cover letter seeded": bool(cover.get("content")),
     }
     failed = [name for name, ok in checks.items() if not ok]
     if failed:
