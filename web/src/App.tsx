@@ -63,6 +63,10 @@ export default function App() {
     }
   }, [mode]);
 
+  // Applications with no linked job posting — surfaced on the tab so they're
+  // discoverable from anywhere (the row badge + in-panel hint let you fix them).
+  const orphanCount = applications.filter((a) => a.job_tracked === false).length;
+
   return (
     <div className="flex flex-col h-screen text-gray-900">
       <header className="px-4 py-3 bg-white border-b border-gray-200 flex items-center gap-3">
@@ -134,6 +138,14 @@ export default function App() {
                 {t.id === "applications" && applications.length > 0 && (
                   <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-indigo-100 text-indigo-700">
                     {applications.length}
+                  </span>
+                )}
+                {t.id === "applications" && orphanCount > 0 && (
+                  <span
+                    title={`${orphanCount} application${orphanCount > 1 ? "s have" : " has"} no linked job posting`}
+                    className="ml-1 px-1.5 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700"
+                  >
+                    ⚠{orphanCount}
                   </span>
                 )}
               </button>
