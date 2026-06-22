@@ -56,3 +56,17 @@ def test_put_cv_source_endpoint(tmp_cfg):
     r = client.put("/api/cv/source", json={"text": "raw cv"})
     assert r.status_code == 200 and r.json()["chars"] == 6
     assert store.read_cv_source() == "raw cv"
+
+
+def test_put_profile_validates_skill_shape(tmp_cfg):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+    # a skill without the required "name" is rejected (422), not silently stored
+    assert client.put("/api/profile", json={"skills": [{"level": "advanced"}]}).status_code == 422
+    # a well-formed skill is accepted and stored
+    ok = client.put("/api/profile", json={"skills": [{"name": "UX", "level": "advanced"}]})
+    assert ok.status_code == 200
+    assert store.read_profile()["skills"][0]["name"] == "UX"

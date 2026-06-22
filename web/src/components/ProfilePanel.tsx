@@ -19,7 +19,7 @@ export default function ProfilePanel({
   const [cvPrompt, setCvPrompt] = useState(""); // Internal: the line to run
   const [waiting, setWaiting] = useState(false); // Internal: polling for Claude's save
   const [copied, setCopied] = useState(false);
-  const baseline = useRef(""); // serialized profile before the parse
+  const baseline = useRef<string | null>(""); // serialized profile before parse; null = not yet established
   const modeRef = useRef(mode); // current mode, for async guards (closures go stale)
   modeRef.current = mode;
 
@@ -41,13 +41,18 @@ export default function ProfilePanel({
       try {
         const p = await api.getProfile().catch(() => null);
         if (!live) return;
-        if (p && JSON.stringify(p) !== baseline.current) {
-          setProfile(p);
-          onChanged();
-          setWaiting(false);
-        } else if (Date.now() - started > 180_000) {
-          setWaiting(false);
+        if (p) {
+          const snap = JSON.stringify(p);
+          if (baseline.current === null) {
+            baseline.current = snap; // first good read establishes the baseline (don't complete yet)
+          } else if (snap !== baseline.current) {
+            setProfile(p);
+            onChanged();
+            setWaiting(false);
+            return;
+          }
         }
+        if (Date.now() - started > 180_000) setWaiting(false);
       } finally {
         inFlight = false;
       }
@@ -70,9 +75,11 @@ export default function ProfilePanel({
   // Capture the baseline from a FRESH server read (not React state, which may not
   // have loaded yet) so the poll can't resolve instantly without Claude saving.
   const startInternal = async () => {
-    const p = await api.getProfile().catch(() => profile ?? {});
+    const p = await api.getProfile().catch(() => null);
     if (modeRef.current !== "internal") return; // user flipped to External mid-stash
-    baseline.current = JSON.stringify(p ?? {});
+    // null sentinel when the read failed → the poll establishes the baseline on its
+    // first successful read instead of false-completing against an empty {}.
+    baseline.current = p ? JSON.stringify(p) : null;
     setCvPrompt("parse my cv");
     setCopied(false);
     setWaiting(true);

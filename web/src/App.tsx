@@ -33,9 +33,10 @@ export default function App() {
   // External = API-backed; Internal = local Claude terminal. Lifted here (and
   // persisted) so EVERY LLM-backed tab switches its behavior to match the global
   // mode — the single source of truth is this toggle in the header.
-  const [mode, setMode] = useState<AssistantMode>(
-    () => (localStorage.getItem(MODE_KEY) as AssistantMode | null) ?? "external"
-  );
+  const [mode, setMode] = useState<AssistantMode>(() => {
+    const saved = localStorage.getItem(MODE_KEY);
+    return saved === "internal" || saved === "external" ? saved : "external";
+  });
 
   const refresh = useCallback(async () => {
     const [{ jobs }, { applications }] = await Promise.all([

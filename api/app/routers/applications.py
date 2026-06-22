@@ -8,7 +8,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from .. import data_store as store
 from ..agent import tools
-from ..schemas import Application, ProfileInput
+from ..schemas import Application, CvSourceInput, ProfileInput
 
 router = APIRouter(prefix="/api", tags=["applications"])
 
@@ -116,9 +116,9 @@ async def upload_cv(file: UploadFile = File(...)):
 
 
 @router.put("/cv/source")
-def put_cv_source(payload: dict):
+def put_cv_source(payload: CvSourceInput):
     """Store-only: save the raw CV text so Internal-mode Claude can read + parse it."""
-    return tools.save_cv_source(payload.get("text", ""))
+    return tools.save_cv_source(payload.text)
 
 
 @router.post("/cv/source/upload")
