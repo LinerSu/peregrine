@@ -38,3 +38,12 @@ export function fitClass(score: number | null | undefined): string {
   if (score >= 0.4) return "bg-amber-100 text-amber-700";
   return "bg-rose-100 text-rose-700";
 }
+
+// Color a legitimacy (ghost-job risk) score: green ≥0.80 (looks legit),
+// amber 0.50–0.79, red <0.50; gray when unscored/non-finite.
+export function legitimacyClass(score: number | null | undefined): string {
+  if (score == null || !Number.isFinite(score)) return "bg-gray-100 text-gray-500";
+  if (score >= 0.8) return "bg-green-100 text-green-700";
+  if (score >= 0.5) return "bg-amber-100 text-amber-700";
+  return "bg-rose-100 text-rose-700";
+}

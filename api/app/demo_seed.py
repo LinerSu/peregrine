@@ -66,8 +66,10 @@ PERSONAS: dict[str, dict[str, Any]] = {
                 "posted_date": "2026-06-12", "role_category": "Engineering", "starred": True,
                 "url": "https://example.com/luma/ml-204",
                 "description": "Own the fine-tuning and serving stack for Luma's customer-facing LLM "
-                               "assistants. You'll ship retrieval-augmented features end to end and "
-                               "partner with research to productionize new models.",
+                               "assistants. You'll ship retrieval-augmented features end to end, partner "
+                               "with research to productionize new models, and tune latency and cost for "
+                               "high-traffic inference. The team values strong evaluation discipline and "
+                               "clean, well-tested pipelines.",
                 "evaluation": {
                     "fit_score": 0.84, "recommendation": "apply",
                     "strengths": ["Direct LLM fine-tuning + RAG experience", "Production PyTorch serving",
@@ -149,8 +151,11 @@ PERSONAS: dict[str, dict[str, Any]] = {
                 "salary_min": 58000, "salary_max": 72000, "currency": "EUR",
                 "posted_date": "2026-06-14", "role_category": "Design", "starred": True,
                 "url": "https://example.com/verde/pd-9",
-                "description": "Lead end-to-end design for Verde's analytics product — from research "
-                               "through shipped UI — and grow the shared component library.",
+                "description": "Lead end-to-end design for Verde's analytics product — from discovery "
+                               "research through polished, shipped UI — and grow the shared component "
+                               "library the whole product org builds on. You'll partner closely with PM "
+                               "and engineering, run usability studies, and raise the bar on "
+                               "data-visualization patterns.",
                 "evaluation": {
                     "fit_score": 0.79, "recommendation": "apply",
                     "strengths": ["Design-systems leadership ('Atlas')", "Strong research practice",
@@ -231,8 +236,11 @@ PERSONAS: dict[str, dict[str, Any]] = {
                 "salary_min": 45000, "salary_max": 55000, "currency": "GBP",
                 "posted_date": "2026-06-11", "role_category": "Science", "starred": True,
                 "url": "https://example.com/cobalt-tx/pc-5",
-                "description": "Develop and optimize scalable synthetic routes for clinical candidates; "
-                               "own route selection, safety, and tech-transfer to manufacturing.",
+                "description": "Develop and optimize scalable synthetic routes for clinical candidates, "
+                               "owning route selection, safety assessment, and tech-transfer to "
+                               "manufacturing. You'll run hands-on lab work, troubleshoot scale-up "
+                               "issues, and document processes to GMP standards alongside analytical "
+                               "and QA partners.",
                 "evaluation": {
                     "fit_score": 0.81, "recommendation": "apply",
                     "strengths": ["Hands-on route scale-up (mg->100g)", "Strong synthesis + purification",
@@ -312,8 +320,11 @@ PERSONAS: dict[str, dict[str, Any]] = {
                 "salary_min": 115000, "salary_max": 145000, "currency": "USD",
                 "posted_date": "2026-06-13", "role_category": "Science", "starred": True,
                 "url": "https://example.com/verdant/rs-14",
-                "description": "Lead single-cell genomics analysis for target discovery; build "
-                               "reproducible pipelines and partner with wet-lab teams.",
+                "description": "Lead single-cell and bulk genomics analysis for target discovery, "
+                               "building reproducible, containerized pipelines and partnering closely "
+                               "with wet-lab teams. You'll design analyses end to end, interpret results "
+                               "for biologists, and help shape the computational roadmap as the platform "
+                               "scales.",
                 "evaluation": {
                     "fit_score": 0.83, "recommendation": "apply",
                     "strengths": ["Deep scRNA-seq experience", "Reproducible Nextflow pipelines",
@@ -392,8 +403,10 @@ PERSONAS: dict[str, dict[str, Any]] = {
                 "location": "Chicago, IL", "flexibility": "onsite",
                 "posted_date": "2026-06-12", "role_category": "Legal", "starred": True,
                 "url": "https://example.com/atlas-legal/sa-2l",
-                "description": "2L summer associate rotating through M&A and capital markets; real "
-                               "deal exposure, drafting, and diligence with a dedicated mentor.",
+                "description": "2L summer associate rotating through M&A and capital markets, with "
+                               "real deal exposure, drafting, and diligence under a dedicated mentor. "
+                               "The program includes formal training, regular partner feedback, and a "
+                               "structured path to a full-time return offer for strong performers.",
                 "evaluation": {
                     "fit_score": 0.76, "recommendation": "apply",
                     "strengths": ["Law Review + strong writing", "Transactional clinic experience",
@@ -445,25 +458,37 @@ def _bullets(items: list[str]) -> str:
     return "\n".join(f"- {x}" for x in items) or "- _none_"
 
 
-def _job_md(spec: dict[str, Any], evaluation: dict[str, Any] | None) -> str:
+def _posting_md(spec: dict[str, Any]) -> str:
     # Mirror the app's snapshot layout (tools._job_md): the description lives under
     # a "## Posting" heading, since the web renderer drops level-1 (# title)
     # sections — so a description under the title alone would never render.
-    md = (
+    return (
         f"# {spec['position']} — {spec['company']}\n\n"
         f"## Posting\n{spec.get('description', '').strip() or '_no description captured_'}"
     )
-    if evaluation:
-        # Use the exact "## Agent evaluation" section the app writes, so clicking
-        # "Evaluate fit" on a seeded job REPLACES this block instead of appending.
+
+
+def _job_md(spec: dict[str, Any], ev: dict[str, Any] | None) -> str:
+    md = _posting_md(spec)
+    if ev:
+        # The exact "## Agent evaluation" section the app writes (tools._merge_evaluation),
+        # incl. the v2 legitimacy/archetype lines, so re-evaluating a seeded job
+        # REPLACES this block instead of appending a second one.
+        legit = ev.get("legitimacy_score")
+        legit_line = ""
+        if legit is not None:
+            flags = ev.get("legitimacy_flags", [])
+            legit_line = f"- **legitimacy:** {legit} ({', '.join(flags) if flags else 'no flags'})\n"
+        archetype_line = f"- **archetype:** {ev['archetype']}\n" if ev.get("archetype") else ""
         md += (
             "\n\n---\n\n"
             "## Agent evaluation\n"
-            f"- **fit_score:** {evaluation['fit_score']}\n"
-            f"- **recommendation:** {evaluation.get('recommendation', 'hold')}\n\n"
-            f"### Strengths\n{_bullets(evaluation.get('strengths', []))}\n\n"
-            f"### Weaknesses / gaps\n{_bullets(evaluation.get('weaknesses', []))}\n\n"
-            f"### Materials to prepare\n{_bullets(evaluation.get('materials', []))}\n"
+            f"- **fit_score:** {ev['fit_score']}\n"
+            f"- **recommendation:** {ev.get('recommendation', 'hold')}\n"
+            f"{legit_line}{archetype_line}\n"
+            f"### Strengths\n{_bullets(ev.get('strengths', []))}\n\n"
+            f"### Weaknesses / gaps\n{_bullets(ev.get('weaknesses', []))}\n\n"
+            f"### Materials to prepare\n{_bullets(ev.get('materials', []))}\n"
         )
     return md
 
@@ -477,13 +502,14 @@ def seed(dataset: str) -> None:
     """
     persona = PERSONAS[dataset]
     from . import data_store as store
+    from . import evaluation as evalmod
     from .schemas import Application, Job
 
     store.write_profile(persona["profile"])
 
     for i, spec in enumerate(persona["jobs"], start=1):
         jid = f"2026-{i:03d}"
-        evaluation = spec.get("evaluation")
+        raw_eval = spec.get("evaluation")
         job = Job(
             id=jid,
             company=spec["company"],
@@ -497,13 +523,26 @@ def seed(dataset: str) -> None:
             currency=spec.get("currency", "USD"),
             posted_date=spec.get("posted_date", ""),
             url=spec.get("url", ""),
-            fit_score=evaluation["fit_score"] if evaluation else None,
+            fit_score=raw_eval["fit_score"] if raw_eval else None,
             detail_md=f"data/jobs/{jid}.md",
             role_category=spec.get("role_category", ""),
             starred=spec.get("starred", False),
         )
         store.upsert_job(job)
-        store.write_job_md(jid, _job_md(spec, evaluation))
+
+        ev = None
+        if raw_eval:
+            # Compute the v2 posting signals the same way tools.save_evaluation does
+            # (over the actual description), but with today=None so seeded
+            # legitimacy is deterministic across CI runs (no clock = no staleness
+            # drift), then persist the structured sidecar the UI renders.
+            description = spec.get("description", "")
+            ev = {"job_id": jid, **raw_eval}
+            ev.update(evalmod.assess_legitimacy(job, description))
+            ev["archetype"] = evalmod.classify_archetype(job.position, description)
+            store.write_evaluation(jid, ev)
+
+        store.write_job_md(jid, _job_md(spec, ev))
 
         if spec.get("upskilling"):
             store.write_upskilling(jid, spec["upskilling"])

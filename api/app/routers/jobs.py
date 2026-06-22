@@ -98,6 +98,15 @@ def save_evaluation(job_id: str, payload: EvaluationInput):
     return result
 
 
+@router.get("/{job_id}/evaluation")
+def read_evaluation(job_id: str):
+    """Read the last saved structured fit evaluation ({} if none yet) — the UI uses
+    it for the legitimacy/archetype blocks. 404s on an unknown job."""
+    if not store.get_job(job_id):
+        raise HTTPException(404, f"job {job_id} not found")
+    return tools.get_evaluation(job_id) or {}
+
+
 @router.put("/{job_id}/upskilling")
 def save_upskilling(job_id: str, payload: UpskillingInput):
     """Persist a skill-gap analysis produced outside the API (e.g. local Claude)."""
