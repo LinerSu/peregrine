@@ -49,4 +49,8 @@ logs/
 .DS_Store
 Thumbs.db
 
+# Reference repos studied for ideas — not ours to commit.
 externals/
+
+# Generated demo/test datasets (PEREGRINE_DATASET=<persona>); seeded from code.
+.demo/

@@ -93,6 +93,35 @@ Dedup key = `company` + `company_job_id`.
 For agent/architecture details and the continuity protocol (so a fresh AI
 session can resume), see [AGENTS.md](AGENTS.md) and [STATUS.md](STATUS.md).
 
+## Demo / test datasets
+
+Your real profile and jobs are gitignored, so a fresh clone starts empty. To see
+the app fully populated — for a demo, a screenshot, or while testing a new
+feature — switch on a **demo persona**. Each is a fictional but realistic person
+(invented names, companies, and schools) with a profile, jobs, saved fit
+evaluations, upskilling notes, and applications, so every tab fills in.
+
+```bash
+# pick one persona, then restart the stack
+echo "PEREGRINE_DATASET=ai-engineer" >> .env
+docker compose up -d            # seeds the persona on first boot
+
+# switch back to your real data: remove the PEREGRINE_DATASET line from .env
+# (edit it, or set it empty), then:
+docker compose up -d
+```
+
+Personas: `ai-engineer` · `ux-designer` · `chem-phd` · `bio-scientist` · `law-student`.
+
+The dataset is generated from [`api/app/demo_seed.py`](api/app/demo_seed.py) into an
+isolated, gitignored `.demo/<persona>/` directory — your `data/` and `config/` are
+never touched. With the default Docker stack `.demo/` lives **inside the API
+container**, so reset a persona by recreating it: `docker compose up -d
+--force-recreate api` (it re-seeds). If instead you run the API directly on the
+host, the dir is at `api/.demo/<persona>/` — delete it and restart. CI
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) boots every persona and
+smoke-tests the API against it.
+
 ## Scope, limits & disclaimer
 
 Peregrine is built to be a **good web citizen**, not a scraper that bulldozes

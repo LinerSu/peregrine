@@ -17,11 +17,25 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # with APP_ROOT for local dev where the package lives at <repo>/api/app.
 ROOT = Path(os.environ.get("APP_ROOT", Path(__file__).resolve().parents[1])).resolve()
 
-DATA_DIR = ROOT / "data"
+# Demo/test persona switch. PEREGRINE_DATASET=<persona> runs the app against an
+# isolated, gitignored runtime dataset under .demo/<persona>/ (seeded on boot
+# from app/demo_seed.py), leaving the real (gitignored) data/ + config/ untouched.
+# Unset = normal mode. See README "Demo / test datasets".
+DATASET = os.environ.get("PEREGRINE_DATASET", "").strip().lower()
+if DATASET:
+    _root = ROOT / ".demo" / DATASET
+    DATA_DIR = _root / "data"
+    CONFIG_DIR = _root / "config"
+    # Isolate generated application materials too, so demo runs never write into
+    # the real applications/ dir.
+    APPLICATIONS_DIR = _root / "applications"
+else:
+    DATA_DIR = ROOT / "data"
+    CONFIG_DIR = ROOT / "config"
+    APPLICATIONS_DIR = ROOT / "applications"
+
 JOBS_DIR = DATA_DIR / "jobs"
-CONFIG_DIR = ROOT / "config"
 SKILLS_DIR = ROOT / ".agents" / "skills"
-APPLICATIONS_DIR = ROOT / "applications"
 LOGS_DIR = ROOT / "logs"
 
 JOBS_CSV = DATA_DIR / "jobs.csv"
@@ -52,11 +66,33 @@ def get_settings() -> Settings:
 
 
 def ensure_dirs() -> None:
-    """Create runtime directories and seed live data from examples on first boot."""
+    """Create runtime directories and seed data on first boot.
+
+    In demo mode (PEREGRINE_DATASET set) the dataset is generated from the chosen
+    persona; otherwise the live CSVs are seeded from the committed examples.
+    """
     for d in (DATA_DIR, JOBS_DIR, CONFIG_DIR, APPLICATIONS_DIR, LOGS_DIR):
         d.mkdir(parents=True, exist_ok=True)
-    # The live CSVs are gitignored (they hold personal data). On a fresh clone we
-    # copy the committed demo seeds so the app isn't empty — never the reverse.
+
+    if DATASET:
+        from . import demo_seed
+
+        if DATASET not in demo_seed.PERSONAS:
+            raise SystemExit(
+                f"PEREGRINE_DATASET='{DATASET}' is not a known persona. "
+                f"Choose one of: {', '.join(demo_seed.list_personas())}"
+            )
+        # A marker written only after seed() completes is the source of truth for
+        # "already seeded" — so a partial or cleared dir (no marker) self-heals by
+        # re-seeding on the next boot. Reset a persona by deleting .demo/<persona>/.
+        marker = DATA_DIR.parent / ".seeded"
+        if not marker.exists():
+            demo_seed.seed(DATASET)
+            marker.write_text(f"{DATASET}\n", encoding="utf-8")
+        return
+
+    # Normal mode: the live CSVs are gitignored (personal data). On a fresh clone
+    # copy the committed examples so the app isn't empty — never the reverse.
     for live, example in (
         (JOBS_CSV, DATA_DIR / "jobs.example.csv"),
         (APPLICATIONS_CSV, DATA_DIR / "applications.example.csv"),
