@@ -51,9 +51,12 @@ applications/*
 logs/
 *.log
 
-# Stray runtime status file written when tests mount ./api as /app (the real
-# continuity doc is the repo-root STATUS.md).
+# Runtime artifacts written when tests mount ./api as /app (ROOT becomes ./api):
+# the live data/logs/applications/status, NOT source. The real ones live at repo root.
 api/STATUS.md
+api/data/
+api/logs/
+api/applications/
 
 # --- OS ---
 .DS_Store

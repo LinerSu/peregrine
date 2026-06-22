@@ -14,6 +14,7 @@ EXPECTED = {"ai-engineer", "ux-designer", "chem-phd", "bio-scientist", "law-stud
 def tmp_dataset(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "JOBS_CSV", tmp_path / "jobs.csv")
     monkeypatch.setattr(config, "APPLICATIONS_CSV", tmp_path / "applications.csv")
+    monkeypatch.setattr(config, "APPLICATIONS_DIR", tmp_path / "applications")  # demo cover letters mirror here
     monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
     monkeypatch.setattr(config, "PROFILE_YML", tmp_path / "profile.yml")
     return tmp_path

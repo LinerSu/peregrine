@@ -408,6 +408,12 @@ def save_tailored_cv(job_id: str, tex: str) -> dict[str, Any]:
         return {"error": f"job {job_id} not found"}
     store.write_cv_tex(job_id, tex)
     pdf_available = cv_render.compile_pdf(tex, store.cv_pdf_path(job_id))
+    # Keep applications/<id>/cv.pdf in sync with the new .tex: mirror on success, or
+    # clear a now-stale prior PDF on a failed (re)compile.
+    if pdf_available:
+        store.mirror_cv_pdf(job_id)
+    else:
+        store.clear_mirrored_cv_pdf(job_id)
     return {"job_id": job_id, "tex": tex, "pdf_available": pdf_available}
 
 

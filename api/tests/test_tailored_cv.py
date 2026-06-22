@@ -14,6 +14,7 @@ def tmp_store(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "JOBS_CSV", tmp_path / "jobs.csv")
     monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
     monkeypatch.setattr(config, "APPLICATIONS_CSV", tmp_path / "applications.csv")
+    monkeypatch.setattr(config, "APPLICATIONS_DIR", tmp_path / "applications")  # materials mirror here
     monkeypatch.setattr(config, "PROFILE_YML", tmp_path / "profile.yml")
     from app.agent import tools
 

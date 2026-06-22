@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import json
+import shutil
 from pathlib import Path
 from typing import Any, Optional
 
@@ -193,6 +194,33 @@ def write_evaluation(job_id: str, result: dict[str, Any]) -> str:
     return f"data/jobs/{job_id}.evaluation.json"
 
 
+def _mirror_to_application(job_id: str, src: Path, dest_name: str) -> None:
+    """Best-effort copy of a generated material into applications/<job_id>/ so that
+    folder holds the actual submission materials (the cover letter + tailored CV/PDF),
+    as applications/README.md promises. Never fails the save if the copy can't happen."""
+    dest_dir = config.APPLICATIONS_DIR / job_id
+    tmp = dest_dir / (dest_name + ".tmp")
+    try:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy(src, tmp)
+        tmp.replace(dest_dir / dest_name)  # atomic
+    except OSError as exc:
+        log.warning("mirror %s -> applications/%s failed: %s", dest_name, job_id, exc)
+        try:
+            tmp.unlink(missing_ok=True)  # don't litter the bundle with a partial .tmp
+        except OSError:
+            pass
+
+
+def clear_mirrored_cv_pdf(job_id: str) -> None:
+    """Remove a stale applications/<id>/cv.pdf (e.g. after a failed recompile) so the
+    mirrored PDF never disagrees with the mirrored .tex."""
+    try:
+        (config.APPLICATIONS_DIR / job_id / "cv.pdf").unlink(missing_ok=True)
+    except OSError as exc:
+        log.warning("clear mirrored pdf applications/%s failed: %s", job_id, exc)
+
+
 def read_cover_letter(job_id: str) -> Optional[str]:
     """The last saved cover-letter draft for a job (None if none yet). Stored as a
     plain-markdown sidecar next to the per-job markdown."""
@@ -206,6 +234,7 @@ def write_cover_letter(job_id: str, content: str) -> str:
     tmp = path.with_suffix(path.suffix + ".tmp")  # write+rename so a poller never reads a partial file
     tmp.write_text(content, encoding="utf-8")
     tmp.replace(path)  # atomic
+    _mirror_to_application(job_id, path, "cover_letter.md")
     return f"data/jobs/{job_id}.cover_letter.md"
 
 
@@ -221,12 +250,20 @@ def write_cv_tex(job_id: str, tex: str) -> str:
     tmp = path.with_suffix(path.suffix + ".tmp")  # write+rename so a poller never reads a partial file
     tmp.write_text(tex, encoding="utf-8")
     tmp.replace(path)  # atomic
+    _mirror_to_application(job_id, path, "cv.tex")
     return f"data/jobs/{job_id}.cv.tex"
 
 
 def cv_pdf_path(job_id: str) -> Path:
     """Path to the compiled tailored-CV PDF (may not exist if LaTeX is unavailable)."""
     return config.JOBS_DIR / f"{job_id}.cv.pdf"
+
+
+def mirror_cv_pdf(job_id: str) -> None:
+    """Copy the compiled tailored-CV PDF into applications/<job_id>/ (no-op if absent)."""
+    pdf = cv_pdf_path(job_id)
+    if pdf.exists():
+        _mirror_to_application(job_id, pdf, "cv.pdf")
 
 
 # --------------------------------------------------------------------------- #
