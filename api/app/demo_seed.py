@@ -493,6 +493,26 @@ def _job_md(spec: dict[str, Any], ev: dict[str, Any] | None) -> str:
     return md
 
 
+def _demo_cover_letter(spec: dict[str, Any], profile: dict[str, Any], job: Any) -> str:
+    """A short, deterministic cover-letter draft for a seeded evaluated job, so the
+    Cover letter panel is populated in demo mode without calling an LLM."""
+    name = profile.get("name", "")
+    headline = profile.get("headline", "the role")
+    strengths = (spec.get("evaluation") or {}).get("strengths", [])
+    lead = strengths[0] if strengths else "my background"
+    second = strengths[1] if len(strengths) > 1 else "I bring hands-on experience across the core responsibilities"
+    return (
+        f"Dear {job.company} Hiring Team,\n\n"
+        f"I am writing to apply for the {job.position} role at {job.company}. As "
+        f"{headline}, I was excited to see this posting — {lead} is exactly the kind "
+        "of strength I want to put to work here.\n\n"
+        f"{second}, and I would bring the same focus to your team. I'm drawn to the "
+        "problem you're solving and confident I can contribute quickly.\n\n"
+        "I would welcome the chance to discuss the role further. Thank you for your "
+        f"consideration.\n\nSincerely,\n{name}\n"
+    )
+
+
 def seed(dataset: str) -> None:
     """Write the chosen persona's profile, jobs, per-job markdown, saved
     upskilling results, and applications into the active (demo) data dirs.
@@ -541,6 +561,7 @@ def seed(dataset: str) -> None:
             ev.update(evalmod.assess_legitimacy(job, description))
             ev["archetype"] = evalmod.classify_archetype(job.position, description)
             store.write_evaluation(jid, ev)
+            store.write_cover_letter(jid, _demo_cover_letter(spec, persona["profile"], job))
 
         store.write_job_md(jid, _job_md(spec, ev))
 

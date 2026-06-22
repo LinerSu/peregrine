@@ -72,6 +72,12 @@ class UpskillingInput(BaseModel):
     missing_skills: list[MissingSkill] = []
 
 
+class CoverLetterInput(BaseModel):
+    """Body for PUT /api/jobs/{id}/cover-letter — store-only persist (no LLM).
+    Used by Internal mode: Claude writes the draft in the terminal, then saves it."""
+    content: str
+
+
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
     content: str

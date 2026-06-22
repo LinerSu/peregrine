@@ -30,6 +30,9 @@ data/jobs/*.md
 data/jobs/*.json
 !data/jobs/.gitkeep
 data/index.sqlite
+# Your own cover-letter style samples (read as references; curated samples that
+# ship with the repo live in api/app/cover_letters/ instead).
+data/cover_letter_samples/
 config/profile.yml
 config/memory.yml
 config/portals.yml

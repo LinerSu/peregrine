@@ -50,6 +50,8 @@ def test_persona_seeds_valid_dataset(tmp_dataset, dataset):
     ev = store.read_evaluation(top.id)
     assert ev and ev.get("archetype")
     assert ev.get("legitimacy_score") is not None
+    # v3: the flagship evaluated job ships with a seeded cover-letter draft.
+    assert store.read_cover_letter(top.id)
 
     # At least one application, each with an applied date (so Insights populates).
     apps = store.list_applications()

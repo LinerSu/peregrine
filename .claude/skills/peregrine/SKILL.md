@@ -1,6 +1,6 @@
 ---
 name: peregrine-internal
-description: Run Peregrine job-search analyses locally and save the result so the web UI updates. Use when working in the Peregrine repo and the user asks to "evaluate fit" or "analyze skill gaps" for a job id like 2026-001.
+description: Run Peregrine job-search analyses locally and save the result so the web UI updates. Use when working in the Peregrine repo and the user asks to "evaluate fit", "analyze skill gaps", or "draft a cover letter" for a job id like 2026-001.
 ---
 
 # Peregrine — Internal-mode worker
@@ -42,9 +42,29 @@ the local API** so the web page reflects it exactly like External (API) mode.
    ```
 4. Tell the user it's saved — refresh the job in the Jobs tab.
 
+## "draft a cover letter for <id>"
+
+1. Read `data/jobs/<id>.md` (posting + the "Agent evaluation" section) and
+   `config/profile.yml`.
+2. Read style/structure samples — the curated ones in `api/app/cover_letters/*.md`
+   and any of the user's own in `data/cover_letter_samples/*.md`. You **may** also
+   web-search for a couple of reputable cover-letter examples to refine structure
+   (this is fine in Internal mode — it's your own search, on the user's
+   subscription). Match tone/structure only; never copy phrasing or invent facts.
+3. Follow the rubric in `.agents/skills/cover-letter/SKILL.md`: 3–4 short
+   paragraphs, evidence-grounded, ~200–300 words, no fabrication.
+4. Persist it (this is what makes it appear in the **Cover letter** panel). Send
+   the letter as a JSON string in `content`:
+   ```bash
+   curl -s -X PUT http://localhost:8000/api/jobs/<id>/cover-letter \
+     -H 'content-type: application/json' \
+     -d "$(jq -n --arg c "<the full letter text>" '{content:$c}')"
+   ```
+5. Tell the user it's saved — the Cover letter panel will show it.
+
 ## Rules
 - **Never fabricate** skills or experience the profile doesn't support — ground every
   strength in evidence (same rule as External mode).
 - Use the **`PUT`** routes above — they only *store* what you send; the reasoning is
-  yours. Do **not** call the metered `POST .../evaluate` or `POST .../upskilling`
-  endpoints — those spend an API key, which Internal mode exists to avoid.
+  yours. Do **not** call the metered `POST` routes (`.../evaluate`, `.../upskilling`,
+  `.../cover-letter`) — those spend an API key, which Internal mode exists to avoid.

@@ -10,13 +10,14 @@ from typing import Any
 from .. import data_store as store
 from .. import status
 from ..config import APPLICATIONS_DIR
+from ..cover_letter import gather_style_references
 from ..evaluation import assess_legitimacy, classify_archetype
 from ..logging_config import get_logger
 from ..roles import classify_role
 from ..schemas import Application, Job
 from . import providers
 from .registry import registry
-from .subagents import evaluator, reviewer, upskiller
+from .subagents import cover_letter_writer, evaluator, reviewer, upskiller
 
 log = get_logger(__name__)
 
@@ -276,6 +277,41 @@ def get_upskilling(job_id: str) -> dict[str, Any] | None:
 def get_evaluation(job_id: str) -> dict[str, Any] | None:
     """Read the last saved structured fit evaluation (None if never run)."""
     return store.read_evaluation(job_id)
+
+
+def generate_cover_letter(job_id: str) -> dict[str, Any]:
+    """External mode: draft a tailored cover letter with the LLM and persist it.
+
+    Grounds the draft in the job, profile, the saved fit evaluation, and local
+    style samples (curated + the user's own). Web examples are an Internal-mode
+    extra (Claude's own search); see the cover-letter skill."""
+    job = store.get_job(job_id)
+    if not job:
+        return {"error": f"job {job_id} not found"}
+    status.record("cover_letter_start", job_id, current_task=f"Cover letter for {job_id}")
+    job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
+    content = cover_letter_writer(
+        job, job_md, store.read_profile(), store.read_evaluation(job_id), gather_style_references()
+    )
+    saved = save_cover_letter(job_id, content)
+    status.record("cover_letter_done", job_id, current_task="idle")
+    return saved
+
+
+def save_cover_letter(job_id: str, content: str) -> dict[str, Any]:
+    """Persist a cover-letter draft — same store path for External and Internal
+    (Internal: Claude writes it in the terminal, then PUTs it here). No LLM."""
+    job = store.get_job(job_id)
+    if not job:
+        return {"error": f"job {job_id} not found"}
+    store.write_cover_letter(job_id, content)
+    return {"job_id": job_id, "content": content}
+
+
+def get_cover_letter(job_id: str) -> dict[str, Any] | None:
+    """Read the last saved cover-letter draft (None if never generated)."""
+    content = store.read_cover_letter(job_id)
+    return {"job_id": job_id, "content": content} if content is not None else None
 
 
 # --------------------------------------------------------------------------- #

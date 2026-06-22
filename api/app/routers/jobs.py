@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 
 from .. import data_store as store
 from ..agent import tools
-from ..schemas import EvaluationInput, UpskillingInput
+from ..schemas import CoverLetterInput, EvaluationInput, UpskillingInput
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -123,3 +123,30 @@ def read_upskilling(job_id: str):
     if not store.get_job(job_id):
         raise HTTPException(404, f"job {job_id} not found")
     return tools.get_upskilling(job_id) or {}
+
+
+@router.post("/{job_id}/cover-letter")
+def generate_cover_letter(job_id: str):
+    """External mode: draft a cover letter with the LLM and persist it."""
+    result = tools.generate_cover_letter(job_id)
+    if "error" in result:
+        raise HTTPException(404, result["error"])
+    return result
+
+
+@router.put("/{job_id}/cover-letter")
+def save_cover_letter(job_id: str, payload: CoverLetterInput):
+    """Persist a cover-letter draft produced outside the API (e.g. local Claude)."""
+    result = tools.save_cover_letter(job_id, payload.content)
+    if "error" in result:
+        raise HTTPException(404, result["error"])
+    return result
+
+
+@router.get("/{job_id}/cover-letter")
+def read_cover_letter(job_id: str):
+    """Read the last saved cover-letter draft ({} if none yet) — used by the UI poll.
+    404s on an unknown job, consistent with GET /{job_id}."""
+    if not store.get_job(job_id):
+        raise HTTPException(404, f"job {job_id} not found")
+    return tools.get_cover_letter(job_id) or {}
