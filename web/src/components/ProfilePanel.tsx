@@ -49,6 +49,8 @@ export default function ProfilePanel({
             setProfile(p);
             onChanged();
             setWaiting(false);
+            setCvPrompt(""); // parse done — hide the guided-prompt box
+            setCopied(false);
             return;
           }
         }
@@ -222,7 +224,7 @@ export default function ProfilePanel({
           <p className="mt-1.5 text-xs text-emerald-700">
             {waiting
               ? "Waiting for Claude to parse your CV and save the profile…"
-              : "Your CV was saved locally; switch the assistant to Internal (Claude) and run it."}
+              : "Your CV is saved — run it in the Claude terminal; the profile updates below."}
           </p>
         </div>
       )}
