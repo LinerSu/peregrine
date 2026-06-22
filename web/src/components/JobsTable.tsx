@@ -363,7 +363,15 @@ export default function JobsTable({
             {rows.length === 0 && (
               <tr>
                 <td colSpan={colCount} className="px-3 py-8 text-center text-gray-400">
-                  No jobs match. Adjust filters, or ask the assistant to "find jobs matching my CV".
+                  {jobs.length === 0 ? (
+                    <>
+                      No jobs tracked yet. Click <span className="font-medium text-gray-500">Scan sources</span>{" "}
+                      above to fetch from your configured boards, or{" "}
+                      <span className="font-medium text-gray-500">Add a job</span> from a URL, pasted text, or a PDF.
+                    </>
+                  ) : (
+                    <>No jobs match. Adjust filters, or ask the assistant to "find jobs matching my CV".</>
+                  )}
                 </td>
               </tr>
             )}

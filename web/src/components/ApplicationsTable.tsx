@@ -86,6 +86,10 @@ export default function ApplicationsTable({
   const arrow = (key: SortKey) => (sort.key === key ? (sort.dir === "asc" ? " ▲" : " ▼") : "");
 
   const inp = "px-2 py-1 text-xs border border-gray-300 rounded-md";
+  const orphanCount = useMemo(
+    () => applications.filter((a) => a.job_tracked === false).length,
+    [applications]
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -103,6 +107,14 @@ export default function ApplicationsTable({
           {adding ? "Cancel" : "+ Add"}
         </button>
       </div>
+
+      {orphanCount > 0 && (
+        <div className="px-3 py-1.5 text-xs text-amber-700 bg-amber-50 border-b border-amber-100">
+          {orphanCount} application{orphanCount > 1 ? "s have" : " has"} no linked posting — click{" "}
+          <span className="font-medium">⚠ add posting</span> on a row to add it (then you can evaluate it and
+          tailor a CV for it).
+        </div>
+      )}
 
       {adding && (
         <div className="flex flex-wrap items-center gap-2 p-3 bg-indigo-50 border-b border-gray-200">
