@@ -37,6 +37,7 @@ config/profile.yml
 config/memory.yml
 config/portals.yml
 config/cv_source.md
+config/job_source.md
 
 # Your résumé, cover letters, and any application materials
 resume/*

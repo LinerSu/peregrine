@@ -105,6 +105,24 @@ class CvTexInput(BaseModel):
     tex: str
 
 
+class JobSourceInput(BaseModel):
+    """Body for PUT /api/jobs/ingest-source — store-only raw posting text the user
+    pasted/uploaded (Internal mode parses it into a tracked job)."""
+    text: str = ""
+
+
+class JobIngestInput(BaseModel):
+    """Body for POST /api/jobs/ingest-doc/save — store-only (Internal mode: Claude
+    parses the pasted/uploaded posting, then POSTs the structured fields). No LLM."""
+    company: str
+    position: str
+    company_job_id: str = ""
+    location: str = ""
+    url: str = ""
+    posted_date: str = ""
+    description: str = ""
+
+
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
     content: str

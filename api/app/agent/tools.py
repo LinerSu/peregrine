@@ -4,6 +4,7 @@ truth) and records progress to STATUS.md.
 """
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any
 
@@ -18,7 +19,7 @@ from ..roles import classify_role
 from ..schemas import Application, Job
 from . import providers
 from .registry import registry
-from .subagents import cover_letter_writer, cv_tailor, evaluator, reviewer, upskiller
+from .subagents import cover_letter_writer, cv_tailor, evaluator, job_parser, reviewer, upskiller
 
 log = get_logger(__name__)
 
@@ -33,6 +34,9 @@ def _as_float(value: Any, default: float) -> float:
 
 
 # --------------------------------------------------------------------------- #
+_SCAN_NEW_CAP = 50  # avoid flooding the pipeline on a broad first scan (no filters set)
+
+
 @registry.register(
     "scan_jobs",
     "Scan configured ATS providers for jobs, dedupe on company+company_job_id, "
@@ -49,7 +53,10 @@ def scan_jobs() -> dict[str, Any]:
     status.record("scan_start", f"{len(companies)} companies", current_task="Scanning job portals")
 
     new = dup = filtered = 0
+    capped = False
     for c in companies:
+        if capped:
+            break
         postings = providers.fetch(c.get("provider", "generic"), c.get("name", ""), c.get("slug", ""))
         for p in postings:
             if not _passes_filters(p, filters, targets):
@@ -58,6 +65,9 @@ def scan_jobs() -> dict[str, Any]:
             if store.find_job_by_key(p.company, p.company_job_id):
                 dup += 1
                 continue
+            if new >= _SCAN_NEW_CAP:  # stop persisting once the cap is hit
+                capped = True
+                break
             jid = store.next_job_id()
             detail_md = _job_md(jid, p)
             detail_path = store.write_job_md(jid, detail_md) if snapshot else ""
@@ -77,7 +87,7 @@ def scan_jobs() -> dict[str, Any]:
             )
             new += 1
 
-    summary = {"new": new, "duplicates": dup, "filtered": filtered}
+    summary = {"new": new, "duplicates": dup, "filtered": filtered, "capped": capped}
     status.record("scan_done", str(summary), current_task="idle")
     return summary
 
@@ -363,6 +373,69 @@ def get_tailored_cv(job_id: str) -> dict[str, Any] | None:
     if tex is None:
         return None
     return {"job_id": job_id, "tex": tex, "pdf_available": store.cv_pdf_path(job_id).exists()}
+
+
+def _slug(text: str) -> str:
+    """Derive a stable company_job_id from a title when the posting has none."""
+    s = re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
+    return s[:40] or "posting"
+
+
+def _ingest_from_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    """Turn parsed posting fields into a tracked job (dedup by company + id). Shared
+    by the External (LLM-parsed) and Internal (Claude-parsed) ingest paths. Bumps the
+    ingest marker so the Internal-mode UI poll resolves — even when the job dedups."""
+    company = (fields.get("company") or "").strip()
+    position = (fields.get("position") or "").strip()
+    if not (company and position):
+        return {"error": "need at least a company and a position"}
+    location = fields.get("location", "")
+    # Mix location into the derived id so two same-titled reqs don't collide.
+    company_job_id = (fields.get("company_job_id") or "").strip() or _slug(f"{position} {location}")
+    existing = store.find_job_by_key(company, company_job_id)
+    if existing:
+        job, created = existing, False
+    else:
+        job = _persist_posting(providers.RawPosting(
+            company=company, company_job_id=company_job_id, position=position,
+            location=location, url=fields.get("url", ""),
+            posted_date=fields.get("posted_date", ""), description=fields.get("description", ""),
+        ))
+        created = True
+    seq = store.read_ingest_result().get("seq", 0) + 1
+    store.write_ingest_result({"seq": seq, "job_id": job.id, "created": created, "position": position})
+    return {"job": job.model_dump(), "created": created}
+
+
+def get_ingest_result() -> dict[str, Any]:
+    """The last job-ingest marker (seq + result) — the Internal UI polls this."""
+    return store.read_ingest_result()
+
+
+def ingest_job_doc(text: str) -> dict[str, Any]:
+    """External mode: parse a pasted/extracted posting with the LLM into a tracked job."""
+    if not text.strip():
+        return {"error": "no posting text provided"}
+    status.record("ingest_doc_start", f"{len(text)} chars", current_task="Ingesting pasted job")
+    parsed = job_parser(text)
+    if not parsed:
+        status.record("ingest_doc_failed", "no fields parsed", current_task="idle")
+        return {"error": "couldn't parse a job from that text — paste more of the posting, or use Internal mode"}
+    result = _ingest_from_fields(parsed)
+    status.record("ingest_doc_done", parsed.get("company", "?"), current_task="idle")
+    return result
+
+
+def save_ingested_job(fields: dict[str, Any]) -> dict[str, Any]:
+    """Store-only: create a tracked job from already-parsed fields (Internal mode:
+    Claude parses the posting in the terminal, then POSTs the fields here). No LLM."""
+    return _ingest_from_fields(fields)
+
+
+def save_job_source(text: str) -> dict[str, Any]:
+    """Stash the raw posting text so Internal-mode Claude can read + parse it. No LLM."""
+    store.write_job_source(text)
+    return {"chars": len(text)}
 
 
 # --------------------------------------------------------------------------- #
