@@ -232,10 +232,11 @@ def test_scan_prunes_aged_open_jobs(tmp_path, monkeypatch):
 
 
 def test_scan_only_restricts_to_named_companies(tmp_path, monkeypatch):
-    # scan_jobs(only=[...]) fetches and persists only the named companies.
+    # scan_jobs(only=[...]) fetches and persists only the named companies — one OR several.
     tools = _scan_setup(tmp_path, monkeypatch, {"companies": [
         {"name": "Acme", "provider": "x", "slug": "a"},
         {"name": "Globex", "provider": "x", "slug": "g"},
+        {"name": "Initech", "provider": "x", "slug": "i"},
     ], "snapshot": False})
     fetched: list[str] = []
 
@@ -244,9 +245,14 @@ def test_scan_only_restricts_to_named_companies(tmp_path, monkeypatch):
         return [P.RawPosting(company=name, company_job_id="R1", position="Eng")]
 
     monkeypatch.setattr(tools.providers, "fetch", fake_fetch)
-    tools.scan_jobs(only=["Globex"])
-    assert fetched == ["Globex"]                                   # Acme never fetched
+    tools.scan_jobs(only=["Globex"])                               # one company
+    assert fetched == ["Globex"]                                   # Acme/Initech never fetched
     assert {j.company for j in tools.store.list_jobs()} == {"Globex"}
+
+    fetched.clear()
+    tools.scan_jobs(only=["Acme", "Initech"])                      # two companies
+    assert sorted(fetched) == ["Acme", "Initech"]                  # Globex skipped this run
+    assert {j.company for j in tools.store.list_jobs()} == {"Globex", "Acme", "Initech"}
 
 
 def test_scan_tolerates_bad_filter_and_company_values(tmp_path, monkeypatch):

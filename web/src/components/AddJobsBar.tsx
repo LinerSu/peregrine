@@ -18,17 +18,20 @@ export default function AddJobsBar({
   const [busy, setBusy] = useState(false);
   const [scanMsg, setScanMsg] = useState("");
   const [sources, setSources] = useState<{ name: string; provider: string }[]>([]);
-  const [target, setTarget] = useState(""); // "" = scan all configured companies
+  const [selected, setSelected] = useState<string[]>([]); // [] = scan all configured companies
 
   useEffect(() => {
     api.sources().then((r) => setSources(r.companies)).catch(() => {});
   }, []);
 
+  const toggle = (name: string) =>
+    setSelected((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
+
   const scan = async () => {
     setBusy(true);
     setScanMsg("");
     try {
-      const r = await api.scan(target ? [target] : undefined);
+      const r = await api.scan(selected.length ? selected : undefined);
       const tail = `${r.duplicates} dupes · ${r.filtered} filtered`;
       const more = r.capped ? " — stopped at the per-scan safety cap; click Scan again for more." : ".";
       setScanMsg(
@@ -50,18 +53,21 @@ export default function AddJobsBar({
     <div className="border-b border-gray-200 bg-white px-3 py-2">
       <div className="flex flex-wrap items-center gap-2">
         {sources.length > 1 && (
-          <select
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-            disabled={busy}
-            title="Limit the scan to one company"
-            className="px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-white"
-          >
-            <option value="">All companies</option>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-700"
+               title="Tick companies to scan; none ticked = scan all">
+            <span className="text-gray-500">Scan:</span>
             {sources.map((s) => (
-              <option key={s.name} value={s.name}>{s.name}</option>
+              <label key={s.name} className="inline-flex items-center gap-1 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={selected.includes(s.name)}
+                  disabled={busy}
+                  onChange={() => toggle(s.name)}
+                />
+                {s.name}
+              </label>
             ))}
-          </select>
+          </div>
         )}
         <button
           type="button"
@@ -69,7 +75,7 @@ export default function AddJobsBar({
           disabled={busy}
           className="px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
         >
-          {busy ? "Working…" : target ? `Scan ${target}` : "Scan sources"}
+          {busy ? "Working…" : selected.length ? `Scan ${selected.length} selected` : "Scan all"}
         </button>
         <button
           type="button"
