@@ -117,19 +117,42 @@ def upsert_job(job: Job) -> Job:
     return job
 
 
-def next_id() -> str:
-    """Next surrogate id like 2026-001, unique across BOTH jobs and applications
-    (so a manually-added application can't later collide with a scanned job)."""
-    from datetime import date
+def write_jobs(jobs: list[Job]) -> None:
+    """Persist the whole jobs list in one write. For batch callers (e.g. a scan) that
+    mutate many rows and want to avoid the per-row read+rewrite of upsert_job."""
+    _write_csv(config.JOBS_CSV, JOB_FIELDS, [j.model_dump() for j in jobs])
 
-    year = date.today().year
+
+def _max_id_num(year: int) -> int:
+    """Highest NNN across BOTH jobs and applications for the given year (0 if none)."""
     ids = [j.id for j in list_jobs()] + [a.id for a in list_applications()]
     nums = [
         int(i.split("-")[-1])
         for i in ids
         if i.startswith(f"{year}-") and i.split("-")[-1].isdigit()
     ]
-    return f"{year}-{(max(nums) + 1) if nums else 1:03d}"
+    return max(nums) if nums else 0
+
+
+def id_minter() -> "Iterator[str]":
+    """Yield successive unique ids (year-NNN), seeded once from the current jobs+applications.
+    Lets a batch (scan) mint many ids without re-reading the CSV per id. Ids stay unique
+    across both stores (a manually-added application can't later collide with a scanned job)."""
+    from datetime import date
+
+    year = date.today().year
+    n = _max_id_num(year)
+    while True:
+        n += 1
+        yield f"{year}-{n:03d}"
+
+
+def next_id() -> str:
+    """Next surrogate id like 2026-001, unique across BOTH jobs and applications
+    (so a manually-added application can't later collide with a scanned job)."""
+    from datetime import date
+
+    return f"{date.today().year}-{_max_id_num(date.today().year) + 1:03d}"
 
 
 def next_job_id() -> str:

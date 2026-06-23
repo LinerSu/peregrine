@@ -29,6 +29,8 @@ filters:
   locations: []                 # empty = any
   remote_only: false
   min_base: 0                   # 0 = no salary floor
+  max_age_days: 0               # 0 = no limit; e.g. 60 = only postings from the last ~2 months
+                                # (also auto-closes tracked open jobs once they age past this)
 
 # Be a polite scraper.
 rate_limit_seconds: 2

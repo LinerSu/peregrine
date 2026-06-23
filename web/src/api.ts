@@ -136,8 +136,14 @@ export const api = {
     }),
   listJobs: (query = "") =>
     http<{ count: number; jobs: Job[] }>(`/api/jobs?query=${encodeURIComponent(query)}`),
-  scan: () =>
-    http<{ new: number; duplicates: number; filtered: number; capped: boolean; dead: number }>("/api/jobs/scan", { method: "POST" }),
+  // Scan configured sources. Pass company names to restrict the scan; omit to scan all.
+  scan: (companies?: string[]) =>
+    http<{ new: number; duplicates: number; filtered: number; capped: boolean; dead: number }>("/api/jobs/scan", {
+      method: "POST",
+      body: JSON.stringify(companies && companies.length ? { companies } : {}),
+    }),
+  // Configured scan sources, for the per-company scan selector.
+  sources: () => http<{ companies: { name: string; provider: string }[] }>("/api/jobs/sources"),
   // Add a job from content you provide (no scraping). URL fetch, or paste/upload.
   ingestUrl: (url: string) =>
     http<{ job?: Job; created?: boolean }>("/api/jobs/ingest", { method: "POST", body: JSON.stringify({ url }) }),
