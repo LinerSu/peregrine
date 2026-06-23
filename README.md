@@ -78,17 +78,26 @@ and sees this repo, and it's why the terminal can't be a `docker compose` servic
 web/ (React chat + dashboard)
   └─► api/ (FastAPI)  ── agent harness (LLM loop + tools)
         ├─ subagents: searcher · evaluator · reviewer (isolated context)
-        ├─ tools: scan_jobs · evaluate_fit · prepare_materials · parse_cv · list_jobs · mark_applied · assess_upskilling
-        ├─ providers (live): greenhouse · amazon · apple · ashby · lever  (generic = stub)
+        ├─ tools: scan_jobs · evaluate_fit · prepare_materials · assess_upskilling · parse_cv · list_jobs · mark_applied · ingest_job_url
+        ├─ scan providers: greenhouse · ashby · lever · recruitee · smartrecruiters · workable  (generic = stub)
         ├─ crawl_policy: allow-list · ToS block-list · robots · rate-limit · honest UA
         └─ skills -> .agents/skills/*/SKILL.md  (open standard, dual-use with CLIs)
 data/   jobs.csv · applications.csv · jobs/<id>.md   (single source of truth)
 config/ profile.yml · memory.yml · portals.yml       (memory + scraper config)
 ```
 
+> **Amazon/Apple** aren't supported for **scanning** — they have no public board
+> *listing* feed (unlike greenhouse/ashby/lever), so we don't bulk-scan them (same
+> stance as career-ops). A single pasted URL still ingests (amazon.jobs `search.json`,
+> the Apple posting page), and paste/upload works for any site.
+
 **Data format:** sortable metrics → CSV; long-form text (descriptions,
 qualifications, snapshots, evaluations) → per-job Markdown; config/memory → YAML.
 Dedup key = `company` + `company_job_id`.
+
+**Where your data lives + what you can drop in:** every folder (and the
+"edit a file / drop a résumé" workflows, plus how Internal mode hands off through the
+filesystem) is mapped in **[docs/FILESYSTEM.md](docs/FILESYSTEM.md)**.
 
 For agent/architecture details and the continuity protocol (so a fresh AI
 session can resume), see [AGENTS.md](AGENTS.md) and [STATUS.md](STATUS.md).

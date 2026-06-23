@@ -32,7 +32,8 @@ data/jobs/*.json
 !data/jobs/.gitkeep
 data/index.sqlite
 # Your own cover-letter style samples (read as references; curated samples that
-# ship with the repo live in api/app/cover_letters/ instead).
+# ship with the repo live in api/app/cover_letters/ instead). Documented in
+# docs/FILESYSTEM.md (the folder is protected, so no README ships inside it).
 data/cover_letter_samples/
 config/profile.yml
 config/memory.yml
