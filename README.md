@@ -158,26 +158,40 @@ Peregrine is built to be a **good web citizen**, not a scraper that bulldozes
 other companies' sites.
 
 **What it does**
-- Fetches jobs only from boards it officially supports **and** that permit
-  automated access — Greenhouse, Ashby and Lever boards, plus single postings you
-  paste from amazon.jobs or jobs.apple.com.
+- Reads jobs only from **public, opt-in ATS feeds for companies you explicitly list** —
+  Greenhouse, Ashby, Lever, Recruitee, SmartRecruiters, Workable — each by the company's own
+  slug. **No platform-wide search or crawl.** Plus single postings you *paste* from
+  amazon.jobs / jobs.apple.com.
 - Scores fit against your CV, prepares materials, and tracks your applications.
 - Keeps your data on your machine.
 
 **What it won't do**
-- It **won't scrape sites whose Terms forbid it or that block bots** — e.g.
-  LinkedIn, Indeed, Glassdoor, Meta. For those, paste the job text instead.
-- It **won't bypass** logins, paywalls, CAPTCHAs or bot-detection, and won't
-  impersonate a browser to evade blocks. Every fetch honors `robots.txt`, a
-  per-host rate limit, an explicit host allow-list, and an honest, self-identifying
-  User-Agent (enforced in [`crawl_policy.py`](api/app/agent/crawl_policy.py)).
-- It **won't submit applications for you** — you always click Apply after the
-  review gate — and won't invent skills or experience you don't have.
+- It **won't scrape sites whose Terms forbid it or that block bots** — LinkedIn, Indeed,
+  Glassdoor, Meta are refused with a reason. Paste the job text instead.
+- It **won't bypass** logins, paywalls, CAPTCHAs or bot-detection, won't send credentials,
+  and won't impersonate a browser. Every board fetch goes through one gate
+  ([`crawl_policy.py`](api/app/agent/crawl_policy.py)) that enforces a **block-list → host
+  allow-list → robots.txt → per-host rate limit → honest, self-identifying User-Agent**.
+- It **won't submit applications for you** — you always click Apply after the review gate —
+  and won't invent skills or experience you don't have.
 
-**Disclaimer.** You are responsible for complying with each site's Terms of
-Service. Fit scores and upskilling suggestions are AI-generated guidance, not
-guarantees. If a board isn't supported, copy the job description in manually
-rather than asking Peregrine to break through a site's protections.
+**Privacy.** Your profile, CV, jobs, and applications stay on your machine. The only network
+traffic is (a) the public ATS feeds above during a scan, and (b) your configured LLM
+provider (`anthropic`/`openai`/`ollama`, or none in `mock` mode). Nothing else is sent
+anywhere; nothing is phoned home.
+
+**Compliance.** As shipped, Peregrine fetches only public, opt-in ATS job feeds that permit
+automated access and refuses everything else — it does not scrape sites that prohibit it,
+bypass authentication or anti-bot measures, or impersonate a browser. The full model,
+per-provider endpoints, and the rules for extending it safely are documented in
+**[docs/SCANNING.md](docs/SCANNING.md)** (and enforced + tested in
+[`crawl_policy.py`](api/app/agent/crawl_policy.py) /
+[`test_crawl_policy.py`](api/tests/test_crawl_policy.py)).
+
+**Disclaimer.** You remain responsible for complying with each site's Terms of Service in
+your jurisdiction. If a board isn't supported, paste the job description in rather than
+asking Peregrine to break through a site's protections. Fit scores and upskilling
+suggestions are AI-generated guidance, not guarantees.
 
 ---
 
