@@ -56,6 +56,44 @@ PERSONAS: dict[str, dict[str, Any]] = {
                 "exclude_keywords": ["unpaid", "security clearance"],
             },
             "resume_path": "resume/maya_lindqvist.pdf",
+            "links": {
+                "github": "https://github.com/maya-lindqvist",
+                "linkedin": "https://linkedin.com/in/maya-lindqvist",
+                "website": "https://mayalindqvist.dev",
+            },
+            "sections": [
+                {"id": "education", "title": "Education",
+                 "summary": "MSc in Machine Learning (Toronto) and BSc in CS (KTH).",
+                 "items": [
+                     {"heading": "MSc, Machine Learning — University of Toronto",
+                      "subhead": "2017–2019 · Toronto, ON",
+                      "detail": "Thesis on retrieval-augmented generation for long documents; TA for Deep Learning.",
+                      "links": [{"label": "thesis", "url": "https://example.com/maya-thesis"}]},
+                     {"heading": "BSc, Computer Science — KTH Royal Institute of Technology",
+                      "subhead": "2013–2017 · Stockholm, SE",
+                      "detail": "Graduated with distinction; focus on systems and machine learning."},
+                 ]},
+                {"id": "experience", "title": "Industry Experience",
+                 "summary": "5 years building LLM and recommender systems at Northwind and Brightwave.",
+                 "items": [
+                     {"heading": "Senior ML Engineer — Northwind",
+                      "subhead": "2021–present · Toronto, ON",
+                      "detail": "Built the 'Helios' recommender and the 'Helix' RAG stack; led LLM fine-tuning "
+                                "(LoRA/QLoRA) and production serving.",
+                      "links": [{"label": "Helix (OSS)", "url": "https://github.com/maya-lindqvist/helix"}]},
+                     {"heading": "ML Engineer — Brightwave",
+                      "subhead": "2019–2021 · Remote",
+                      "detail": "Trained vision models for document understanding; shipped the first production "
+                                "inference pipeline."},
+                 ]},
+                {"id": "projects", "title": "Projects",
+                 "summary": "Open-source RAG tooling and a personal LLM eval harness.",
+                 "items": [
+                     {"heading": "Helix — composable retrieval stack",
+                      "detail": "A RAG library with evaluation baked in; ~1k GitHub stars.",
+                      "links": [{"label": "repo", "url": "https://github.com/maya-lindqvist/helix"}]},
+                 ]},
+            ],
         },
         "jobs": [
             {

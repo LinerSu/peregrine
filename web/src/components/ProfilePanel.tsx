@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Profile } from "../api";
 import type { AssistantMode } from "../App";
+import { LinkIcon } from "./icons";
 
 // Profile / CV tab. CV intake is mode-aware:
 //   External — POST /api/cv (LLM parses the CV into the profile).
@@ -20,6 +21,9 @@ export default function ProfilePanel({
   const [waiting, setWaiting] = useState(false); // Internal: polling for Claude's save
   const [copied, setCopied] = useState(false);
   const [resumeMsg, setResumeMsg] = useState(""); // result of "import from resume/"
+  const [expanded, setExpanded] = useState<Set<number>>(new Set()); // which résumé sections are open
+  // Re-fold whenever the profile (re)loads, so a re-parse can't leave a stale index open.
+  useEffect(() => setExpanded(new Set()), [profile]);
   const baseline = useRef<string | null>(null); // serialized profile before parse; null = not yet established
   const modeRef = useRef(mode); // current mode, for async guards (closures go stale)
   modeRef.current = mode;
@@ -166,35 +170,128 @@ export default function ProfilePanel({
   };
 
   const skills = profile?.skills ?? [];
+  const links = Object.entries(profile?.links ?? {}).filter(([, url]) => url);
+  const sections = profile?.sections ?? [];
+  const hasContent = !!(profile?.name || skills.length || links.length || sections.length);
+  const toggle = (i: number) =>
+    setExpanded((s) => {
+      const n = new Set(s);
+      n.has(i) ? n.delete(i) : n.add(i);
+      return n;
+    });
+  const hrefFor = (kind: string, url: string) =>
+    kind === "email" || /^[^/\s@]+@[^/\s@]+$/.test(url) ? (url.startsWith("mailto:") ? url : `mailto:${url}`) : url;
+  const hostOf = (url?: string) => {
+    if (url?.toLowerCase().startsWith("mailto:")) return url.slice(7); // show the address
+    try {
+      return new URL(url!).hostname.replace(/^www\./, "") || url || "link";
+    } catch {
+      return url || "link";
+    }
+  };
+  // Only allow http(s)/mailto hrefs — never render a javascript: URL from parsed CV text.
+  const safeUrl = (url?: string) => (url && /^(https?|mailto):/i.test(url) ? url : undefined);
 
   return (
     <div className="h-full overflow-auto p-5 space-y-6">
       <section>
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Profile</h3>
-        {profile && (profile.name || skills.length > 0) ? (
-          <div className="space-y-3">
+        {profile && hasContent ? (
+          <div className="space-y-4">
+            {/* Header — name, headline, location + link icons */}
             <div>
-              <div className="text-lg font-semibold">{profile.name || "—"}</div>
+              <div className="text-xl font-bold text-gray-900">{profile.name || "—"}</div>
               {profile.headline && <div className="text-sm text-gray-600">{profile.headline}</div>}
-              {profile.location && <div className="text-xs text-gray-400">{profile.location}</div>}
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                {profile.location && <span className="text-gray-400">{profile.location}</span>}
+                {links.map(([kind, url]) => {
+                  const href = safeUrl(hrefFor(kind, url));
+                  if (!href) return null;
+                  return (
+                    <a
+                      key={kind}
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={url}
+                      className="inline-flex items-center gap-1 text-gray-500 hover:text-indigo-600"
+                    >
+                      <LinkIcon kind={kind} url={url} className="w-4 h-4" />
+                      <span className="capitalize">{kind}</span>
+                    </a>
+                  );
+                })}
+              </div>
             </div>
+
+            {/* Skills */}
             {skills.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {skills.map((s, i) => (
-                  <span
-                    key={i}
-                    title={s.evidence}
-                    className="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-700"
-                  >
+                  <span key={i} title={s.evidence} className="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-700">
                     {s.name}
                     {s.level ? ` · ${s.level}` : ""}
                   </span>
                 ))}
               </div>
             )}
+
+            {/* Résumé sections — folded by default, click to expand */}
+            {sections.map((sec, i) => {
+              const open = expanded.has(i);
+              const items = sec.items ?? [];
+              return (
+                <div key={i} className="rounded-lg border border-gray-200">
+                  <button
+                    type="button"
+                    onClick={() => toggle(i)}
+                    aria-expanded={open}
+                    className="w-full flex items-start gap-2 px-3 py-2.5 text-left hover:bg-gray-50"
+                  >
+                    <span className="mt-0.5 text-gray-400 select-none">{open ? "▾" : "▸"}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="text-sm font-semibold text-gray-700">{sec.title || sec.id || "Section"}</span>
+                      {sec.summary && <span className="block text-xs text-gray-500 mt-0.5">{sec.summary}</span>}
+                    </span>
+                  </button>
+                  {open && items.length > 0 && (
+                    <div className="px-3 pb-3 border-t border-gray-100 divide-y divide-gray-50">
+                      {items.map((it, j) => (
+                        <div key={j} className="py-3">
+                          {it.heading && <div className="text-sm font-medium text-gray-800">{it.heading}</div>}
+                          {it.subhead && <div className="text-xs text-gray-400">{it.subhead}</div>}
+                          {it.detail && <p className="mt-1 text-sm text-gray-600 whitespace-pre-line">{it.detail}</p>}
+                          {(it.links?.length ?? 0) > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+                              {it.links!.map((l, k) => {
+                                const href = safeUrl(l.url);
+                                if (!href) return null;
+                                return (
+                                  <a
+                                    key={k}
+                                    href={href}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline"
+                                  >
+                                    <LinkIcon url={l.url} className="w-3.5 h-3.5" />
+                                    {l.label || hostOf(l.url)}
+                                  </a>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         ) : (
-          <p className="text-sm text-gray-400">No profile yet — paste your CV below to build one.</p>
+          <p className="text-sm text-gray-400">
+            No profile yet — paste your CV below, upload a file, or import from <code>resume/</code>.
+          </p>
         )}
       </section>
 

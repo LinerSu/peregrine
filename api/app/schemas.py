@@ -1,7 +1,7 @@
 """Pydantic models shared across the API and agent."""
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, field_validator
 
@@ -84,6 +84,60 @@ class SkillInput(BaseModel):
     evidence: str = ""
 
 
+def _as_str(v: Any) -> str:
+    return "" if v is None else str(v)
+
+
+class ProfileLink(BaseModel):
+    """A labelled link from the résumé (rendered with an icon by host)."""
+    label: str = ""
+    url: str = ""
+
+    @field_validator("label", "url", mode="before")
+    @classmethod
+    def _coerce(cls, v):
+        return _as_str(v)
+
+
+class ProfileItem(BaseModel):
+    """One résumé entry within a section (a degree, a job, a paper, a project…)."""
+    heading: str = ""    # e.g. "PhD, Computer Science — Stanford University"
+    subhead: str = ""    # e.g. "2019–2024 · Stanford, CA"
+    detail: str = ""     # full prose / bullets (shown when the section is expanded)
+    links: list[ProfileLink] = []
+
+    @field_validator("heading", "subhead", "detail", mode="before")
+    @classmethod
+    def _coerce(cls, v):
+        return _as_str(v)
+
+    @field_validator("links", mode="before")
+    @classmethod
+    def _coerce_links(cls, v):
+        if not isinstance(v, list):
+            return []
+        return [{"url": x} if isinstance(x, str) else x for x in v if isinstance(x, (str, dict))]
+
+
+class ProfileSection(BaseModel):
+    """A foldable résumé section: a one-line `summary` + the full `items`."""
+    id: str = ""         # "education" | "experience" | "research" | "service" | "awards" | "projects"
+    title: str = ""      # display title
+    summary: str = ""    # one-sentence folded view
+    items: list[ProfileItem] = []
+
+    @field_validator("id", "title", "summary", mode="before")
+    @classmethod
+    def _coerce(cls, v):
+        return _as_str(v)
+
+    @field_validator("items", mode="before")
+    @classmethod
+    def _coerce_items(cls, v):
+        # drop non-dict elements too, so one stray item can't 422 the whole save
+        return [x for x in v if isinstance(x, dict)] if isinstance(v, list) else []
+
+
 class ProfileInput(BaseModel):
     """Body for PUT /api/profile — store-only profile merge (Internal mode: Claude
     parses the CV, then PUTs the extracted fields). Only CV-derived keys are
@@ -92,6 +146,26 @@ class ProfileInput(BaseModel):
     headline: Optional[str] = None
     location: Optional[str] = None
     skills: Optional[list[SkillInput]] = None
+    links: Optional[dict[str, str]] = None        # named profile links: github/website/linkedin/scholar/email…
+    sections: Optional[list[ProfileSection]] = None
+
+    @field_validator("links", mode="before")
+    @classmethod
+    def _clean_links(cls, v):
+        if not isinstance(v, dict):
+            return None
+        cleaned = {str(k): str(val) for k, val in v.items() if val not in (None, "")}
+        return cleaned or None
+
+    @field_validator("sections", mode="before")
+    @classmethod
+    def _clean_sections(cls, v):
+        # Drop non-dict elements so one stray item can't 422 the whole save — matches the
+        # External parse path, which keeps the good sections and skips the bad ones.
+        # (skills keep their strict shape — that's enforced by an existing test.)
+        if not isinstance(v, list):
+            return None
+        return [s for s in v if isinstance(s, dict)] or None
 
 
 class CvSourceInput(BaseModel):
