@@ -123,16 +123,16 @@ feature — switch on a **demo persona**. Each is a fictional but realistic pers
 evaluations, upskilling notes, and applications, so every tab fills in.
 
 ```bash
-# pick one persona, then restart the stack
-echo "PEREGRINE_DATASET=ai-engineer" >> .env
-docker compose up -d            # seeds the persona on first boot
-
-# switch back to your real data: remove the PEREGRINE_DATASET line from .env
-# (edit it, or set it empty), then:
-docker compose up -d
+./scripts/dataset.sh ai-engineer   # switch to a persona (sets .env + restarts the API)
+./scripts/dataset.sh off           # back to your live config/ + data/
+./scripts/dataset.sh               # show the active dataset + what's available
 ```
 
+The web reflects the switch on **refresh** — no rebuild (only the API's data changes).
+Equivalent by hand: set/clear `PEREGRINE_DATASET` in `.env`, then `docker compose up -d`.
+
 Personas: `ai-engineer` · `ux-designer` · `chem-phd` · `bio-scientist` · `law-student`.
+(`./scripts/dataset.sh <name>` also accepts a private local dataset under `.demo/<name>/`.)
 
 The dataset is generated from [`api/app/demo_seed.py`](api/app/demo_seed.py) into an
 isolated, gitignored `.demo/<persona>/` directory (mounted to the host) — your `data/`
