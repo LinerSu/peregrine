@@ -21,6 +21,9 @@ def test_epoch_ms_to_date():
 
 def test_strip_html():
     assert P._strip_html("<p>hi <b>there</b></p>") == "hi there"
+    # Greenhouse returns entity-escaped HTML — unescape, strip, unescape, nbsp -> space.
+    assert P._strip_html("&lt;div&gt;A &amp;amp; B&lt;/div&gt;") == "A & B"
+    assert P._strip_html("&lt;p&gt;Hi&amp;nbsp;there&lt;/p&gt;") == "Hi there"
 
 
 def test_find_apple_posting_walks_to_node():

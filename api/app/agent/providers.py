@@ -7,6 +7,7 @@ they can be filled in later. Hosts are pinned (no arbitrary URLs) to avoid SSRF.
 """
 from __future__ import annotations
 
+import html
 import json
 import re
 from dataclasses import dataclass
@@ -33,8 +34,14 @@ class RawPosting:
     description: str = ""
 
 
-def _strip_html(html: str) -> str:
-    text = _TAG_RE.sub("", html or "")
+def _strip_html(raw: str) -> str:
+    """Plain text from a feed's description. Some boards (e.g. Greenhouse) return HTML that
+    is itself entity-escaped (`&lt;div&gt;`, `&amp;nbsp;`), so unescape first to reveal the
+    real tags, strip them, then unescape again to resolve entities the tags were hiding
+    (`&amp;nbsp;` -> `&nbsp;` -> a space). Plain HTML (recruitee/ashby) is unaffected."""
+    text = html.unescape(raw or "")
+    text = _TAG_RE.sub("", text)
+    text = html.unescape(text).replace("\xa0", " ")
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
