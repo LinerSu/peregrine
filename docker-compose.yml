@@ -16,10 +16,8 @@ services:
       # Live source: API code changes (e.g. after a git pull) reflect on the next
       # request via --reload, so the container never serves a stale schema/route.
       - ./api/app:/app/app
-      # Project Markdown docs, served read-only by /api/docs -> the web /docs page.
+      # The in-app User Manual (docs/manual/), served read-only by /api/docs -> web /docs.
       - ./docs:/app/docs:ro
-      - ./README.md:/app/README.md:ro
-      - ./AGENTS.md:/app/AGENTS.md:ro
     # uvicorn's reloader only restarts on *.py changes, so the app's runtime writes to
     # the mounted data/config/logs (csv/md/yml/json/log) never trigger a reload — only
     # editing the Python source does. (Verified with file-write probes.)

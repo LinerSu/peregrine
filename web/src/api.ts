@@ -122,7 +122,10 @@ export interface Evaluation {
 export interface DocMeta {
   slug: string;
   title: string;
-  file: string;
+}
+export interface DocSection {
+  title: string;
+  pages: DocMeta[];
 }
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
@@ -150,8 +153,8 @@ export const api = {
     }),
   // Configured scan sources, for the per-company scan selector.
   sources: () => http<{ companies: { name: string; provider: string }[] }>("/api/jobs/sources"),
-  // Project Markdown docs, for the /docs page.
-  docs: () => http<{ docs: DocMeta[] }>("/api/docs"),
+  // The in-app User Manual, for the /docs page (grouped into sections).
+  docs: () => http<{ sections: DocSection[] }>("/api/docs"),
   doc: (slug: string) => http<DocMeta & { markdown: string }>(`/api/docs/${encodeURIComponent(slug)}`),
   // Add a job from content you provide (no scraping). URL fetch, or paste/upload.
   ingestUrl: (url: string) =>
