@@ -36,6 +36,8 @@ export default function ApplicationsTable({
   const [form, setForm] = useState(blankForm);
   const [addingPostingFor, setAddingPostingFor] = useState<string | null>(null); // orphan id
   const [linkErr, setLinkErr] = useState<string | null>(null);
+  const [addingFromPosting, setAddingFromPosting] = useState(false); // add an app from a posting doc
+  const [fromPostingErr, setFromPostingErr] = useState<string | null>(null);
 
   const patch = async (id: string, change: Partial<Application>) => {
     setSavingId(id);
@@ -101,10 +103,26 @@ export default function ApplicationsTable({
           onChange={(e) => setQuery(e.target.value)}
         />
         <button
-          onClick={() => setAdding((v) => !v)}
+          onClick={() => {
+            setAdding((v) => !v);
+            setAddingFromPosting(false);
+            setAddingPostingFor(null); // all three add UIs are mutually exclusive
+          }}
           className="px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-100 rounded-md hover:bg-indigo-200"
         >
           {adding ? "Cancel" : "+ Add"}
+        </button>
+        <button
+          onClick={() => {
+            setAddingFromPosting((v) => !v);
+            setAdding(false);
+            setAddingPostingFor(null); // one ingest panel at a time (Internal mode shares one marker)
+            setFromPostingErr(null);
+          }}
+          title="Add an application from a job posting you paste, upload (PDF), or link"
+          className="px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 rounded-md hover:bg-indigo-100"
+        >
+          {addingFromPosting ? "Cancel" : "+ From posting"}
         </button>
       </div>
 
@@ -135,6 +153,32 @@ export default function ApplicationsTable({
           >
             Save
           </button>
+        </div>
+      )}
+
+      {addingFromPosting && (
+        <div className="p-3 bg-indigo-50 border-b border-gray-200">
+          <p className="mb-2 text-xs text-gray-600">
+            Add a posting you applied to — paste it, upload a PDF, or give a URL. It's parsed into a tracked
+            job and logged as an application (status "applied"), so it's never an orphan.
+          </p>
+          <JobIngestPanel
+            mode={mode}
+            textPlaceholder="Paste the job posting you applied to (or save the page as PDF and upload it)…"
+            onIngested={async (jobId) => {
+              try {
+                await api.markApplied(jobId);
+                setFromPostingErr(null);
+                setAddingFromPosting(false);
+                onChanged();
+              } catch {
+                setFromPostingErr(
+                  "The job was added, but logging the application failed — refresh and mark it applied."
+                );
+              }
+            }}
+          />
+          {fromPostingErr && <p className="mt-2 text-xs text-rose-600">{fromPostingErr}</p>}
         </div>
       )}
 
@@ -176,6 +220,8 @@ export default function ApplicationsTable({
                         type="button"
                         onClick={() => {
                           setLinkErr(null); // don't carry one row's error to another
+                          setAddingFromPosting(false); // all three add UIs are mutually exclusive
+                          setAdding(false);
                           setAddingPostingFor((id) => (id === a.id ? null : a.id));
                         }}
                         title="No tracked posting backs this application — click to add the job posting (URL / paste / PDF) and link it"
