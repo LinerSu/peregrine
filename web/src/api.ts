@@ -29,11 +29,29 @@ export interface Application extends Job {
   job_tracked?: boolean; // does a tracked job posting back this application?
 }
 
+export interface ProfileLink {
+  label?: string;
+  url?: string;
+}
+export interface ProfileItem {
+  heading?: string;
+  subhead?: string;
+  detail?: string;
+  links?: ProfileLink[];
+}
+export interface ProfileSection {
+  id?: string;
+  title?: string;
+  summary?: string;
+  items?: ProfileItem[];
+}
 export interface Profile {
   name?: string;
   headline?: string;
   location?: string;
   skills?: { name: string; level?: string; evidence?: string }[];
+  links?: Record<string, string>; // named profile links: github/website/linkedin/scholar/email…
+  sections?: ProfileSection[];
   [key: string]: unknown;
 }
 

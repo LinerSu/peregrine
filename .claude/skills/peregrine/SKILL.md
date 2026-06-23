@@ -69,12 +69,18 @@ the local API** so the web page reflects it exactly like External (API) mode.
    live in `.demo/<persona>/config/` instead.) Extract only the CV-derived fields —
    don't set `resume_path` (the Internal flow has only the text, no original file).
 2. Follow the rubric in `.agents/skills/cv-intake/SKILL.md`: extract name, headline,
-   location, and skills (array of `{name, level, evidence}`). Never invent skills.
+   location, `links`, `skills`, and `sections` (education/experience/research/service/
+   awards/projects — each with a one-sentence `summary` + `items`). Never invent.
 3. Persist it (this updates the **Profile** tab — store-only merge):
    ```bash
    curl -s -X PUT http://localhost:8000/api/profile \
      -H 'content-type: application/json' \
-     -d '{"name":"...","headline":"...","location":"...","skills":[{"name":"...","level":"...","evidence":"..."}]}'
+     -d '{"name":"...","headline":"...","location":"...",
+          "links":{"github":"https://github.com/…","scholar":"https://…"},
+          "skills":[{"name":"...","level":"...","evidence":"..."}],
+          "sections":[{"id":"education","title":"Education","summary":"<one sentence>",
+            "items":[{"heading":"PhD, …","subhead":"2019–2024 · …","detail":"…",
+                      "links":[{"label":"thesis","url":"https://…"}]}]}]}'
    ```
 4. Tell the user it's saved — the Profile tab will refresh.
 

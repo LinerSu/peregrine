@@ -11,6 +11,14 @@ work_auth:                # e.g. ["US Citizen"] or ["EU work permit"]
   - ""
 needs_sponsorship: false
 
+# Profile / résumé links — rendered with icons on the Profile page.
+links:
+  github: ""
+  website: ""
+  linkedin: ""
+  scholar: ""
+  email: ""
+
 # Compensation expectations (used to filter / flag jobs).
 comp:
   currency: USD
@@ -29,6 +37,21 @@ skills:
   - name: ""
     level: ""             # "beginner" | "intermediate" | "advanced" | "expert"
     evidence: ""          # where you used it
+
+# Résumé sections shown on the Profile page — each folds to its one-line `summary`
+# and expands to its `items`. CV intake fills these from your résumé; you can also
+# edit by hand. `id` ∈ education | experience | research | service | awards | projects.
+sections:
+  - id: education
+    title: Education
+    summary: ""           # one sentence (the collapsed view)
+    items:
+      - heading: ""       # e.g. "PhD, Computer Science — Stanford University"
+        subhead: ""       # e.g. "2019–2024 · Stanford, CA"
+        detail: ""        # full text (shown when expanded)
+        links:
+          - label: ""     # e.g. "thesis"
+            url: ""
 
 # Path to your master resume (pdf or .tex) under resume/.
 resume_path: ""

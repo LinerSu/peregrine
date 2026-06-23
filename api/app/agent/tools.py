@@ -534,6 +534,56 @@ def mark_applied(job_id: str, applied_date: str = "") -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
+_CV_PROMPT = (
+    "Return ONLY a JSON profile object with keys:\n"
+    "- name, headline, location (strings)\n"
+    "- links: object of profile links present in the CV — any of "
+    "github/website/linkedin/scholar/twitter/email (omit ones not present)\n"
+    "- skills: array of {name, level, evidence}\n"
+    "- sections: array of résumé sections, each {id, title, summary, items}, where id is "
+    "one of education|experience|research|service|awards|projects, title is the display "
+    "heading, summary is ONE sentence capturing the section (shown when collapsed), and "
+    "items is an array of {heading, subhead, detail, links:[{label,url}]} — heading is the "
+    "entry title (degree/role/paper/project), subhead is dates/place, detail is the full "
+    "text, and links are any URLs for that entry.\n"
+    "Ground everything in the CV; never invent. Omit any section the CV doesn't support."
+)
+
+
+def _normalize_cv_fields(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Coerce the LLM's parsed CV into canonical profile fields (lenient — bad entries
+    are dropped, not fatal). Produces the same shape for both External and Internal."""
+    from ..schemas import ProfileSection
+
+    out: dict[str, Any] = {}
+    for k in ("name", "headline", "location"):
+        if parsed.get(k):
+            out[k] = str(parsed[k])
+    skills = parsed.get("skills")
+    if isinstance(skills, list):
+        clean = [s for s in skills if isinstance(s, dict) and s.get("name")]
+        clean += [{"name": s} for s in skills if isinstance(s, str) and s.strip()]
+        if clean:
+            out["skills"] = clean
+    links = parsed.get("links")
+    if isinstance(links, dict):
+        cleaned = {str(k): str(v) for k, v in links.items() if v}
+        if cleaned:
+            out["links"] = cleaned
+    sections = parsed.get("sections")
+    if isinstance(sections, list):
+        norm = []
+        for s in sections:
+            if isinstance(s, dict):
+                try:
+                    norm.append(ProfileSection(**s).model_dump())
+                except Exception:
+                    pass  # skip an unparseable section, keep the rest
+        if norm:
+            out["sections"] = norm
+    return out
+
+
 @registry.register(
     "parse_cv",
     "Parse pasted CV text into the user's profile (config/profile.yml) as memory.",
@@ -551,23 +601,19 @@ def parse_cv(cv_text: str) -> dict[str, Any]:
     res = llm.complete(
         [
             {"role": "system", "content": load_skill("cv-intake")},
-            {
-                "role": "user",
-                "content": "CV:\n```\n" + cv_text[:12000] + "\n```\n\nReturn ONLY a JSON "
-                "profile object with keys: name, headline, location, skills "
-                "(array of {name, level, evidence}).",
-            },
+            {"role": "user", "content": "CV:\n```\n" + cv_text[:12000] + "\n```\n\n" + _CV_PROMPT},
         ]
     )
-    parsed = _json_from_text(res.text)
-    # Only accept JSON that actually looks like a parsed CV (mock mode echoes the
+    fields = _normalize_cv_fields(_json_from_text(res.text))
+    # Only accept output that actually looks like a parsed CV (mock mode echoes the
     # prompt, which can contain unrelated JSON — don't write that to the profile).
-    valid = bool(parsed) and any(k in parsed for k in ("name", "headline", "skills", "location"))
+    valid = any(k in fields for k in ("name", "headline", "skills", "location", "links", "sections"))
     profile = store.read_profile()
     if valid:
-        profile.update({k: v for k, v in parsed.items() if v})
+        profile.update(fields)
         store.write_profile(profile)
-    status.record("cv_intake_done", f"skills={len(parsed.get('skills', [])) if valid else 0}", current_task="idle")
+    n = len(fields.get("sections", [])) if valid else 0
+    status.record("cv_intake_done", f"sections={n}", current_task="idle")
     return {"updated": valid, "profile": profile}
 
 
