@@ -10,6 +10,9 @@ services:
       - ./config:/app/config
       - ./.agents:/app/.agents
       - ./logs:/app/logs
+      # Persist datasets (PEREGRINE_DATASET) on the host — incl. a private, gitignored
+      # local test profile under .demo/<name>/. Code personas re-seed from code.
+      - ./.demo:/app/.demo
       # Live source: API code changes (e.g. after a git pull) reflect on the next
       # request via --reload, so the container never serves a stale schema/route.
       - ./api/app:/app/app

@@ -10,6 +10,30 @@ from app import demo_seed
 EXPECTED = {"ai-engineer", "ux-designer", "chem-phd", "bio-scientist", "law-student"}
 
 
+def test_dataset_name_validation():
+    from app.config import _valid_dataset_name
+
+    assert all(_valid_dataset_name(n) for n in ("marcela", "ai-engineer", "ux-designer", "a1"))
+    assert not any(_valid_dataset_name(n) for n in ("../../etc", "/abs", "a/b", "..", ".", "a b", "-lead", ""))
+
+
+def test_ensure_dirs_private_local_dataset(tmp_path, monkeypatch):
+    # PEREGRINE_DATASET pointing at a name that ISN'T a committed code persona is allowed
+    # ONLY as a private local dataset you placed under .demo/<name>/ (marker present) —
+    # so a personal test profile stays isolated from git. No marker -> treated as a typo.
+    monkeypatch.setattr(config, "DATASET", "marcela")
+    for attr, sub in [("DATA_DIR", "data"), ("JOBS_DIR", "data/jobs"), ("CONFIG_DIR", "config"),
+                      ("APPLICATIONS_DIR", "applications"), ("RESUME_DIR", "resume"), ("LOGS_DIR", "logs")]:
+        monkeypatch.setattr(config, attr, tmp_path / sub)
+
+    with pytest.raises(SystemExit):       # unknown name + no local data -> hard fail (typo guard)
+        config.ensure_dirs()
+
+    (tmp_path / ".seeded").write_text("marcela")  # you placed a private dataset here
+    config.ensure_dirs()                  # now accepted, and it does NOT re-seed from code
+    assert config.DATASET not in demo_seed.PERSONAS
+
+
 @pytest.fixture
 def tmp_dataset(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "JOBS_CSV", tmp_path / "jobs.csv")

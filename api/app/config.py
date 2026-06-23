@@ -7,6 +7,7 @@ container (`/app`) where `data/`, `config/`, and `.agents/` are mounted.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 from functools import lru_cache
 from pathlib import Path
@@ -21,7 +22,18 @@ ROOT = Path(os.environ.get("APP_ROOT", Path(__file__).resolve().parents[1])).res
 # isolated, gitignored runtime dataset under .demo/<persona>/ (seeded on boot
 # from app/demo_seed.py), leaving the real (gitignored) data/ + config/ untouched.
 # Unset = normal mode. See README "Demo / test datasets".
+def _valid_dataset_name(name: str) -> bool:
+    """A dataset name builds a path (.demo/<name>/), so it must be a safe slug — no
+    separators, `..`, or absolute paths that could traverse out of .demo/."""
+    return bool(re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name))
+
+
 DATASET = os.environ.get("PEREGRINE_DATASET", "").strip().lower()
+if DATASET and not _valid_dataset_name(DATASET):
+    raise SystemExit(
+        f"PEREGRINE_DATASET='{DATASET}' is not a valid dataset name: start with a letter or "
+        f"digit, then a-z / 0-9 / - / _ (no slashes or dots)."
+    )
 if DATASET:
     _root = ROOT / ".demo" / DATASET
     DATA_DIR = _root / "data"
@@ -82,15 +94,20 @@ def ensure_dirs() -> None:
     if DATASET:
         from . import demo_seed
 
-        if DATASET not in demo_seed.PERSONAS:
-            raise SystemExit(
-                f"PEREGRINE_DATASET='{DATASET}' is not a known persona. "
-                f"Choose one of: {', '.join(demo_seed.list_personas())}"
-            )
-        # A marker written only after seed() completes is the source of truth for
+        # A marker written only after a dataset is populated is the source of truth for
         # "already seeded" — so a partial or cleared dir (no marker) self-heals by
-        # re-seeding on the next boot. Reset a persona by deleting .demo/<persona>/.
+        # re-seeding on the next boot. Reset a dataset by deleting .demo/<name>/.
         marker = DATA_DIR.parent / ".seeded"
+        if DATASET not in demo_seed.PERSONAS:
+            # Not a committed code persona: only valid as a PRIVATE local dataset you
+            # placed under .demo/<name>/ yourself (marker present) — never committed to
+            # git. This is how a personal test profile stays isolated from the repo.
+            if not marker.exists():
+                raise SystemExit(
+                    f"PEREGRINE_DATASET='{DATASET}' is not a known persona and has no local "
+                    f"data under .demo/{DATASET}/. Known personas: {', '.join(demo_seed.list_personas())}"
+                )
+            return  # private local dataset already present -> use it as-is
         if not marker.exists():
             demo_seed.seed(DATASET)
             marker.write_text(f"{DATASET}\n", encoding="utf-8")
