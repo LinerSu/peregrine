@@ -9,6 +9,10 @@ job portals, scores fit, prepares your materials, and gates the **Apply** button
 behind a strengths / weaknesses / materials review. Your data stays on your
 machine.
 
+> 📖 **Using the app?** The full **User Manual** is built into the web UI at **`/docs`**
+> (or click **Docs** in the top bar) — getting started, then a guide per goal (find jobs,
+> check fit, CV help, apply, track). **This README is the developer / architecture reference.**
+
 ## Quick start
 
 ```bash

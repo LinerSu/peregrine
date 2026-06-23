@@ -1,0 +1,23 @@
+# Navigation for the in-app User Manual (/docs). Controls grouping + order only; each page's
+# title comes from its first Markdown heading. Slugs map to <slug>.md in this folder.
+sections:
+  - title: Getting started
+    pages:
+      - install
+      - what-is-peregrine
+  - title: Do your first tasks
+    pages:
+      - find-jobs
+      - check-fit
+      - cv-help
+      - prepare-apply
+      - track-applications
+  - title: Going further
+    pages:
+      - target-scan
+      - modes
+  - title: Advanced
+    pages:
+      - edit-data
+      - datasets
+      - privacy-compliance
