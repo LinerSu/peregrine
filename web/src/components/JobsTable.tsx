@@ -80,7 +80,9 @@ export default function JobsTable({
     } catch {
       /* ignore bad localStorage */
     }
-    return new Set<ColKey>(["role_category", "salary", "location"]);
+    // Salary is off by default — ATS feeds rarely disclose it, so the column was usually
+    // empty and just crowded the table next to the detail panel. Re-enable it via "Columns".
+    return new Set<ColKey>(["role_category", "location"]);
   });
 
   useEffect(() => {
