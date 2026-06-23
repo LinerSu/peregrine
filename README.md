@@ -135,12 +135,21 @@ docker compose up -d
 Personas: `ai-engineer` · `ux-designer` · `chem-phd` · `bio-scientist` · `law-student`.
 
 The dataset is generated from [`api/app/demo_seed.py`](api/app/demo_seed.py) into an
-isolated, gitignored `.demo/<persona>/` directory — your `data/` and `config/` are
-never touched. With the default Docker stack `.demo/` lives **inside the API
-container**, so reset a persona by recreating it: `docker compose up -d
---force-recreate api` (it re-seeds). If instead you run the API directly on the
-host, the dir is at `api/.demo/<persona>/` — delete it and restart. CI
-([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) boots every persona and
+isolated, gitignored `.demo/<persona>/` directory (mounted to the host) — your `data/`
+and `config/` are never touched. Reset a persona by deleting its dir:
+`rm -rf .demo/<persona>` then `docker compose up -d` re-seeds it. (Because the data now
+persists, editing a persona in `demo_seed.py` also needs that delete to take effect.)
+
+**Private test profile (kept out of the repo):** `PEREGRINE_DATASET` also accepts a
+name that *isn't* a built-in persona — as long as you've placed your own data under
+`.demo/<name>/` (with a `.seeded` marker file). That's how a personal test résumé you
+don't want committed stays isolated: `.demo/` is gitignored, so it never leaves your
+machine, and the live `config/`/`data/` stay reserved for your real profile.
+
+(If you run the API **directly on the host** instead of via Docker, `APP_ROOT` defaults
+to `api/`, so these datasets live under `api/.demo/<name>/`.)
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) boots every persona and
 smoke-tests the API against it.
 
 ## Scope, limits & disclaimer
