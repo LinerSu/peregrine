@@ -48,21 +48,37 @@ _SCAN_NEW_CAP = 500  # safety bound against a runaway broad scan; a normal board
 
 @registry.register(
     "scan_jobs",
-    "Scan configured ATS providers for jobs, dedupe on company+company_job_id, "
-    "apply filters, and persist new postings. Returns a summary.",
-    {"type": "object", "properties": {}, "required": []},
+    "Scan configured ATS providers for jobs, dedupe on company+company_job_id, apply "
+    "filters, and persist new postings. Pass `only` to restrict to specific companies. "
+    "Returns a summary.",
+    {"type": "object", "properties": {
+        "only": {"type": "array", "items": {"type": "string"},
+                 "description": "company names to scan; omit to scan all configured companies"},
+    }, "required": []},
 )
-def scan_jobs() -> dict[str, Any]:
+def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
     portals = store.read_portals()
     companies = portals.get("companies", []) or []
     filters = portals.get("filters", {}) or {}
     targets = store.read_targets()
     snapshot = portals.get("snapshot", True)
+    max_age = _safe_int(filters.get("max_age_days"))  # 0 = no posted-date limit (bad value -> off)
+
+    if only:  # restrict to the named companies (case-insensitive); ignore non-string entries
+        wanted = {c.strip().lower() for c in only if isinstance(c, str) and c.strip()}
+        if wanted:  # an all-invalid list falls back to scanning all
+            companies = [c for c in companies if c.get("name", "").strip().lower() in wanted]
 
     status.record("scan_start", f"{len(companies)} companies", current_task="Scanning job portals")
 
     new = dup = filtered = 0
     capped = False
+    # Preload the jobs ONCE: mutate the list in memory and persist in a single write at the
+    # end. `index` is the dedup lookup over (company, company_job_id) — so we don't re-read
+    # the CSV per posting (find_job_by_key) or rewrite it per new/dead job (upsert_job).
+    jobs = store.list_jobs()
+    index = {(j.company.strip().lower(), j.company_job_id.strip().lower()): j for j in jobs}
+    mint = store.id_minter()
     # company (lowercased) -> the set of company_job_ids its board currently lists. Recorded
     # only for a successful, NON-empty fetch, so a failed/empty fetch never prunes anything.
     listed: dict[str, set[str]] = {}
@@ -86,46 +102,71 @@ def scan_jobs() -> dict[str, Any]:
             if not _passes_filters(p, filters, targets):
                 filtered += 1
                 continue
-            if store.find_job_by_key(p.company, p.company_job_id):
+            key = (p.company.strip().lower(), p.company_job_id.strip().lower())
+            if key in index:  # already tracked, or added earlier in this same scan
                 dup += 1
                 continue
             if new >= _SCAN_NEW_CAP:  # stop persisting once the safety cap is hit
                 capped = True
                 break
-            jid = store.next_job_id()
-            detail_md = _job_md(jid, p)
-            detail_path = store.write_job_md(jid, detail_md) if snapshot else ""
-            store.upsert_job(
-                Job(
-                    id=jid,
-                    company=p.company,
-                    company_job_id=p.company_job_id,
-                    position=p.position,
-                    status="open",
-                    location=p.location,
-                    posted_date=p.posted_date,
-                    url=p.url,
-                    detail_md=detail_path,
-                    role_category=classify_role(p.position),
-                )
+            jid = next(mint)
+            detail_path = store.write_job_md(jid, _job_md(jid, p)) if snapshot else ""
+            job = Job(
+                id=jid,
+                company=p.company,
+                company_job_id=p.company_job_id,
+                position=p.position,
+                status="open",
+                location=p.location,
+                posted_date=p.posted_date,
+                url=p.url,
+                detail_md=detail_path,
+                role_category=classify_role(p.position),
             )
+            jobs.append(job)
+            index[key] = job
             new += 1
 
-    # Dead-job pruning: an OPEN job whose company we just scanned but whose posting the board
-    # no longer lists is dead -> mark it "closed". Kept (not deleted) so a linked application
-    # isn't orphaned and a false positive is recoverable; applied/interviewing/etc. are left
-    # untouched (you still applied, even if the listing is gone).
+    # Dead-job pruning: an OPEN job from a company we just scanned is dead if the board no
+    # longer lists it OR (with max_age_days set) its posting is older than the cutoff. Mark it
+    # "closed" -- kept (not deleted) so a linked application isn't orphaned and a false positive
+    # is recoverable; applied/interviewing/etc. are left untouched (you still applied).
     dead = 0
-    for job in store.list_jobs():
+    for job in jobs:
         ck = job.company.strip().lower()
-        if job.status == "open" and ck in listed and job.company_job_id.strip().lower() not in listed[ck]:
+        if job.status != "open" or ck not in listed:
+            continue
+        gone = job.company_job_id.strip().lower() not in listed[ck]
+        if gone or _too_old(job.posted_date, max_age):
             job.status = "closed"
-            store.upsert_job(job)
             dead += 1
+
+    if new or dead:  # one write for the whole batch (no per-row rewrite)
+        store.write_jobs(jobs)
 
     summary = {"new": new, "duplicates": dup, "filtered": filtered, "capped": capped, "dead": dead}
     status.record("scan_done", str(summary), current_task="idle")
     return summary
+
+
+def _safe_int(v: Any) -> int:
+    """Lenient int for user-editable YAML/JSON — a non-numeric value means 0 (off), not a 500."""
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _too_old(posted_date: str, max_age_days: int) -> bool:
+    """True if a posting predates the cutoff. A missing/unparseable date counts as NOT old
+    (we can't age what we can't date, so we keep it rather than guess)."""
+    if not max_age_days or not posted_date:
+        return False
+    try:
+        d = date.fromisoformat(posted_date[:10])
+    except ValueError:
+        return False
+    return (date.today() - d).days > max_age_days
 
 
 def _passes_filters(
@@ -135,6 +176,10 @@ def _passes_filters(
     targets = targets or {}
     loc_hay = p.location.lower()
     text = f"{p.position} {p.description}".lower()
+
+    # Posted-date age gate: skip postings older than filters.max_age_days (0 = no limit).
+    if _too_old(p.posted_date, _safe_int(filters.get("max_age_days"))):
+        return False
 
     # Location: targets override portals; remote postings always pass a location gate.
     locs = [l.lower() for l in (targets.get("locations") or filters.get("locations") or [])]

@@ -168,6 +168,97 @@ def test_scan_marks_disappeared_jobs_closed(tmp_path, monkeypatch):
     assert by_key("R3").status == "open"
 
 
+def _scan_setup(tmp_path, monkeypatch, portals):
+    from app import config
+    from app.agent import tools
+
+    monkeypatch.setattr(config, "JOBS_CSV", tmp_path / "jobs.csv")
+    monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(config, "APPLICATIONS_CSV", tmp_path / "applications.csv")
+    monkeypatch.setattr(config, "PORTALS_YML", tmp_path / "portals.yml")
+    monkeypatch.setattr(tools.status, "record", lambda *a, **k: None)
+    monkeypatch.setattr(tools.store, "read_targets", lambda: {})
+    monkeypatch.setattr(tools.store, "read_portals", lambda: portals)
+    return tools
+
+
+def test_scan_age_filter_skips_old_postings(tmp_path, monkeypatch):
+    # filters.max_age_days skips postings older than the cutoff; a missing date is kept.
+    from datetime import date, timedelta
+
+    tools = _scan_setup(tmp_path, monkeypatch, {
+        "companies": [{"name": "Acme", "provider": "x", "slug": "x"}],
+        "filters": {"max_age_days": 60}, "snapshot": False,
+    })
+    recent = (date.today() - timedelta(days=10)).isoformat()
+    old = (date.today() - timedelta(days=120)).isoformat()
+    monkeypatch.setattr(tools.providers, "fetch", lambda *a: [
+        P.RawPosting(company="Acme", company_job_id="R1", position="Eng", posted_date=recent),
+        P.RawPosting(company="Acme", company_job_id="R2", position="PM", posted_date=old),     # too old
+        P.RawPosting(company="Acme", company_job_id="R3", position="Dev", posted_date=""),      # undatable -> kept
+    ])
+    r = tools.scan_jobs()
+    assert r["new"] == 2 and r["filtered"] == 1
+    assert {j.company_job_id for j in tools.store.list_jobs()} == {"R1", "R3"}
+
+
+def test_scan_prunes_aged_open_jobs(tmp_path, monkeypatch):
+    # An OPEN job that has aged past the cutoff is closed even though the board still lists it.
+    from datetime import date, timedelta
+
+    from app.schemas import Job
+
+    tools = _scan_setup(tmp_path, monkeypatch, {
+        "companies": [{"name": "Acme", "provider": "x", "slug": "x"}],
+        "filters": {"max_age_days": 60}, "snapshot": False,
+    })
+    old = (date.today() - timedelta(days=200)).isoformat()
+    tools.store.upsert_job(Job(id="2026-900", company="Acme", company_job_id="OLD",
+                               position="Eng", status="open", posted_date=old))
+    tools.store.upsert_job(Job(id="2026-901", company="Acme", company_job_id="OLDAPP",
+                               position="PM", status="applied", posted_date=old))  # applied -> survives
+    monkeypatch.setattr(tools.providers, "fetch", lambda *a: [
+        P.RawPosting(company="Acme", company_job_id="OLD", position="Eng", posted_date=old),
+        P.RawPosting(company="Acme", company_job_id="OLDAPP", position="PM", posted_date=old),
+    ])
+    r = tools.scan_jobs()
+    by = lambda k: next(j for j in tools.store.list_jobs() if j.company_job_id == k)
+    assert r["dead"] == 1
+    assert by("OLD").status == "closed"      # aged open job pruned
+    assert by("OLDAPP").status == "applied"  # applied job untouched
+
+
+def test_scan_only_restricts_to_named_companies(tmp_path, monkeypatch):
+    # scan_jobs(only=[...]) fetches and persists only the named companies.
+    tools = _scan_setup(tmp_path, monkeypatch, {"companies": [
+        {"name": "Acme", "provider": "x", "slug": "a"},
+        {"name": "Globex", "provider": "x", "slug": "g"},
+    ], "snapshot": False})
+    fetched: list[str] = []
+
+    def fake_fetch(_provider, name, _slug):
+        fetched.append(name)
+        return [P.RawPosting(company=name, company_job_id="R1", position="Eng")]
+
+    monkeypatch.setattr(tools.providers, "fetch", fake_fetch)
+    tools.scan_jobs(only=["Globex"])
+    assert fetched == ["Globex"]                                   # Acme never fetched
+    assert {j.company for j in tools.store.list_jobs()} == {"Globex"}
+
+
+def test_scan_tolerates_bad_filter_and_company_values(tmp_path, monkeypatch):
+    # Garbage max_age_days and non-string `only` entries must degrade gracefully, never 500.
+    tools = _scan_setup(tmp_path, monkeypatch, {
+        "companies": [{"name": "Acme", "provider": "x", "slug": "x"}],
+        "filters": {"max_age_days": "sixty"}, "snapshot": False,  # non-numeric -> treated as off
+    })
+    monkeypatch.setattr(tools.providers, "fetch", lambda *a: [
+        P.RawPosting(company="Acme", company_job_id="R1", position="Eng"),
+    ])
+    r = tools.scan_jobs(only=[123, None])   # non-string entries -> fall back to scanning all
+    assert r["new"] == 1                     # bad age filter is off; bad `only` doesn't exclude Acme
+
+
 def test_scan_backfills_empty_company_job_id(tmp_path, monkeypatch):
     # Two id-less postings from the same company must NOT dedup into one.
     from app import config

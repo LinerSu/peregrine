@@ -24,9 +24,26 @@ def list_jobs(query: str = ""):
     return tools.list_jobs(query=query)
 
 
+@router.get("/sources")
+def sources():
+    """Configured scan sources — feeds the per-company scan selector."""
+    portals = store.read_portals()
+    return {
+        "companies": [
+            {"name": c.get("name", ""), "provider": c.get("provider", "")}
+            for c in (portals.get("companies") or [])
+            if c.get("name")
+        ]
+    }
+
+
 @router.post("/scan")
-def scan():
-    return tools.scan_jobs()
+def scan(payload: dict | None = None):
+    # Optional {"companies": [...]} restricts the scan to those companies; omit to scan all.
+    # Only a non-empty LIST narrows the scan — anything else (string, {}, []) means "all".
+    companies = (payload or {}).get("companies")
+    only = companies if isinstance(companies, list) and companies else None
+    return tools.scan_jobs(only=only)
 
 
 @router.post("/ingest")
