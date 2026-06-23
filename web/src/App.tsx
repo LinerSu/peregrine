@@ -93,8 +93,16 @@ export default function App() {
           <p className="text-xs text-gray-500">Personal AI job-search assistant</p>
         </div>
 
+        <a
+          href="/docs"
+          title="Project documentation"
+          className="ml-auto px-2.5 py-1 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-md hover:bg-indigo-50"
+        >
+          Docs
+        </a>
+
         {/* Global assistant mode — every LLM action follows this. */}
-        <div className="ml-auto flex flex-col items-end gap-0.5">
+        <div className="flex flex-col items-end gap-0.5">
           <div className="flex items-center rounded-md border border-gray-200 p-0.5">
             {(["external", "internal"] as AssistantMode[]).map((m) => (
               <button
