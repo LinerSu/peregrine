@@ -27,6 +27,18 @@ docker compose up --build
 Then in the chat bar try: **"find jobs matching my CV"** → review the scored
 results → open a job → **Evaluate fit** → **Prepare to apply** → Apply.
 
+### Updating after a `git pull`
+
+The **API** mounts its source and runs with `--reload`, so backend code changes (new
+routes/schema) take effect on the next request — no rebuild needed. The **web** UI is a
+static build, so frontend changes need a rebuild:
+
+```bash
+docker compose up -d --build web     # or `--build` to rebuild both
+```
+
+(If the API ever seems to serve old behavior, `docker compose up -d --build api`.)
+
 ## Assistant: External vs Internal (Claude)
 
 The assistant panel has a toggle between two modes:

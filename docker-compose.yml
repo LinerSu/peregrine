@@ -10,6 +10,13 @@ services:
       - ./config:/app/config
       - ./.agents:/app/.agents
       - ./logs:/app/logs
+      # Live source: API code changes (e.g. after a git pull) reflect on the next
+      # request via --reload, so the container never serves a stale schema/route.
+      - ./api/app:/app/app
+    # uvicorn's reloader only restarts on *.py changes, so the app's runtime writes to
+    # the mounted data/config/logs (csv/md/yml/json/log) never trigger a reload — only
+    # editing the Python source does. (Verified with file-write probes.)
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     restart: unless-stopped
 
   web:
