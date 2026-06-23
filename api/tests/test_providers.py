@@ -128,6 +128,46 @@ def test_scan_dedups_within_and_across_scans(tmp_path, monkeypatch):
     assert len(tools.store.list_jobs()) == 2             # still 2 — no duplicates added
 
 
+def test_scan_marks_disappeared_jobs_closed(tmp_path, monkeypatch):
+    # A posting that drops off the board on a later scan is "dead" -> marked closed (kept,
+    # not deleted). Applied jobs and a failed/empty fetch must never be pruned.
+    from app import config
+    from app.agent import tools
+
+    monkeypatch.setattr(config, "JOBS_CSV", tmp_path / "jobs.csv")
+    monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(config, "APPLICATIONS_CSV", tmp_path / "applications.csv")
+    monkeypatch.setattr(config, "PORTALS_YML", tmp_path / "portals.yml")
+    monkeypatch.setattr(tools.status, "record", lambda *a, **k: None)
+    monkeypatch.setattr(tools.store, "read_targets", lambda: {})
+    monkeypatch.setattr(tools.store, "read_portals",
+                        lambda: {"companies": [{"name": "Acme", "provider": "x", "slug": "x"}], "snapshot": False})
+
+    board = [
+        P.RawPosting(company="Acme", company_job_id="R1", position="Engineer", location="NYC"),
+        P.RawPosting(company="Acme", company_job_id="R2", position="PM", location="SF"),
+        P.RawPosting(company="Acme", company_job_id="R3", position="Designer", location="LA"),
+    ]
+    monkeypatch.setattr(tools.providers, "fetch", lambda *a: list(board))
+    tools.scan_jobs()
+    by_key = lambda k: next(j for j in tools.store.list_jobs() if j.company_job_id == k)
+    # Mark R2 as applied so we can prove applied jobs survive pruning.
+    r2job = by_key("R2"); r2job.status = "applied"; tools.store.upsert_job(r2job)
+
+    board[:] = [board[2]]  # R1 and R2 both disappear; only R3 still listed
+    res = tools.scan_jobs()
+    assert res["dead"] == 1                       # only R1 pruned (R2 is applied, R3 still listed)
+    assert by_key("R1").status == "closed"        # disappeared OPEN job -> closed
+    assert by_key("R2").status == "applied"       # disappeared APPLIED job -> left untouched (you still applied)
+    assert by_key("R3").status == "open"          # still listed -> stays open
+
+    # A failed/empty fetch (returns []) must NOT prune the surviving open job.
+    monkeypatch.setattr(tools.providers, "fetch", lambda *a: [])
+    res2 = tools.scan_jobs()
+    assert res2["dead"] == 0
+    assert by_key("R3").status == "open"
+
+
 def test_scan_backfills_empty_company_job_id(tmp_path, monkeypatch):
     # Two id-less postings from the same company must NOT dedup into one.
     from app import config

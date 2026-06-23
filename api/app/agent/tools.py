@@ -43,7 +43,7 @@ def _as_float(value: Any, default: float) -> float:
 
 
 # --------------------------------------------------------------------------- #
-_SCAN_NEW_CAP = 50  # avoid flooding the pipeline on a broad first scan (no filters set)
+_SCAN_NEW_CAP = 500  # safety bound against a runaway broad scan; a normal board fits in one scan
 
 
 @registry.register(
@@ -63,10 +63,14 @@ def scan_jobs() -> dict[str, Any]:
 
     new = dup = filtered = 0
     capped = False
+    # company (lowercased) -> the set of company_job_ids its board currently lists. Recorded
+    # only for a successful, NON-empty fetch, so a failed/empty fetch never prunes anything.
+    listed: dict[str, set[str]] = {}
     for c in companies:
         if capped:
             break
-        postings = providers.fetch(c.get("provider", "generic"), c.get("name", ""), c.get("slug", ""))
+        company_name = c.get("name", "")
+        postings = providers.fetch(c.get("provider", "generic"), company_name, c.get("slug", ""))
         for p in postings:
             if not p.company_job_id.strip():
                 # No id in the feed -> derive a STABLE, collision-resistant key: a readable
@@ -76,13 +80,16 @@ def scan_jobs() -> dict[str, Any]:
                 seed = p.url or f"{p.position}|{p.location}"
                 digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:10]
                 p.company_job_id = f"{base}-{digest}" if base else digest
+        if postings:  # an authoritative snapshot of what this company lists right now
+            listed[company_name.strip().lower()] = {p.company_job_id.strip().lower() for p in postings}
+        for p in postings:
             if not _passes_filters(p, filters, targets):
                 filtered += 1
                 continue
             if store.find_job_by_key(p.company, p.company_job_id):
                 dup += 1
                 continue
-            if new >= _SCAN_NEW_CAP:  # stop persisting once the cap is hit
+            if new >= _SCAN_NEW_CAP:  # stop persisting once the safety cap is hit
                 capped = True
                 break
             jid = store.next_job_id()
@@ -104,7 +111,19 @@ def scan_jobs() -> dict[str, Any]:
             )
             new += 1
 
-    summary = {"new": new, "duplicates": dup, "filtered": filtered, "capped": capped}
+    # Dead-job pruning: an OPEN job whose company we just scanned but whose posting the board
+    # no longer lists is dead -> mark it "closed". Kept (not deleted) so a linked application
+    # isn't orphaned and a false positive is recoverable; applied/interviewing/etc. are left
+    # untouched (you still applied, even if the listing is gone).
+    dead = 0
+    for job in store.list_jobs():
+        ck = job.company.strip().lower()
+        if job.status == "open" and ck in listed and job.company_job_id.strip().lower() not in listed[ck]:
+            job.status = "closed"
+            store.upsert_job(job)
+            dead += 1
+
+    summary = {"new": new, "duplicates": dup, "filtered": filtered, "capped": capped, "dead": dead}
     status.record("scan_done", str(summary), current_task="idle")
     return summary
 

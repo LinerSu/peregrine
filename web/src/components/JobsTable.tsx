@@ -19,7 +19,7 @@ const COL_STORAGE = "peregrine.jobcols";
 
 const STATUSES = ["open", "applied", "interviewing", "offer", "rejected", "closed", "removed"];
 
-type Tab = "all" | "open" | "evaluated" | "applied" | "interviewing" | "offer" | "rejected";
+type Tab = "all" | "open" | "evaluated" | "applied" | "interviewing" | "offer" | "rejected" | "closed";
 const TABS: { key: Tab; label: string }[] = [
   { key: "all", label: "All" },
   { key: "open", label: "Open" },
@@ -28,9 +28,17 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "interviewing", label: "Interviewing" },
   { key: "offer", label: "Offer" },
   { key: "rejected", label: "Rejected" },
+  { key: "closed", label: "Closed" },
 ];
+// Dead = closed (posting gone / auto-pruned) or removed (you removed it). "All" means all
+// ACTIVE jobs, so dead ones leave the list; the "Closed" tab is where they go (reviewable
+// and recoverable — set the status back to open).
+const isDead = (j: Job) => j.status === "closed" || j.status === "removed";
 const matchesTab = (j: Job, tab: Tab) =>
-  tab === "all" ? true : tab === "evaluated" ? j.fit_score != null : j.status === tab;
+  tab === "all" ? !isDead(j)
+    : tab === "closed" ? isDead(j)
+    : tab === "evaluated" ? j.fit_score != null && !isDead(j)  // dead jobs live only under "Closed"
+    : j.status === tab;
 
 // Order in which status groups appear in the grouped view. ("evaluated" is a
 // derived tab, not a real status, so it isn't a group here.)
@@ -83,7 +91,7 @@ export default function JobsTable({
     }
   }, [visibleCols]);
 
-  // Number keys 1-7 select a status tab (ignored while typing in a field).
+  // Number keys 1-N select a status tab (ignored while typing in a field).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -114,9 +122,13 @@ export default function JobsTable({
   // Tab badge counts in a single pass (avoids O(tabs × rows) per render).
   const tabCounts = useMemo(() => {
     const c: Record<Tab, number> = {
-      all: 0, open: 0, evaluated: 0, applied: 0, interviewing: 0, offer: 0, rejected: 0,
+      all: 0, open: 0, evaluated: 0, applied: 0, interviewing: 0, offer: 0, rejected: 0, closed: 0,
     };
     for (const j of baseFiltered) {
+      if (isDead(j)) {
+        c.closed += 1; // dead jobs only count under "Closed"
+        continue;
+      }
       c.all += 1;
       if (j.fit_score != null) c.evaluated += 1;
       if (
