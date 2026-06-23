@@ -137,7 +137,7 @@ export const api = {
   listJobs: (query = "") =>
     http<{ count: number; jobs: Job[] }>(`/api/jobs?query=${encodeURIComponent(query)}`),
   scan: () =>
-    http<{ new: number; duplicates: number; filtered: number; capped: boolean }>("/api/jobs/scan", { method: "POST" }),
+    http<{ new: number; duplicates: number; filtered: number; capped: boolean; dead: number }>("/api/jobs/scan", { method: "POST" }),
   // Add a job from content you provide (no scraping). URL fetch, or paste/upload.
   ingestUrl: (url: string) =>
     http<{ job?: Job; created?: boolean }>("/api/jobs/ingest", { method: "POST", body: JSON.stringify({ url }) }),

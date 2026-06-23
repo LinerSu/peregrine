@@ -78,8 +78,9 @@ def _handle_search(_message: str, _history: list[dict[str, str]]) -> tuple[str, 
     scan = tools.scan_jobs()
     listing = tools.list_jobs()
     actions = [{"tool": "scan_jobs", "result": scan}, {"tool": "list_jobs", "result": listing}]
+    dead_note = f", {scan['dead']} closed (no longer listed)" if scan.get("dead") else ""
     return (
-        f"Scanned: {scan['new']} new, {scan['duplicates']} duplicates, {scan['filtered']} filtered. "
+        f"Scanned: {scan['new']} new, {scan['duplicates']} duplicates, {scan['filtered']} filtered{dead_note}. "
         f"{listing['count']} jobs tracked — see the Jobs tab.",
         actions,
     )

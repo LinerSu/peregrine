@@ -84,12 +84,13 @@ def test_scan_caps_new_jobs(tmp_store, monkeypatch):
     monkeypatch.setattr(store, "read_portals",
                         lambda: {"companies": [{"provider": "x", "name": "Acme"}], "filters": {}, "snapshot": False})
     monkeypatch.setattr(store, "read_targets", lambda: {})
-    posts = [providers.RawPosting(company="Acme", company_job_id=f"r{i}", position="Eng") for i in range(60)]
+    n = tools._SCAN_NEW_CAP + 10
+    posts = [providers.RawPosting(company="Acme", company_job_id=f"r{i}", position="Eng") for i in range(n)]
     monkeypatch.setattr(providers, "fetch", lambda *a, **k: posts)
 
     r = tools.scan_jobs()
-    assert r["new"] == 50 and r["capped"] is True  # flood is bounded
-    assert len(store.list_jobs()) == 50
+    assert r["new"] == tools._SCAN_NEW_CAP and r["capped"] is True  # runaway flood is bounded
+    assert len(store.list_jobs()) == tools._SCAN_NEW_CAP
 
 
 def test_ingest_endpoints(tmp_store):

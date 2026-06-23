@@ -23,11 +23,14 @@ export default function AddJobsBar({
     setScanMsg("");
     try {
       const r = await api.scan();
+      const tail = `${r.duplicates} dupes · ${r.filtered} filtered`;
+      const more = r.capped ? " — stopped at the per-scan safety cap; click Scan again for more." : ".";
       setScanMsg(
         r.new > 0
-          ? `Found ${r.new} new (${r.duplicates} dupes · ${r.filtered} filtered)` +
-              (r.capped ? " — capped; narrow filters in config/portals.yml for more." : ".")
-          : `No new jobs (${r.duplicates} dupes · ${r.filtered} filtered). Add sources in config/portals.yml, or paste/upload a posting below.`
+          ? `Found ${r.new} new (${tail}${r.dead ? ` · ${r.dead} closed` : ""})${more}`
+          : r.dead > 0
+            ? `Closed ${r.dead} no-longer-listed; no new jobs (${tail}).`
+            : `No new jobs (${tail}). Add sources in config/portals.yml, or paste/upload a posting below.`
       );
       onChanged();
     } catch {
