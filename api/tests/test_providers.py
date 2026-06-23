@@ -262,6 +262,46 @@ def test_scan_tolerates_bad_filter_and_company_values(tmp_path, monkeypatch):
     assert r["new"] == 1                     # bad age filter is off; bad `only` doesn't exclude Acme
 
 
+def test_scan_prunes_orphan_snapshots_but_spares_sidecars(tmp_path, monkeypatch):
+    # A scan tidies snapshot .md files that have no job row, but must NOT touch sidecars
+    # (cover_letter.md / evaluation.json) or live jobs' snapshots.
+    tools = _scan_setup(tmp_path, monkeypatch, {
+        "companies": [{"name": "Acme", "provider": "x", "slug": "x"}], "snapshot": True,
+    })
+    jobs_dir = tmp_path / "jobs"
+    jobs_dir.mkdir()
+    (jobs_dir / "2026-900.md").write_text("orphan snapshot")          # no row -> prune
+    (jobs_dir / "2026-900.cover_letter.md").write_text("letter")      # sidecar -> keep
+    (jobs_dir / "2026-900.evaluation.json").write_text("{}")          # sidecar -> keep
+    (jobs_dir / "2026-5.md").write_text("not a minted id")            # <3 digits, not an id -> keep
+    (jobs_dir / "notes.md").write_text("user note")                   # non-id .md -> keep
+    monkeypatch.setattr(tools.providers, "fetch", lambda *a: [
+        P.RawPosting(company="Acme", company_job_id="R1", position="Eng"),
+    ])
+    r = tools.scan_jobs()
+    assert r["pruned_snapshots"] == 1
+    assert not (jobs_dir / "2026-900.md").exists()                    # orphan deleted
+    assert (jobs_dir / "2026-900.cover_letter.md").exists()           # sidecar spared
+    assert (jobs_dir / "2026-900.evaluation.json").exists()           # sidecar spared
+    assert (jobs_dir / "2026-5.md").exists()                          # not a minted-id shape -> spared
+    assert (jobs_dir / "notes.md").exists()                           # non-id .md -> spared
+    new_id = tools.store.list_jobs()[0].id
+    assert (jobs_dir / f"{new_id}.md").exists()                       # live job's snapshot kept
+
+
+def test_scan_prune_floor_guard_on_zero_row_csv(tmp_path, monkeypatch):
+    # A zero-row but EXISTING jobs.csv (e.g. a torn/corrupt read) must NOT wipe all snapshots.
+    tools = _scan_setup(tmp_path, monkeypatch, {"companies": [], "snapshot": True})
+    jobs_dir = tmp_path / "jobs"
+    jobs_dir.mkdir()
+    (jobs_dir / "2026-001.md").write_text("snapshot")
+    (tmp_path / "jobs.csv").write_text("garbage-not-a-real-csv\n")  # exists, parses to 0 rows
+    monkeypatch.setattr(tools.providers, "fetch", lambda *a: [])
+    r = tools.scan_jobs()
+    assert r["pruned_snapshots"] == 0
+    assert (jobs_dir / "2026-001.md").exists()                      # guard prevented the wipe
+
+
 def test_scan_backfills_empty_company_job_id(tmp_path, monkeypatch):
     # Two id-less postings from the same company must NOT dedup into one.
     from app import config

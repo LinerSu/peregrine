@@ -9,6 +9,7 @@ import re
 from datetime import date
 from typing import Any
 
+from .. import config
 from .. import cv_render
 from .. import data_store as store
 from .. import status
@@ -144,9 +145,40 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
     if new or dead:  # one write for the whole batch (no per-row rewrite)
         store.write_jobs(jobs)
 
-    summary = {"new": new, "duplicates": dup, "filtered": filtered, "capped": capped, "dead": dead}
+    pruned = _prune_orphan_snapshots({j.id for j in jobs})
+
+    summary = {"new": new, "duplicates": dup, "filtered": filtered,
+               "capped": capped, "dead": dead, "pruned_snapshots": pruned}
     status.record("scan_done", str(summary), current_task="idle")
     return summary
+
+
+# A scan writes a `<id>.md` snapshot per new job, but a job ROW only ever leaves jobs.csv via
+# a dataset reset/re-seed or a manual edit — and that path never deletes the snapshot, so
+# orphaned `.md` files can pile up. Tidy them on each scan, keyed off the authoritative live
+# job-id set. Scoped to the exact minted id shape (`<year>-<NNN>`, >=3 digits, per
+# store.id_minter) so sidecars (`<id>.cover_letter.md`, `<id>.evaluation.json`) and any
+# stray non-id `.md` are never touched.
+_SNAPSHOT_RE = re.compile(r"^\d{4}-\d{3,}$")
+
+
+def _prune_orphan_snapshots(job_ids: set[str]) -> int:
+    # Safety floor: never let an EMPTY id-set delete everything when jobs.csv still exists —
+    # a torn/corrupt read parses to zero rows, and we won't wipe every cached snapshot over
+    # that. A genuinely fresh dataset has no CSV (and no snapshots), so cleanup still works.
+    if not job_ids and config.JOBS_CSV.exists():
+        return 0
+    removed = 0
+    for p in config.JOBS_DIR.glob("*.md"):
+        if _SNAPSHOT_RE.match(p.stem) and p.stem not in job_ids:
+            try:  # best-effort cleanup — a permission/FS error must not abort the scan
+                p.unlink()
+                removed += 1
+            except OSError as exc:
+                log.warning("could not prune orphan snapshot %s: %s", p.name, exc)
+    if removed:
+        log.info("pruned %d orphan job snapshot(s)", removed)
+    return removed
 
 
 def _safe_int(v: Any) -> int:
