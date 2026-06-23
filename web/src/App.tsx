@@ -149,7 +149,7 @@ export default function App() {
 
       <main className="flex flex-1 min-h-0">
         <section className="w-1/3 max-w-md border-r border-gray-200 bg-white">
-          <AssistantPanel onAction={refresh} mode={mode} setMode={setMode} />
+          <AssistantPanel onAction={refresh} mode={mode} />
         </section>
 
         <section className="flex flex-col flex-1 min-w-0 bg-white">

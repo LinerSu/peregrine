@@ -19,7 +19,14 @@ from app.roles import classify_role
         ("Data Engineer", "Data Engineer"),
         ("Product Designer", "Designer"),
         ("Business Analyst", "Analyst"),
-        ("Chief of Staff", "Other"),
+        # Broadened business / GTM / ops families (specific before the generic Manager rule).
+        ("Account Executive, AI Native", "Sales / GTM"),
+        ("GTM Manager", "Sales / GTM"),          # boundary keyword " gtm" matches at the start
+        ("AI Compliance Officer", "Legal & Compliance"),
+        ("Security Engineer", "Security"),       # Security wins over SDE
+        ("Recruiter", "People / Recruiting"),
+        ("Finance Manager", "Finance"),          # Finance wins over the generic Manager
+        ("Chief of Staff", "Operations"),
         ("", "Other"),
     ],
 )
