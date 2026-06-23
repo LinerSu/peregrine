@@ -101,6 +101,33 @@ def test_new_parsers_survive_malformed_payloads():
     assert sr2[0].location == "" and sr2[0].url.endswith("/x/k")
 
 
+def test_scan_dedups_within_and_across_scans(tmp_path, monkeypatch):
+    # Clicking Scan must never add a duplicate job — within one scan (same posting twice)
+    # or across re-scans (already-tracked jobs). Dedup key = company + company_job_id.
+    from app import config
+    from app.agent import tools
+
+    monkeypatch.setattr(config, "JOBS_CSV", tmp_path / "jobs.csv")
+    monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(config, "APPLICATIONS_CSV", tmp_path / "applications.csv")
+    monkeypatch.setattr(config, "PORTALS_YML", tmp_path / "portals.yml")
+    monkeypatch.setattr(tools.status, "record", lambda *a, **k: None)
+    monkeypatch.setattr(tools.store, "read_targets", lambda: {})
+    monkeypatch.setattr(tools.store, "read_portals",
+                        lambda: {"companies": [{"name": "Acme", "provider": "x", "slug": "x"}], "snapshot": False})
+    monkeypatch.setattr(tools.providers, "fetch", lambda *a: [
+        P.RawPosting(company="Acme", company_job_id="R1", position="Engineer", location="NYC"),
+        P.RawPosting(company="acme", company_job_id="r1", position="Engineer", location="NYC"),  # case-variant dup
+        P.RawPosting(company="Acme", company_job_id="R2", position="PM", location="SF"),
+    ])
+    r1 = tools.scan_jobs()
+    assert r1["new"] == 2 and r1["duplicates"] == 1     # R1 once (case-variant is a within-scan dup) + R2
+    assert len(tools.store.list_jobs()) == 2
+    r2 = tools.scan_jobs()                                # re-scan the same feed
+    assert r2["new"] == 0 and r2["duplicates"] == 3      # everything already tracked
+    assert len(tools.store.list_jobs()) == 2             # still 2 — no duplicates added
+
+
 def test_scan_backfills_empty_company_job_id(tmp_path, monkeypatch):
     # Two id-less postings from the same company must NOT dedup into one.
     from app import config
