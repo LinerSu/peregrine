@@ -9,6 +9,7 @@ from .. import data_store as store
 from ..agent import tools
 from ..extract import extract_text
 from ..schemas import Application, CvSourceInput, ProfileInput
+from ..skills import normalize_category
 
 router = APIRouter(prefix="/api", tags=["applications"])
 
@@ -160,7 +161,13 @@ def llm_status():
 
 @router.get("/profile")
 def get_profile():
-    return store.read_profile()
+    # Fill in any missing skill category deterministically, so the Profile page can group
+    # skills (Languages / Tools / …) even for profiles parsed before categories existed.
+    profile = store.read_profile()
+    for s in profile.get("skills") or []:
+        if isinstance(s, dict):  # fill blanks AND clamp a non-canonical stored category
+            s["category"] = normalize_category(s.get("category", ""), s.get("name", ""))
+    return profile
 
 
 @router.put("/profile")
