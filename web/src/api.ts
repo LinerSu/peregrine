@@ -18,6 +18,9 @@ export interface Job {
   fit_score: number | null;
   detail_md: string;
   role_category: string;
+  level: string; // required degree: PhD / MS / BS
+  req_skills: string; // comma-joined required skills/languages
+  domains: string; // comma-joined finer fields
   starred: boolean;
 }
 
@@ -50,6 +53,7 @@ export interface Profile {
   headline?: string;
   location?: string;
   skills?: { name: string; level?: string; evidence?: string; category?: string }[];
+  skill_tags?: string[]; // canonical skills (server-derived) for the Jobs "your skills" filter
   links?: Record<string, string>; // named profile links: github/website/linkedin/scholar/email…
   sections?: ProfileSection[];
   [key: string]: unknown;

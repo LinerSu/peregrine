@@ -17,6 +17,7 @@ from ..config import APPLICATIONS_DIR
 from ..cover_letter import gather_style_references
 from ..evaluation import assess_legitimacy, classify_archetype
 from ..logging_config import get_logger
+from ..job_tags import extract_domains, extract_level, extract_skills
 from ..roles import classify_role
 from ..skills import normalize_category
 from ..schemas import Application, Job
@@ -42,6 +43,18 @@ def _as_float(value: Any, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _job_tag_kwargs(p: providers.RawPosting) -> dict[str, str]:
+    """Deterministic Job tags for a posting — role family + level/skills/domains. Used by
+    BOTH scan and the paste/URL ingest path so every tracked job is tagged consistently."""
+    text = f"{p.position}\n{p.description}"
+    return {
+        "role_category": classify_role(p.position),
+        "level": extract_level(text),
+        "req_skills": ", ".join(extract_skills(text)),
+        "domains": ", ".join(extract_domains(text)),
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -123,7 +136,7 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
                 posted_date=p.posted_date,
                 url=p.url,
                 detail_md=detail_path,
-                role_category=classify_role(p.position),
+                **_job_tag_kwargs(p),
             )
             jobs.append(job)
             index[key] = job
@@ -755,7 +768,7 @@ def _persist_posting(p: providers.RawPosting) -> Job:
             posted_date=p.posted_date,
             url=p.url,
             detail_md=detail_path,
-            role_category=classify_role(p.position),
+            **_job_tag_kwargs(p),
         )
     )
 
