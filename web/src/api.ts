@@ -49,7 +49,7 @@ export interface Profile {
   name?: string;
   headline?: string;
   location?: string;
-  skills?: { name: string; level?: string; evidence?: string }[];
+  skills?: { name: string; level?: string; evidence?: string; category?: string }[];
   links?: Record<string, string>; // named profile links: github/website/linkedin/scholar/email…
   sections?: ProfileSection[];
   [key: string]: unknown;

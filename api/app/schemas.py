@@ -82,6 +82,7 @@ class SkillInput(BaseModel):
     name: str
     level: str = ""
     evidence: str = ""
+    category: str = ""  # Languages / Frameworks & Libraries / Tools / Domains / Soft skills
 
 
 def _as_str(v: Any) -> str:

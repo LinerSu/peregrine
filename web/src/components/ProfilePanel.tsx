@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type Profile } from "../api";
 import type { AssistantMode } from "../App";
 import { LinkIcon } from "./icons";
+
+// Display order for the structured skill groups (anything else falls under "Other").
+const SKILL_ORDER = ["Languages", "Frameworks & Libraries", "Tools", "Domains", "Soft skills"];
 
 // Profile / CV tab. CV intake is mode-aware:
 //   External — POST /api/cv (LLM parses the CV into the profile).
@@ -170,6 +173,14 @@ export default function ProfilePanel({
   };
 
   const skills = profile?.skills ?? [];
+  const skillGroups = useMemo(() => {
+    const g: Record<string, typeof skills> = {};
+    for (const s of skills) {
+      const cat = SKILL_ORDER.includes(s.category || "") ? (s.category as string) : "Other";
+      (g[cat] ||= []).push(s);
+    }
+    return [...SKILL_ORDER, "Other"].filter((c) => g[c]?.length).map((c) => ({ cat: c, items: g[c] }));
+  }, [skills]);
   const links = Object.entries(profile?.links ?? {}).filter(([, url]) => url);
   const sections = profile?.sections ?? [];
   const hasContent = !!(profile?.name || skills.length || links.length || sections.length);
@@ -223,14 +234,27 @@ export default function ProfilePanel({
               </div>
             </div>
 
-            {/* Skills */}
+            {/* Skills — grouped by category (Languages / Tools / Domains / …) */}
             {skills.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {skills.map((s, i) => (
-                  <span key={i} title={s.evidence} className="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-700">
-                    {s.name}
-                    {s.level ? ` · ${s.level}` : ""}
-                  </span>
+              <div className="space-y-2">
+                {skillGroups.map(({ cat, items }) => (
+                  <div key={cat}>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">
+                      {cat}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {items.map((s, i) => (
+                        <span
+                          key={i}
+                          title={s.evidence}
+                          className="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-700"
+                        >
+                          {s.name}
+                          {s.level ? ` · ${s.level}` : ""}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
             )}

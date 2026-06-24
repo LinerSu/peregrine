@@ -18,6 +18,7 @@ from ..cover_letter import gather_style_references
 from ..evaluation import assess_legitimacy, classify_archetype
 from ..logging_config import get_logger
 from ..roles import classify_role
+from ..skills import normalize_category
 from ..schemas import Application, Job
 from . import providers
 from .registry import registry
@@ -635,7 +636,8 @@ _CV_PROMPT = (
     "- name, headline, location (strings)\n"
     "- links: object of profile links present in the CV — any of "
     "github/website/linkedin/scholar/twitter/email (omit ones not present)\n"
-    "- skills: array of {name, level, evidence}\n"
+    "- skills: array of {name, level, evidence, category} where category is one of "
+    "Languages | Frameworks & Libraries | Tools | Domains | Soft skills (best guess)\n"
     "- sections: array of résumé sections, each {id, title, summary, items}, where id is "
     "one of education|experience|research|service|awards|projects, title is the display "
     "heading, summary is ONE sentence capturing the section (shown when collapsed), and "
@@ -659,6 +661,8 @@ def _normalize_cv_fields(parsed: dict[str, Any]) -> dict[str, Any]:
     if isinstance(skills, list):
         clean = [s for s in skills if isinstance(s, dict) and s.get("name")]
         clean += [{"name": s} for s in skills if isinstance(s, str) and s.strip()]
+        for s in clean:  # clamp the LLM's category to the canonical set (fallback: classify)
+            s["category"] = normalize_category(s.get("category", ""), s.get("name", ""))
         if clean:
             out["skills"] = clean
     links = parsed.get("links")
