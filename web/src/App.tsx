@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Application, type Job } from "./api";
 import AssistantPanel from "./components/AssistantPanel";
+import Onboarding from "./components/Onboarding";
 import JobsTable from "./components/JobsTable";
 import AddJobsBar from "./components/AddJobsBar";
 import JobDetail from "./components/JobDetail";
@@ -31,6 +32,34 @@ export default function App() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [llmMock, setLlmMock] = useState(false); // External mode has no LLM key -> mock
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const ONBOARDED_KEY = "peregrine.onboarded";
+
+  // Auto-open the guided setup ONCE for a fresh (unconfigured) dataset — no profile and no jobs.
+  const bootedRef = useRef(false);
+  useEffect(() => {
+    if (bootedRef.current) return;
+    bootedRef.current = true;
+    (async () => {
+      try {
+        if (localStorage.getItem(ONBOARDED_KEY)) return;
+        const [{ jobs }, profile] = await Promise.all([api.listJobs(), api.getProfile()]);
+        const empty =
+          jobs.length === 0 && !(profile.name || profile.skills?.length || profile.sections?.length);
+        if (empty) setShowOnboarding(true);
+      } catch {
+        /* ignore — onboarding stays reachable from the header */
+      }
+    })();
+  }, []);
+  const closeOnboarding = () => {
+    setShowOnboarding(false);
+    try {
+      localStorage.setItem(ONBOARDED_KEY, "1"); // don't auto-reopen; header re-opens it
+    } catch {
+      /* best-effort */
+    }
+  };
   // External = API-backed; Internal = local Claude terminal. Lifted here (and
   // persisted) so EVERY LLM-backed tab switches its behavior to match the global
   // mode — the single source of truth is this toggle in the header.
@@ -93,10 +122,17 @@ export default function App() {
           <p className="text-xs text-gray-500">Personal AI job-search assistant</p>
         </div>
 
+        <button
+          onClick={() => setShowOnboarding(true)}
+          title="Guided setup: CV → search → companies → first scan"
+          className="ml-auto px-2.5 py-1 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-md hover:bg-indigo-50"
+        >
+          Get started
+        </button>
         <a
           href="/docs"
           title="Project documentation"
-          className="ml-auto px-2.5 py-1 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-md hover:bg-indigo-50"
+          className="px-2.5 py-1 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-md hover:bg-indigo-50"
         >
           Docs
         </a>
@@ -222,6 +258,17 @@ export default function App() {
           </div>
         </section>
       </main>
+
+      {showOnboarding && (
+        <Onboarding
+          onClose={closeOnboarding}
+          onNavProfile={() => {
+            setShowOnboarding(false);
+            setTab("profile");
+          }}
+          onChanged={refresh}
+        />
+      )}
     </div>
   );
 }
