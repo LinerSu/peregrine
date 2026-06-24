@@ -69,6 +69,23 @@ export interface Targets {
   exclude_keywords?: string[];
 }
 
+export interface Company {
+  name: string;
+  provider: string;
+  slug: string;
+}
+export interface Portals {
+  companies: Company[];
+  queries: string[];
+  filters: Record<string, unknown>;
+  providers: string[]; // providers selectable in the UI
+}
+export interface DetectedSource {
+  provider: string;
+  slug: string;
+  count: number;
+}
+
 export interface ChatAction {
   tool?: string;
   result?: unknown;
@@ -170,6 +187,18 @@ export const api = {
     }),
   // Configured scan sources, for the per-company scan selector.
   sources: () => http<{ companies: { name: string; provider: string }[] }>("/api/jobs/sources"),
+  // Scan config (companies / queries / filters) — the Settings UI, so users never edit YAML.
+  getPortals: () => http<Portals>("/api/jobs/portals"),
+  putPortals: (body: Partial<Pick<Portals, "companies" | "queries" | "filters">>) =>
+    http<Portals>("/api/jobs/portals", { method: "PUT", body: JSON.stringify(body) }),
+  // Add-company-by-name: probe the supported boards for a company name.
+  detectSources: (name: string) =>
+    http<{ sources: DetectedSource[] }>("/api/jobs/portals/detect", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  // Relevance queries proposed from the profile (roles/headline/experience), no LLM.
+  suggestQueries: () => http<{ queries: string[] }>("/api/jobs/portals/suggest-queries"),
   // The in-app User Manual, for the /docs page (grouped into sections).
   docs: () => http<{ sections: DocSection[] }>("/api/docs"),
   doc: (slug: string) => http<DocMeta & { markdown: string }>(`/api/docs/${encodeURIComponent(slug)}`),

@@ -62,6 +62,87 @@ def test_matches_queries_relevance_gate():
     assert tools._matches_queries(sales, None)
 
 
+# --- add-company-by-name (detect) + provider hygiene ------------------------
+def test_detect_company_sources(monkeypatch):
+    from app.agent import providers
+
+    def fake_fetch(provider, name, slug):
+        return [object()] if provider == "lever" and slug == "acme" else []
+
+    monkeypatch.setattr(providers, "fetch", fake_fetch)
+    assert tools.detect_company_sources("Acme") == [{"provider": "lever", "slug": "acme", "count": 1}]
+    assert tools.detect_company_sources("") == []
+    assert "smartrecruiters" not in tools._DETECT_PROVIDERS  # robots-blocked, never probed
+
+
+def test_norm_provider_drops_smartrecruiters():
+    from app.routers.jobs import _norm_provider
+
+    assert _norm_provider("greenhouse") == "greenhouse"
+    assert _norm_provider("AMAZON ") == "amazon"
+    assert _norm_provider("smartrecruiters") == "generic"  # excluded from in-app config
+    assert _norm_provider("bogus") == "generic"
+
+
+def test_suggest_queries_from_profile():
+    profile = {
+        "headline": "Art Director, UX/UI Designer",
+        "targets": {"roles": ["Product Designer"]},
+        "sections": [
+            {
+                "id": "experience",
+                "items": [{"heading": "Lead Designer — Acme"}, {"heading": "Art Director — VirtualHealth"}],
+            }
+        ],
+    }
+    q = tools.suggest_queries(profile)
+    assert "Product Designer" in q  # target role
+    assert "Art Director" in q  # from headline/experience, company stripped, deduped
+    assert "Lead Designer" in q
+    assert all("—" not in x for x in q) and len(q) <= 6  # no company fragments
+    assert tools.suggest_queries({}) == []  # empty profile -> nothing to suggest
+    # malformed / hand-edited profile must never 500
+    assert tools.suggest_queries({"targets": "oops", "sections": "nope"}) == []
+    assert tools.suggest_queries({"targets": {"roles": [None, "Designer"]}}) == ["Designer"]
+    assert tools.suggest_queries(
+        {"sections": [None, "x", {"id": "experience", "items": [None, "y", {"heading": None}]}]}
+    ) == []
+
+
+def test_portals_put_normalizes_and_merges(tmp_path, monkeypatch):
+    import yaml
+    from fastapi.testclient import TestClient
+
+    from app import config
+    from app.main import app
+
+    pf = tmp_path / "portals.yml"
+    pf.write_text("companies: []\nqueries: []\nsnapshot: true\nrate_limit_seconds: 2\n")
+    monkeypatch.setattr(config, "PORTALS_YML", pf)
+    client = TestClient(app)
+
+    r = client.put(
+        "/api/jobs/portals",
+        json={
+            "companies": [
+                {"name": "Acme", "provider": "smartrecruiters", "slug": "acme"},  # -> generic
+                {"name": "  ", "provider": "greenhouse", "slug": "x"},  # blank name -> dropped
+            ],
+            "queries": ["machine learning engineer", None, "  "],  # None/blank -> dropped
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert [c["name"] for c in body["companies"]] == ["Acme"]
+    assert body["companies"][0]["provider"] == "generic"  # smartrecruiters normalized
+    assert body["queries"] == ["machine learning engineer"]
+
+    client.put("/api/jobs/portals", json={"queries": ["x"]})  # a queries-only edit
+    saved = yaml.safe_load(pf.read_text())
+    assert saved["snapshot"] is True and saved["rate_limit_seconds"] == 2  # merge preserved them
+    assert saved["queries"] == ["x"] and saved["companies"][0]["name"] == "Acme"
+
+
 def test_targets_locations_override_portal_filters():
     p = _rp(location="Austin, TX")
     assert tools._passes_filters(p, {"locations": ["boston"]}, {"locations": ["austin"]})

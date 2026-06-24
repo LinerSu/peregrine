@@ -211,6 +211,49 @@ class JobIngestInput(BaseModel):
         return v or ""
 
 
+class CompanyInput(BaseModel):
+    """One scan source. `provider` is validated against the live providers in the route;
+    `slug` is the ATS handle (or, for query-based providers like amazon, the search query)."""
+    name: str = ""
+    provider: str = "generic"
+    slug: str = ""
+
+    @field_validator("name", "provider", "slug", mode="before")
+    @classmethod
+    def _coerce(cls, v):
+        return _as_str(v)
+
+
+class ScanFilters(BaseModel):
+    """Hard scan filters (portals.filters)."""
+    locations: list[str] = []
+    remote_only: bool = False
+    min_base: float = 0.0
+    max_age_days: int = 0
+
+    @field_validator("locations", mode="before")
+    @classmethod
+    def _locs(cls, v):
+        # _as_str maps None->"" (str(None) would persist the literal "None"); drop blanks.
+        return [s for s in (_as_str(x).strip() for x in v) if s] if isinstance(v, list) else []
+
+
+class PortalsInput(BaseModel):
+    """Body for PUT /api/jobs/portals — store-only scan-config edit (no LLM, so it's identical
+    across modes). Only the provided keys are updated; the rest of portals.yml is preserved."""
+    companies: Optional[list[CompanyInput]] = None
+    queries: Optional[list[str]] = None
+    filters: Optional[ScanFilters] = None
+
+    @field_validator("queries", mode="before")
+    @classmethod
+    def _queries(cls, v):
+        if not isinstance(v, list):
+            return None
+        # _as_str maps None->"" (str(None) would leak "None" into portals.yml); drop blanks.
+        return [s for s in (_as_str(x).strip() for x in v) if s]
+
+
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
     content: str
