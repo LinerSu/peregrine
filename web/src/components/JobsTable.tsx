@@ -63,7 +63,11 @@ export default function JobsTable({
 }) {
   const [query, setQuery] = useState("");
   const [role, setRole] = useState("All");
+  const [domain, setDomain] = useState("All");
+  const [level, setLevel] = useState("All");
   const [starredOnly, setStarredOnly] = useState(false);
+  const [mySkillTags, setMySkillTags] = useState<string[]>([]); // your canonical skills (server)
+  const [mySkillSel, setMySkillSel] = useState<Set<string>>(new Set()); // your-skills filter
   const [tab, setTab] = useState<Tab>("all");
   const [grouped, setGrouped] = useState(false);
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
@@ -105,21 +109,76 @@ export default function JobsTable({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Your canonical skills (server-derived) — so you can filter jobs by the skills you have.
+  useEffect(() => {
+    api
+      .getProfile()
+      .then((p) => setMySkillTags(p.skill_tags ?? []))
+      .catch(() => {});
+  }, []);
+
   const roles = useMemo(
     () => ["All", ...Array.from(new Set(jobs.map((j) => j.role_category).filter(Boolean))).sort()],
     [jobs]
   );
+  const splitTags = (s: string) => (s || "").split(",").map((d) => d.trim()).filter(Boolean);
+  const domains = useMemo(
+    () => ["All", ...Array.from(new Set(jobs.flatMap((j) => splitTags(j.domains)))).sort()],
+    [jobs]
+  );
+  const levels = useMemo(
+    () => ["All", ...["PhD", "MS", "BS"].filter((l) => jobs.some((j) => j.level === l))],
+    [jobs]
+  );
+  // Skills you have (from your profile) that some job actually requires — the chips you can
+  // click to filter to jobs matching your skills.
+  const mySkills = useMemo(() => {
+    if (!mySkillTags.length) return [];
+    const needed = new Set(jobs.flatMap((j) => splitTags(j.req_skills)));
+    return mySkillTags.filter((sk) => needed.has(sk)).sort(); // your skills that some job needs
+  }, [jobs, mySkillTags]);
+  const toggleMySkill = (sk: string) =>
+    setMySkillSel((prev) => {
+      const n = new Set(prev);
+      n.has(sk) ? n.delete(sk) : n.add(sk);
+      return n;
+    });
 
-  // Everything except the status tab — so the tab badge counts reflect other filters.
+  // After a jobs refresh/prune the available options can shrink — drop any selection that no
+  // longer exists, so a stale skill chip / domain / degree can't strand the table empty with
+  // its reset control hidden (the "Your skills" row and the option dropdowns only render when
+  // they have content).
+  useEffect(() => {
+    if (domain !== "All" && !domains.includes(domain)) setDomain("All");
+    if (level !== "All" && !levels.includes(level)) setLevel("All");
+    setMySkillSel((prev) => {
+      const valid = new Set(mySkills);
+      const kept = [...prev].filter((sk) => valid.has(sk));
+      return kept.length === prev.size ? prev : new Set(kept);
+    });
+    // Resets are no-ops once the value is valid (and setMySkillSel bails when unchanged), so
+    // listing domain/level can't loop.
+  }, [domains, levels, mySkills, domain, level]);
+
+  // Everything except the status tab — so the tab badge counts reflect other filters. The
+  // text filter also matches required skills + domains, so you can search jobs by topic
+  // (e.g. "OCaml", "Compilers") across all companies — the role > company use case.
   const baseFiltered = useMemo(() => {
     const q = query.toLowerCase();
     return jobs.filter(
       (j) =>
-        (!q || j.company.toLowerCase().includes(q) || j.position.toLowerCase().includes(q)) &&
+        (!q ||
+          j.company.toLowerCase().includes(q) ||
+          j.position.toLowerCase().includes(q) ||
+          (j.req_skills || "").toLowerCase().includes(q) ||
+          (j.domains || "").toLowerCase().includes(q)) &&
         (role === "All" || j.role_category === role) &&
+        (domain === "All" || splitTags(j.domains).includes(domain)) &&
+        (level === "All" || j.level === level) &&
+        (mySkillSel.size === 0 || splitTags(j.req_skills).some((sk) => mySkillSel.has(sk))) &&
         (!starredOnly || j.starred)
     );
-  }, [jobs, query, role, starredOnly]);
+  }, [jobs, query, role, domain, level, mySkillSel, starredOnly]);
 
   // Tab badge counts in a single pass (avoids O(tabs × rows) per render).
   const tabCounts = useMemo(() => {
@@ -271,7 +330,7 @@ export default function JobsTable({
       <div className="flex flex-wrap items-center gap-2 p-3 border-b border-gray-200">
         <input
           className="flex-1 min-w-[120px] px-3 py-1.5 text-sm border border-gray-300 rounded-md"
-          placeholder="Filter jobs…"
+          placeholder="Filter — company, role, skill, domain…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -279,7 +338,7 @@ export default function JobsTable({
           value={role}
           onChange={(e) => setRole(e.target.value)}
           className="px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-white"
-          title="Filter by role"
+          title="Filter by role family"
         >
           {roles.map((r) => (
             <option key={r} value={r}>
@@ -287,6 +346,34 @@ export default function JobsTable({
             </option>
           ))}
         </select>
+        {domains.length > 1 && (
+          <select
+            value={domain}
+            onChange={(e) => setDomain(e.target.value)}
+            className="px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-white"
+            title="Filter by field / domain"
+          >
+            {domains.map((d) => (
+              <option key={d} value={d}>
+                {d === "All" ? "All domains" : d}
+              </option>
+            ))}
+          </select>
+        )}
+        {levels.length > 1 && (
+          <select
+            value={level}
+            onChange={(e) => setLevel(e.target.value)}
+            className="px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-white"
+            title="Filter by required degree"
+          >
+            {levels.map((l) => (
+              <option key={l} value={l}>
+                {l === "All" ? "Any degree" : `🎓 ${l}`}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           onClick={() => setStarredOnly((v) => !v)}
           title="Show starred only"
@@ -325,6 +412,35 @@ export default function JobsTable({
           )}
         </div>
       </div>
+
+      {/* Your skills — click to filter to jobs that require the skills you actually have. */}
+      {mySkills.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-gray-100 bg-white">
+          <span className="text-xs text-gray-500">Your skills:</span>
+          {mySkills.map((sk) => {
+            const on = mySkillSel.has(sk);
+            return (
+              <button
+                key={sk}
+                onClick={() => toggleMySkill(sk)}
+                title={on ? "Click to remove from the filter" : "Filter to jobs requiring this"}
+                className={`px-2 py-0.5 text-xs rounded-full border ${
+                  on
+                    ? "bg-emerald-600 text-white border-emerald-600"
+                    : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                }`}
+              >
+                {sk}
+              </button>
+            );
+          })}
+          {mySkillSel.size > 0 && (
+            <button onClick={() => setMySkillSel(new Set())} className="ml-1 text-xs text-gray-400 hover:text-gray-700">
+              clear
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Status tabs */}
       <div className="flex flex-wrap items-center gap-1 px-3 py-2 border-b border-gray-200 bg-white">

@@ -290,6 +290,31 @@ export default function JobDetail({
         <p className="text-sm text-gray-500">
           {job.company} · {job.location || "—"} · fit {job.fit_score != null ? job.fit_score.toFixed(2) : "n/a"}
         </p>
+        {/* Structured tags pulled from the posting: field · degree · domains · required skills */}
+        {(job.role_category || job.level || job.domains || job.req_skills) && (
+          <div className="flex flex-wrap items-center gap-1.5 mt-2">
+            {job.role_category && job.role_category !== "Other" && (
+              <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700" title="Role family">
+                {job.role_category}
+              </span>
+            )}
+            {job.level && (
+              <span className="px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-800" title="Required degree">
+                🎓 {job.level}
+              </span>
+            )}
+            {(job.domains || "").split(",").map((d) => d.trim()).filter(Boolean).map((d) => (
+              <span key={`d-${d}`} className="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-700" title="Field / domain">
+                {d}
+              </span>
+            ))}
+            {(job.req_skills || "").split(",").map((s) => s.trim()).filter(Boolean).map((s) => (
+              <span key={`s-${s}`} className="px-2 py-0.5 text-xs rounded-full bg-emerald-50 text-emerald-700" title="Required skill">
+                {s}
+              </span>
+            ))}
+          </div>
+        )}
         <div className="flex gap-2 mt-3">
           <button
             onClick={evaluate}

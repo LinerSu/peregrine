@@ -25,6 +25,11 @@ class Job(BaseModel):
     fit_score: Optional[float] = None
     detail_md: str = ""
     role_category: str = ""
+    # Structured tags extracted from the posting (deterministic, no LLM). Lists are stored
+    # comma-joined so they fit a CSV cell; the UI splits them back into chips.
+    level: str = ""          # required degree: PhD / MS / BS (highest mentioned)
+    req_skills: str = ""     # required skills/languages, e.g. "Python, OCaml, Docker"
+    domains: str = ""        # finer fields, e.g. "Compilers, Machine Learning"
     starred: bool = False
 
 
