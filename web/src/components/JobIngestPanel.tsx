@@ -81,8 +81,16 @@ export default function JobIngestPanel({
       setUrl("");
       setMsg(r.created ? `Added: ${r.job?.position ?? "job"}.` : "Already tracked.");
       if (r.job?.id) onIngested(r.job.id, !!r.created, r.job.position ?? "");
-    } catch {
-      setMsg("Couldn't fetch that URL (the site may block it) — paste the text or upload a PDF instead.");
+    } catch (e) {
+      // Show the API's actual reason when it's meaningful (e.g. a crawl-policy block like
+      // "Meta bot-protects… paste the text instead"); fall back to the generic hint for a
+      // bare HTTP status.
+      const reason = e instanceof Error ? e.message : "";
+      setMsg(
+        !reason || /^\d{3}\b/.test(reason)
+          ? "Couldn't fetch that URL (the site may block it) — paste the text or upload a PDF instead."
+          : reason
+      );
     } finally {
       setBusy(false);
     }

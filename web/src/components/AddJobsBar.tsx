@@ -21,6 +21,7 @@ export default function AddJobsBar({
   const [selected, setSelected] = useState<string[]>([]); // [] = scan all configured companies
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
+  const [helpOpen, setHelpOpen] = useState(false); // "why isn't my company here?" explainer
 
   useEffect(() => {
     api.sources().then((r) => setSources(r.companies)).catch(() => {});
@@ -118,7 +119,23 @@ export default function AddJobsBar({
                         <span className="text-[11px] text-gray-400">{s.provider}</span>
                       </label>
                     ))}
-                    {!pickerList.length && <p className="px-2 py-2 text-gray-400">No matches.</p>}
+                    {!pickerList.length && (
+                      <p className="px-2 py-2 text-xs text-gray-500">
+                        No matches. Companies on Workday or their own careers sites (Meta, Google,
+                        Microsoft, Nvidia…) aren't scannable — close this and use{" "}
+                        <button
+                          type="button"
+                          className="text-indigo-600 hover:underline"
+                          onClick={() => {
+                            setPickerOpen(false);
+                            setOpen(true);
+                          }}
+                        >
+                          Add a job
+                        </button>{" "}
+                        to paste that posting.
+                      </p>
+                    )}
                   </div>
                 </div>
               </>
@@ -140,8 +157,45 @@ export default function AddJobsBar({
         >
           {open ? "Add a job ▴" : "Add a job ▾"}
         </button>
+        <button
+          type="button"
+          onClick={() => setHelpOpen((v) => !v)}
+          aria-expanded={helpOpen}
+          className="text-xs text-gray-400 hover:text-gray-600 hover:underline"
+        >
+          Why these companies?
+        </button>
         {scanMsg && <span className="text-xs text-gray-500">{scanMsg}</span>}
       </div>
+
+      {helpOpen && (
+        <div className="mt-2 rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600 space-y-1.5">
+          <p>
+            Scan only lists companies on <strong>supported, scrape-permissive ATS feeds</strong>{" "}
+            (Greenhouse, Ashby, Lever, Recruitee, Workable, and Amazon's job search).
+          </p>
+          <p>
+            Big employers on <strong>Workday or their own careers sites</strong> (Google, Microsoft,
+            Meta, Nvidia, Intel, IBM…) aren't here: their terms restrict automated access, and we
+            won't risk getting your IP banned. <strong>Meta / LinkedIn / Indeed / Glassdoor</strong>{" "}
+            are blocked outright by policy.
+          </p>
+          <p>
+            To track a job from <em>any</em> company —{" "}
+            <button
+              type="button"
+              className="text-indigo-600 hover:underline"
+              onClick={() => {
+                setHelpOpen(false);
+                setOpen(true);
+              }}
+            >
+              Add a job
+            </button>{" "}
+            → paste its URL, or paste / upload the description (works for bot-blocking sites too).
+          </p>
+        </div>
+      )}
 
       {open && (
         <div className="mt-2 rounded-md border border-gray-200 p-3">

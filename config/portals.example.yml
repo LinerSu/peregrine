@@ -4,18 +4,25 @@
 # names the ATS provider + the company's slug on that ATS.
 # ---------------------------------------------------------------------------
 
-# Free-text search queries run across supported job boards.
+# Relevance gate. A board provider returns a company's ENTIRE listing; these queries keep only
+# the postings whose title/description match one (all of a query's words must appear) — so a
+# scan returns the roles you want, not the whole board, and the Jobs tab can hide off-target
+# jobs. Leave empty to keep everything. (The query-based "amazon" provider ignores this — it
+# already searched by its own slug.)
 queries:
   - "machine learning engineer"
   - "applied scientist"
 
 # Per-company direct ATS feeds (most reliable, no scraping HTML). Each hits the
 # board's own public API/feed (host-pinned + rate-limited via crawl_policy).
-# provider: greenhouse | ashby | lever | recruitee | smartrecruiters | workable | generic
+# provider: greenhouse | ashby | lever | recruitee | smartrecruiters | workable | amazon | generic
 # `slug` is the company's handle on that ATS — read it from the careers URL, e.g.:
 #   recruitee       <slug>.recruitee.com                  -> slug: channable
 #   smartrecruiters careers.smartrecruiters.com/<slug>    -> slug: adyen
 #   workable        apply.workable.com/<slug>             -> slug: huggingface
+# NOTE: most megacaps (Google, Microsoft, Meta, Nvidia, Intel…) run Workday or bespoke
+# careers sites whose terms restrict automated access — they are NOT scannable here. For those,
+# paste a job URL/description via "Add a job" in the UI instead.
 companies:
   - name: Anthropic
     provider: greenhouse
@@ -23,6 +30,11 @@ companies:
   - name: OpenAI
     provider: ashby
     slug: openai
+  # "amazon" is QUERY-based, not a per-tenant board: `slug` is the search query (amazon.jobs
+  # has no per-company board). Add one entry per query you care about.
+  - name: Amazon
+    provider: amazon
+    slug: "machine learning engineer"
 
 # Hard filters applied during scan.
 filters:

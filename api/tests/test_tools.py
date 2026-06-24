@@ -35,6 +35,33 @@ def test_filter_include_exclude_keywords():
     assert not tools._passes_filters(p, {}, {"exclude_keywords": ["kafka"]})
 
 
+# --- relevance gate (portals.queries) ---------------------------------------
+def test_query_matches_all_words_not_exact_phrase():
+    # all the query's words must appear (scattered is fine) — exact phrase isn't required
+    assert tools._query_matches("research engineer, machine learning (rl)", "machine learning engineer")
+    assert tools._query_matches("senior machine learning engineer, platform", "machine learning engineer")
+    assert not tools._query_matches("staff software engineer, payments", "machine learning engineer")
+    assert not tools._query_matches("technical recruiter", "machine learning engineer")
+    # tokens ending in + / # still match (custom boundary, not \b which is \w-based)
+    assert tools._query_matches("strong c++ and rust", "c++")
+    assert tools._query_matches("c# / .net backend", "c#")
+    assert not tools._query_matches("a cobol shop", "c++")  # 'c' alone shouldn't match c++
+    assert not tools._query_matches("pythonic code", "python")  # substring guard still holds
+
+
+def test_matches_queries_relevance_gate():
+    # relevance is judged on the title+tags surface (_relevance_text), identically at scan and
+    # serve time, so a scanned-in job is never then hidden as off-target.
+    ml = tools._relevance_text("Machine Learning Engineer", "Machine Learning", "Python", "ML Engineer")
+    sales = tools._relevance_text("Account Executive", "", "", "Sales/GTM")
+    q = ["machine learning engineer", "applied scientist"]
+    assert tools._matches_queries(ml, q)
+    assert not tools._matches_queries(sales, q)
+    # no queries -> everything relevant (no regression for users who haven't set any)
+    assert tools._matches_queries(sales, [])
+    assert tools._matches_queries(sales, None)
+
+
 def test_targets_locations_override_portal_filters():
     p = _rp(location="Austin, TX")
     assert tools._passes_filters(p, {"locations": ["boston"]}, {"locations": ["austin"]})

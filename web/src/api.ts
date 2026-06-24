@@ -22,6 +22,7 @@ export interface Job {
   req_skills: string; // comma-joined required skills/languages
   domains: string; // comma-joined finer fields
   starred: boolean;
+  relevant?: boolean; // derived (server): does it match your scan queries? (separate from status)
 }
 
 export interface Application extends Job {
@@ -137,7 +138,19 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    // Surface the API's reason (FastAPI puts it in `detail`) — e.g. the crawl-policy
+    // explanation "Meta bot-protects its careers site… paste the text instead" — so the
+    // UI can show *why*, not just a status code.
+    let detail = "";
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(detail || `${res.status} ${res.statusText}`);
+  }
   return res.json() as Promise<T>;
 }
 
