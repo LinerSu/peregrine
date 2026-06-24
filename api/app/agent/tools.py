@@ -59,6 +59,7 @@ def _job_tag_kwargs(p: providers.RawPosting) -> dict[str, str]:
 
 # --------------------------------------------------------------------------- #
 _SCAN_NEW_CAP = 500  # safety bound against a runaway broad scan; a normal board fits in one scan
+_QUERY_PROVIDERS = {"amazon"}  # providers whose `slug` is a search query (already targeted)
 
 
 @registry.register(
@@ -76,6 +77,7 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
     companies = portals.get("companies", []) or []
     filters = portals.get("filters", {}) or {}
     targets = store.read_targets()
+    portals_queries = portals.get("queries") or []  # relevance gate for board providers
     snapshot = portals.get("snapshot", True)
     max_age = _safe_int(filters.get("max_age_days"))  # 0 = no posted-date limit (bad value -> off)
 
@@ -101,7 +103,11 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
         if capped:
             break
         company_name = c.get("name", "")
-        postings = providers.fetch(c.get("provider", "generic"), company_name, c.get("slug", ""))
+        provider = c.get("provider", "generic")
+        # Query-based providers (Amazon) already searched by the query, so don't re-gate them
+        # on portals.queries (their `slug` IS the query); board providers get the relevance gate.
+        company_queries = [] if provider.lower() in _QUERY_PROVIDERS else portals_queries
+        postings = providers.fetch(provider, company_name, c.get("slug", ""))
         for p in postings:
             if not p.company_job_id.strip():
                 # No id in the feed -> derive a STABLE, collision-resistant key: a readable
@@ -124,6 +130,15 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
             if new >= _SCAN_NEW_CAP:  # stop persisting once the safety cap is hit
                 capped = True
                 break
+            tags = _job_tag_kwargs(p)
+            # Relevance gate — judged on the SAME title+tags surface as the Jobs-tab `relevant`
+            # flag (see _relevance_text), so a scanned-in job is never then hidden as off-target.
+            if company_queries and not _matches_queries(
+                _relevance_text(p.position, tags["domains"], tags["req_skills"], tags["role_category"]),
+                company_queries,
+            ):
+                filtered += 1
+                continue
             jid = next(mint)
             detail_path = store.write_job_md(jid, _job_md(jid, p)) if snapshot else ""
             job = Job(
@@ -136,7 +151,7 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
                 posted_date=p.posted_date,
                 url=p.url,
                 detail_md=detail_path,
-                **_job_tag_kwargs(p),
+                **tags,
             )
             jobs.append(job)
             index[key] = job
@@ -215,10 +230,41 @@ def _too_old(posted_date: str, max_age_days: int) -> bool:
     return (date.today() - d).days > max_age_days
 
 
+_QUERY_WORD_RE = re.compile(r"[a-z0-9+#]+")
+
+
+def _query_matches(text: str, query: str) -> bool:
+    """A posting matches a query when ALL the query's significant words appear in `text`.
+    Looser than an exact phrase ("machine learning engineer" is rarely written verbatim) but
+    far tighter than any-word — so it targets the role without nuking recall."""
+    words = [w for w in _QUERY_WORD_RE.findall(query.lower()) if len(w) >= 2]
+    # Custom boundaries (not \b) so tokens ending in + / # match — \b is \w-based and fails
+    # after "c++"/"c#". A token must not abut another query-word char on either side.
+    return bool(words) and all(
+        re.search(rf"(?<![a-z0-9+#]){re.escape(w)}(?![a-z0-9+#])", text) for w in words
+    )
+
+
+def _relevance_text(position: str, domains: str, req_skills: str, role_category: str) -> str:
+    """The text relevance is judged against — title + structured tags. Used IDENTICALLY at scan
+    time (the gate) and at serve time (the per-job `relevant` flag), so a job that's scanned in
+    is never then hidden as off-target. Tags (not the raw description) so serve-time needs no
+    snapshot read and relevance recomputes instantly when queries change."""
+    return f"{position} {domains} {req_skills} {role_category}".lower()
+
+
+def _matches_queries(text: str, queries: list[str] | None) -> bool:
+    """Relevance gate: no queries -> everything is relevant; else `text` must match one query."""
+    qs = [q for q in (queries or []) if isinstance(q, str) and q.strip()]
+    return not qs or any(_query_matches(text, q) for q in qs)
+
+
 def _passes_filters(
     p: providers.RawPosting, filters: dict[str, Any], targets: dict[str, Any] | None = None
 ) -> bool:
-    """Portals filters + the user's search targets (config/profile.yml::targets)."""
+    """Portals filters + the user's search targets (config/profile.yml::targets). (Query
+    relevance is applied separately in scan_jobs, against the structured tags — see
+    _relevance_text — so it matches the Jobs-tab `relevant` flag exactly.)"""
     targets = targets or {}
     loc_hay = p.location.lower()
     text = f"{p.position} {p.description}".lower()
@@ -749,7 +795,29 @@ def list_jobs(query: str = "") -> dict[str, Any]:
         q = query.lower()
         jobs = [j for j in jobs if q in j.company.lower() or q in j.position.lower()]
     jobs.sort(key=lambda j: (j.fit_score or 0), reverse=True)
-    return {"count": len(jobs), "jobs": [j.model_dump() for j in jobs]}
+    # Relevance is a DERIVED axis, separate from lifecycle status: does the job match the
+    # user's search queries? Judged on the SAME surface as the scan gate (_relevance_text), so
+    # it's cheap (no snapshot read), recomputes instantly when queries change, and never hides a
+    # job the scan deliberately kept. Empty queries -> all relevant. The UI hides off-target by
+    # default (a live posting that isn't for you is NOT "closed").
+    portals = store.read_portals()
+    queries = portals.get("queries") or []
+    # Jobs from a query-based provider (Amazon) were fetched by a targeted search and are exempt
+    # from the scan-time gate — so they're relevant by construction here too (mirrors scan_jobs);
+    # otherwise they'd be hidden unless the user duplicated the Amazon slug into portals.queries.
+    query_based_cos = {
+        (c.get("name") or "").strip().lower()
+        for c in (portals.get("companies") or [])
+        if (c.get("provider") or "").lower() in _QUERY_PROVIDERS
+    }
+    out = []
+    for j in jobs:
+        d = j.model_dump()
+        d["relevant"] = j.company.strip().lower() in query_based_cos or _matches_queries(
+            _relevance_text(j.position, j.domains, j.req_skills, j.role_category), queries
+        )
+        out.append(d)
+    return {"count": len(out), "jobs": out}
 
 
 # --------------------------------------------------------------------------- #

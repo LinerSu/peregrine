@@ -66,6 +66,7 @@ export default function JobsTable({
   const [domain, setDomain] = useState("All");
   const [level, setLevel] = useState("All");
   const [starredOnly, setStarredOnly] = useState(false);
+  const [relevantOnly, setRelevantOnly] = useState(true); // hide off-target (matches your queries)
   const [mySkillTags, setMySkillTags] = useState<string[]>([]); // your canonical skills (server)
   const [mySkillSel, setMySkillSel] = useState<Set<string>>(new Set()); // your-skills filter
   const [tab, setTab] = useState<Tab>("all");
@@ -176,9 +177,18 @@ export default function JobsTable({
         (domain === "All" || splitTags(j.domains).includes(domain)) &&
         (level === "All" || j.level === level) &&
         (mySkillSel.size === 0 || splitTags(j.req_skills).some((sk) => mySkillSel.has(sk))) &&
+        // Relevance hides only LIVE off-target jobs; dead jobs always show (in the Closed tab),
+        // so an off-target closed job is never stranded with the toggle hidden.
+        (!relevantOnly || j.relevant !== false || isDead(j)) &&
         (!starredOnly || j.starred)
     );
-  }, [jobs, query, role, domain, level, mySkillSel, starredOnly]);
+  }, [jobs, query, role, domain, level, mySkillSel, relevantOnly, starredOnly]);
+
+  // How many live jobs are off-target (hidden by the relevance toggle) — drives the toggle label.
+  const offTargetCount = useMemo(
+    () => jobs.filter((j) => j.relevant === false && !isDead(j)).length,
+    [jobs]
+  );
 
   // Tab badge counts in a single pass (avoids O(tabs × rows) per render).
   const tabCounts = useMemo(() => {
@@ -373,6 +383,23 @@ export default function JobsTable({
               </option>
             ))}
           </select>
+        )}
+        {offTargetCount > 0 && (
+          <button
+            onClick={() => setRelevantOnly((v) => !v)}
+            title={
+              relevantOnly
+                ? `Hiding ${offTargetCount} off-target jobs (don't match your scan queries). Click to show all.`
+                : "Showing all jobs. Click to hide off-target."
+            }
+            className={`px-2 py-1.5 text-sm rounded-md border ${
+              relevantOnly
+                ? "border-indigo-400 bg-indigo-50 text-indigo-700"
+                : "border-gray-300 text-gray-500"
+            }`}
+          >
+            {relevantOnly ? `🎯 Relevant · ${offTargetCount} hidden` : "🎯 Show all"}
+          </button>
         )}
         <button
           onClick={() => setStarredOnly((v) => !v)}

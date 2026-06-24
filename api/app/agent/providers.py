@@ -1,9 +1,10 @@
 """Job-board providers (the scraper's tools).
 
 Generic, ATS-feed based — inspired by santifer/career-ops. Each provider takes a
-company slug and returns normalized raw postings. Greenhouse is implemented
-against its public board API; Ashby/Lever are stubbed with the same interface so
-they can be filled in later. Hosts are pinned (no arbitrary URLs) to avoid SSRF.
+company slug and returns normalized raw postings. Implemented: Greenhouse, Ashby,
+Lever, Recruitee, SmartRecruiters and Workable (per-tenant boards), plus Amazon
+(query-based — its `slug` carries a search query, not a board id). Hosts are pinned
+to the crawl_policy allow-list (no arbitrary URLs) to avoid SSRF.
 """
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import quote
 
 from ..logging_config import get_logger
 from . import crawl_policy
@@ -277,6 +279,70 @@ def workable(company: str, slug: str, timeout: float = 30.0) -> list[RawPosting]
         return []
 
 
+def _amazon_date(raw: Any) -> str:
+    """Amazon's search feed dates jobs as 'June 23, 2026' — normalize to ISO so the
+    posted-date column and the scan's max-age filter work (fall back to '')."""
+    s = str(raw or "").strip()
+    for fmt in ("%B %d, %Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return ""
+
+
+def _amazon_body(j: dict) -> str:
+    """Description + basic/preferred qualifications, as Markdown sections (skipping blanks).
+    Shared by the board scan and the single-URL ingest."""
+    parts = [
+        ("Description", j.get("description", "")),
+        ("Basic qualifications", j.get("basic_qualifications", "")),
+        ("Preferred qualifications", j.get("preferred_qualifications", "")),
+    ]
+    return "\n\n".join(f"## {title}\n{_strip_html(v)}" for title, v in parts if v).strip()
+
+
+_AMAZON_PAGE = 100
+
+
+def amazon(company: str, slug: str, timeout: float = 30.0) -> list[RawPosting]:
+    """Amazon is QUERY-based, not a per-tenant board — its `slug` carries a search query
+    (e.g. "machine learning engineer"). Pages amazon.jobs' public search.json; the scan's
+    new-job cap is the real bound. Host pinned via crawl_policy."""
+    query = (slug or "").strip() or "engineer"
+    out: list[RawPosting] = []
+    for offset in range(0, 500, _AMAZON_PAGE):  # bounded loop; scan cap stops persistence first
+        url = (
+            f"https://www.amazon.jobs/en/search.json?base_query={quote(query)}"
+            f"&result_limit={_AMAZON_PAGE}&offset={offset}&sort=recent"
+        )
+        try:
+            r = crawl_policy.safe_get(url, timeout=timeout)
+            r.raise_for_status()
+            jobs = r.json().get("jobs", []) or []
+        except Exception as exc:
+            log.warning("amazon(%s) failed: %s", query, exc)
+            break
+        if not jobs:
+            break
+        for j in jobs:
+            path = j.get("job_path", "") or ""
+            out.append(
+                RawPosting(
+                    company=company,
+                    company_job_id=str(j.get("id_icims") or j.get("id") or ""),
+                    position=j.get("title") or "",  # present-but-null must not become None
+                    location=j.get("normalized_location") or j.get("location") or "",
+                    url=f"https://www.amazon.jobs{path}" if path else "",
+                    posted_date=_amazon_date(j.get("posted_date")),
+                    description=_amazon_body(j),
+                )
+            )
+        if len(jobs) < _AMAZON_PAGE:
+            break
+    return out
+
+
 def generic(company: str, slug: str, timeout: float = 30.0) -> list[RawPosting]:
     log.info("generic provider stub for %s — add HTML scraping here", company)
     return []
@@ -289,6 +355,7 @@ PROVIDERS = {
     "recruitee": recruitee,
     "smartrecruiters": smartrecruiters,
     "workable": workable,
+    "amazon": amazon,
     "generic": generic,
 }
 
@@ -390,22 +457,16 @@ def _amazon_ingest(job_id: str, timeout: float = 30.0) -> RawPosting | None:
     if not job:
         return None
 
-    desc = _strip_html(job.get("description", ""))
-    basic = _strip_html(job.get("basic_qualifications", ""))
-    pref = _strip_html(job.get("preferred_qualifications", ""))
-    body = (
-        f"## Description\n{desc}\n\n"
-        f"## Basic qualifications\n{basic}\n\n"
-        f"## Preferred qualifications\n{pref}\n"
-    )
+    # `or` (not a get-default) — the API can return a present-but-null field, which would make
+    # position/location None or company_job_id the literal "None" and break downstream .strip().
     return RawPosting(
         company="Amazon",
-        company_job_id=str(job.get("id_icims", job_id)),
-        position=job.get("title", ""),
-        location=job.get("normalized_location", job.get("location", "")),
-        url=f"https://www.amazon.jobs{job.get('job_path', '')}",
-        posted_date=str(job.get("posted_date", "")),
-        description=body,
+        company_job_id=str(job.get("id_icims") or job_id),
+        position=job.get("title") or "",
+        location=job.get("normalized_location") or job.get("location") or "",
+        url=f"https://www.amazon.jobs{job.get('job_path') or ''}",
+        posted_date=_amazon_date(job.get("posted_date")),
+        description=_amazon_body(job),
     )
 
 
