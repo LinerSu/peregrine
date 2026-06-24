@@ -323,10 +323,10 @@ export default function ProfilePanel({
         <h3 className="text-sm font-semibold text-gray-700 mb-2">Upload CV</h3>
         <div className="flex flex-wrap items-center gap-2">
           <label className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 rounded-md cursor-pointer hover:bg-indigo-100">
-            {busy ? "Working…" : waiting ? "Waiting…" : "Choose file (PDF, .txt, .md)"}
+            {busy ? "Working…" : waiting ? "Waiting…" : "Choose file (PDF, DOCX, .txt, .md)"}
             <input
               type="file"
-              accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown"
+              accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
               className="hidden"
               disabled={busy || waiting}
               onChange={(e) => upload(e.target.files?.[0])}

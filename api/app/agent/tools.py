@@ -182,6 +182,72 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
     return summary
 
 
+# Board providers probed by add-company-by-name. SmartRecruiters is omitted: its robots.txt
+# disallows the postings API, so it always returns nothing under our compliance.
+_DETECT_PROVIDERS = ["greenhouse", "ashby", "lever", "recruitee", "workable"]
+
+
+def detect_company_sources(name: str) -> list[dict[str, Any]]:
+    """Find which supported board a company is on from just its NAME — so a user adds
+    "Stripe" without knowing the ATS. Slugifies the name and probes each board (compliance-safe,
+    via providers.fetch -> crawl_policy). Returns the providers whose board exists, with a count."""
+    name = (name or "").strip()
+    if not name:
+        return []
+    nospace = re.sub(r"[^a-z0-9]+", "", name.lower())
+    hyphen = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    slugs = [s for s in dict.fromkeys([nospace, hyphen]) if s]  # unique, ordered, non-empty
+    out: list[dict[str, Any]] = []
+    for provider in _DETECT_PROVIDERS:
+        for slug in slugs:
+            try:
+                posts = providers.fetch(provider, name, slug)
+            except Exception:
+                posts = []
+            if posts:
+                out.append({"provider": provider, "slug": slug, "count": len(posts)})
+                break  # found this provider — don't try its other slug variants
+    return out
+
+
+def suggest_queries(profile: dict[str, Any]) -> list[str]:
+    """Propose scan queries from the user's profile (deterministic, no LLM — so it's identical
+    in both modes): their target roles, headline, and recent experience titles. A new user gets
+    relevance terms that match THEIR field without hand-typing — and a designer doesn't inherit
+    the default ML queries. The user reviews/edits before saving."""
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(s: str) -> None:
+        s = re.sub(r"\s+", " ", s or "").strip(" -–—|/,·")
+        if s and s.lower() not in seen and 2 < len(s) <= 50:
+            seen.add(s.lower())
+            out.append(s)
+
+    def from_title(text: str) -> None:
+        title = re.split(r"\s[—–|]\s|\s+at\s+", text, maxsplit=1)[0]  # drop "— Company"
+        for part in title.split(","):  # "Art Director, UX Designer" -> two roles
+            add(part)
+
+    # Defensive: targets/sections/items can be any shape (PUT /preferences stores a raw dict,
+    # and profile.yml is hand-editable) — never 500 on a malformed profile.
+    targets = profile.get("targets")
+    roles = targets.get("roles") if isinstance(targets, dict) else None
+    for role in roles if isinstance(roles, list) else []:
+        if role:
+            add(str(role))
+    from_title(str(profile.get("headline") or ""))
+    sections = profile.get("sections")
+    for sec in sections if isinstance(sections, list) else []:
+        if not isinstance(sec, dict) or (sec.get("id") or "").lower() not in ("experience", "research"):
+            continue
+        items = sec.get("items")
+        for item in (items if isinstance(items, list) else [])[:4]:
+            if isinstance(item, dict):
+                from_title(str(item.get("heading") or ""))
+    return out[:6]
+
+
 # A scan writes a `<id>.md` snapshot per new job, but a job ROW only ever leaves jobs.csv via
 # a dataset reset/re-seed or a manual edit — and that path never deletes the snapshot, so
 # orphaned `.md` files can pile up. Tidy them on each scan, keyed off the authoritative live

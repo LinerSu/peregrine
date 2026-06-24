@@ -483,3 +483,9 @@ def write_memory(data: dict[str, Any]) -> None:
 
 def read_portals() -> dict[str, Any]:
     return _read_yaml(config.PORTALS_YML)
+
+
+def write_portals(data: dict[str, Any]) -> None:
+    """Persist the scan config (companies / queries / filters). Store-only — the Settings UI
+    edits this so users never hand-edit YAML."""
+    _write_yaml(config.PORTALS_YML, data)

@@ -7,16 +7,27 @@ from fastapi.responses import FileResponse
 from .. import data_store as store
 from ..agent import tools
 from ..extract import extract_text
+from ..agent import providers
 from ..schemas import (
     CoverLetterInput,
     CvTexInput,
     EvaluationInput,
     JobIngestInput,
     JobSourceInput,
+    PortalsInput,
     UpskillingInput,
 )
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+
+# Providers a user may configure in-app. SmartRecruiters is excluded (its robots.txt disallows
+# the postings API); "generic" is the no-op fallback for an unrecognized provider.
+_ALLOWED_PROVIDERS = set(providers.PROVIDERS) - {"smartrecruiters"}
+
+
+def _norm_provider(v: str) -> str:
+    v = (v or "").lower().strip()
+    return v if v in _ALLOWED_PROVIDERS else "generic"
 
 
 @router.get("")
@@ -35,6 +46,54 @@ def sources():
             if c.get("name")
         ]
     }
+
+
+@router.get("/portals")
+def get_portals():
+    """The full scan config for the Settings UI (so users never hand-edit portals.yml).
+    Shapes are coerced — a hand-edited/malformed portals.yml must not crash the UI."""
+    p = store.read_portals()
+    companies = p.get("companies")
+    queries = p.get("queries")
+    filters = p.get("filters")
+    return {
+        "companies": [c for c in companies if isinstance(c, dict)] if isinstance(companies, list) else [],
+        "queries": [str(q) for q in queries if str(q).strip()] if isinstance(queries, list) else [],
+        "filters": filters if isinstance(filters, dict) else {},
+        "providers": sorted(_ALLOWED_PROVIDERS - {"generic"}),  # selectable in the UI
+    }
+
+
+@router.put("/portals")
+def put_portals(payload: PortalsInput):
+    """Store-only scan-config edit (no LLM -> identical in both modes). Only the provided keys
+    are updated; snapshot/rate_limit_seconds and anything else in portals.yml is preserved."""
+    portals = store.read_portals()
+    if payload.companies is not None:
+        portals["companies"] = [
+            {"name": c.name.strip(), "provider": _norm_provider(c.provider), "slug": c.slug.strip()}
+            for c in payload.companies
+            if c.name.strip()
+        ]
+    if payload.queries is not None:
+        portals["queries"] = payload.queries
+    if payload.filters is not None:
+        portals["filters"] = payload.filters.model_dump()
+    store.write_portals(portals)
+    return get_portals()
+
+
+@router.post("/portals/detect")
+def detect_portals(payload: dict):
+    """Add-company-by-name: probe the supported boards for {name} and return where it lives."""
+    return {"sources": tools.detect_company_sources((payload or {}).get("name", ""))}
+
+
+@router.get("/portals/suggest-queries")
+def suggest_queries():
+    """Propose relevance queries from the user's profile (roles/headline/experience) so they
+    don't hand-type search terms. Deterministic — no LLM."""
+    return {"queries": tools.suggest_queries(store.read_profile())}
 
 
 @router.post("/scan")
