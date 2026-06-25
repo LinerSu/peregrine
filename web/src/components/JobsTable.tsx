@@ -279,8 +279,12 @@ export default function JobsTable({
           {Number.isFinite(j.fit_score) ? j.fit_score!.toFixed(2) : "—"}
         </span>
       </td>
-      <td className="px-3 py-2 font-medium">{j.company}</td>
-      <td className="px-3 py-2">{j.position}</td>
+      <td className="px-3 py-2 font-medium whitespace-nowrap">{j.company}</td>
+      <td className="px-3 py-2">
+        <div className="line-clamp-2 max-w-[16rem]" title={j.position}>
+          {j.position}
+        </div>
+      </td>
       {colVisible("skill_fit") &&
         (() => {
           const sf = j.skill_fit;
@@ -350,14 +354,16 @@ export default function JobsTable({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2 p-3 border-b border-gray-200">
+      {/* Toolbar — search on its own row, filter controls in a tidy row below so they never
+          wrap mid-line on the narrow panel. */}
+      <div className="space-y-2 p-3 border-b border-gray-200">
         <input
-          className="flex-1 min-w-[120px] px-3 py-1.5 text-sm border border-gray-300 rounded-md"
+          className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md"
           placeholder="Search — company, role, skill, or anything in the description…"
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
         />
+        <div className="flex flex-wrap items-center gap-2">
         {/* `|| advancedOpen` keeps the toggle present to CLOSE the panel even if the options
             collapse to one while it's open. */}
         {(roles.length > 1 || domains.length > 1 || levels.length > 1 || advancedOpen) && (
@@ -388,7 +394,7 @@ export default function JobsTable({
                 : "border-gray-300 text-gray-500"
             }`}
           >
-            {relevantOnly ? `🎯 Relevant · ${offTargetCount} hidden` : "🎯 Show all"}
+            {relevantOnly ? `🎯 Relevant · ${offTargetCount}` : "🎯 Show all"}
           </button>
         )}
         <button
@@ -409,7 +415,7 @@ export default function JobsTable({
         >
           Group
         </button>
-        <div className="relative">
+        <div className="relative ml-auto">
           <button
             onClick={() => setShowCols((v) => !v)}
             title="Choose columns"
@@ -427,6 +433,7 @@ export default function JobsTable({
               ))}
             </div>
           )}
+        </div>
         </div>
       </div>
 
@@ -493,16 +500,25 @@ export default function JobsTable({
       <div className="flex flex-wrap items-center gap-1 px-3 py-2 border-b border-gray-200 bg-white">
         {TABS.map((t) => {
           const n = tabCounts[t.key];
+          const empty = n === 0 && tab !== t.key; // de-emphasize empty lifecycle tabs (less zero-noise)
           return (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
               className={`px-2.5 py-1 text-xs font-medium rounded-full transition-colors ${
-                tab === t.key ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                tab === t.key
+                  ? "bg-indigo-600 text-white"
+                  : empty
+                    ? "bg-gray-50 text-gray-400 hover:bg-gray-100"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
               }`}
             >
               {t.label}
-              <span className={`ml-1 ${tab === t.key ? "text-indigo-100" : "text-gray-400"}`}>{n}</span>
+              <span
+                className={`ml-1 ${tab === t.key ? "text-indigo-100" : empty ? "text-gray-300" : "text-gray-400"}`}
+              >
+                {n}
+              </span>
             </button>
           );
         })}
