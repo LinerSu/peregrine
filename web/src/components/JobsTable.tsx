@@ -394,7 +394,7 @@ export default function JobsTable({
                 : "border-gray-300 text-gray-500"
             }`}
           >
-            {relevantOnly ? `🎯 Relevant · ${offTargetCount}` : "🎯 Show all"}
+            {relevantOnly ? `🎯 Relevant · ${offTargetCount} hidden` : "🎯 Show all"}
           </button>
         )}
         <button

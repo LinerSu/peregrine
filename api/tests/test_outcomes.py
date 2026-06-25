@@ -123,3 +123,55 @@ def test_outcomes_endpoint_smoke(tmp_path, monkeypatch):
     r = TestClient(app).get("/api/stats/outcomes")
     assert r.status_code == 200
     assert {"conversion", "by_fit_band", "by_role", "calibration", "follow_ups", "stale_days"} <= r.json().keys()
+
+
+def _seed_designer_targets(tmp_path, monkeypatch):
+    """Isolate the store + portals for a designer (query 'designer'): a TARGET design role, an
+    off-target board role, and a query-based Amazon ML role (relevant in the Jobs view, but NOT a
+    skill-gap target). Empty profile -> every req skill is a gap."""
+    from app import config, data_store as store
+
+    monkeypatch.setattr(config, "JOBS_CSV", tmp_path / "jobs.csv")
+    monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(config, "APPLICATIONS_CSV", tmp_path / "applications.csv")
+    monkeypatch.setattr(config, "PROFILE_YML", tmp_path / "profile.yml")
+    monkeypatch.setattr(config, "PATTERNS_FILE", tmp_path / "patterns.json")
+    pf = tmp_path / "portals.yml"
+    pf.write_text("companies:\n  - {name: Amazon, provider: amazon, slug: machine learning engineer}\nqueries:\n  - designer\n")
+    monkeypatch.setattr(config, "PORTALS_YML", pf)
+    store.upsert_job(Job(id="2026-001", company="A", company_job_id="1", position="Product Designer",
+                         req_skills="Figma, Sketch", status="open"))          # TARGET (matches "designer")
+    store.upsert_job(Job(id="2026-002", company="B", company_job_id="2", position="Backend Engineer",
+                         req_skills="Python, SQL", status="open"))            # off-target board role
+    store.upsert_job(Job(id="2026-003", company="Amazon", company_job_id="3", position="Machine Learning Engineer",
+                         req_skills="Java, C++, Perl", status="open"))         # query-based, but not a design target
+
+
+def test_outcomes_skill_gaps_scoped_to_relevant_jobs(tmp_path, monkeypatch):
+    # /outcomes (Internal path): skill gaps reflect the user's TARGET roles, not every live posting.
+    _seed_designer_targets(tmp_path, monkeypatch)
+
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    gaps = {g["skill"] for g in TestClient(app).get("/api/stats/outcomes").json()["skill_gaps"]}
+    assert {"Figma", "Sketch"} <= gaps                            # from the target design role
+    assert {"Python", "SQL"}.isdisjoint(gaps)                     # off-target board role excluded
+    assert {"Java", "C++", "Perl"}.isdisjoint(gaps)              # query-based Amazon ML job excluded too
+
+
+def test_analyze_patterns_scopes_skill_gaps_like_the_endpoint(tmp_path, monkeypatch):
+    # External path (analyze_patterns -> patterns_analyst): the narrative is grounded in the SAME
+    # target-scoped skill gaps as /outcomes — they share tools.scoped_skill_gaps, so they can't drift.
+    _seed_designer_targets(tmp_path, monkeypatch)
+    from app.agent import tools
+
+    captured: dict = {}
+    monkeypatch.setattr(tools, "patterns_analyst", lambda outcomes: captured.update(outcomes) or {"summary": "ok"})
+    monkeypatch.setattr(tools.status, "record", lambda *a, **k: None)
+    tools.analyze_patterns()
+
+    gaps = {g["skill"] for g in captured.get("skill_gaps", [])}
+    assert {"Figma", "Sketch"} <= gaps
+    assert {"Python", "SQL", "Java", "C++", "Perl"}.isdisjoint(gaps)
