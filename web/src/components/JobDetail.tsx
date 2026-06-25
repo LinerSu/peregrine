@@ -289,7 +289,14 @@ export default function JobDetail({
       <div className="p-4 border-b border-gray-200">
         <h2 className="text-lg font-semibold">{job.position}</h2>
         <p className="text-sm text-gray-500">
-          {job.company} · {job.location || "—"} · fit {job.fit_score != null ? job.fit_score.toFixed(2) : "n/a"}
+          {/* Only the segments that carry real info — no "· —" / "· fit n/a" placeholders. */}
+          {[
+            job.company,
+            job.location || null,
+            job.fit_score != null ? `fit ${job.fit_score.toFixed(2)}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         </p>
         {/* Structured tags pulled from the posting: field · degree · domains · required skills */}
         {(job.role_category || job.level || job.domains || job.req_skills) && (

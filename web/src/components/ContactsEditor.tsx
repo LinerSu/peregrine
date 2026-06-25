@@ -73,7 +73,6 @@ export default function ContactsEditor({
   if (!editing) {
     return (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {list.length === 0 && <span className="text-xs text-gray-300">—</span>}
         {list.map((c, i) => {
           const href = safeUrl(c.link);
           return (
