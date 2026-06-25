@@ -308,11 +308,29 @@ export default function JobDetail({
                 {d}
               </span>
             ))}
-            {(job.req_skills || "").split(",").map((s) => s.trim()).filter(Boolean).map((s) => (
-              <span key={`s-${s}`} className="px-2 py-0.5 text-xs rounded-full bg-emerald-50 text-emerald-700" title="Required skill">
-                {s}
-              </span>
-            ))}
+            {job.skill_fit && job.skill_fit.have.length + job.skill_fit.missing.length > 0 ? (
+              <>
+                <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600" title="Required skills you have">
+                  Skill match {job.skill_fit.have.length}/{job.skill_fit.have.length + job.skill_fit.missing.length}
+                </span>
+                {job.skill_fit.have.map((s) => (
+                  <span key={`h-${s}`} className="px-2 py-0.5 text-xs rounded-full bg-emerald-100 text-emerald-700" title="Required — you have it">
+                    ✓ {s}
+                  </span>
+                ))}
+                {job.skill_fit.missing.map((s) => (
+                  <span key={`m-${s}`} className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-400" title="Required — not in your profile">
+                    {s}
+                  </span>
+                ))}
+              </>
+            ) : (
+              (job.req_skills || "").split(",").map((s) => s.trim()).filter(Boolean).map((s) => (
+                <span key={`s-${s}`} className="px-2 py-0.5 text-xs rounded-full bg-emerald-50 text-emerald-700" title="Required skill">
+                  {s}
+                </span>
+              ))
+            )}
           </div>
         )}
         <div className="flex gap-2 mt-3">

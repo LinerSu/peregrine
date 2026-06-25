@@ -109,6 +109,16 @@ def test_suggest_queries_from_profile():
     ) == []
 
 
+def test_skill_fit():
+    user = {"Python", "Docker", "OCaml"}
+    f = tools._skill_fit("Python, Docker, Kubernetes, Go", user)
+    assert f["have"] == ["Python", "Docker"]
+    assert f["missing"] == ["Kubernetes", "Go"]
+    assert f["score"] == 0.5
+    # no listed skills -> score 0 (can't assess), no crash
+    assert tools._skill_fit("", user) == {"have": [], "missing": [], "score": 0.0}
+
+
 def test_portals_put_normalizes_and_merges(tmp_path, monkeypatch):
     import yaml
     from fastapi.testclient import TestClient
