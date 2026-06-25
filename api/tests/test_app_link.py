@@ -246,3 +246,25 @@ def test_list_applications_flags_job_tracked(tmp_store):
     apps = {a["id"]: a for a in TestClient(app).get("/api/applications").json()["applications"]}
     assert apps["2026-002"]["job_tracked"] is True
     assert apps["2026-003"]["job_tracked"] is False
+
+
+def test_contacts_sync_between_job_and_application(tmp_store):
+    """User-entered people (a JSON list of contacts) stay consistent across a linked
+    job + application, whichever side you edit from."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    store.upsert_job(Job(id="2026-010", company="Acme", company_job_id="R9", position="Eng", status="open"))
+    client = TestClient(app)
+    client.post("/api/applications", json={"company": "Acme", "position": "Eng"})  # linked app (shares id)
+
+    # set people on the JOB -> syncs to the application (often just a recruiter name + email)
+    p1 = '[{"name": "Jane R", "role": "recruiter", "link": "jane@example.com"}]'
+    client.patch("/api/jobs/2026-010", json={"people": p1})
+    assert store.get_application("2026-010").people == p1
+
+    # edit people on the APPLICATION -> syncs to the job
+    p2 = '[{"name": "Bob M", "role": "hiring manager", "link": ""}]'
+    client.patch("/api/applications/2026-010", json={"people": p2})
+    assert store.get_job("2026-010").people == p2

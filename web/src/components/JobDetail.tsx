@@ -3,6 +3,7 @@ import { api, type Evaluation, type Job } from "../api";
 import type { AssistantMode } from "../App";
 import { legitimacyClass } from "../format";
 import JobMarkdown from "./JobMarkdown";
+import ContactsEditor from "./ContactsEditor";
 
 // Job detail with the human-in-the-loop apply gate. "Evaluate fit" is mode-aware:
 //   External — the API runs the evaluation on click.
@@ -333,6 +334,17 @@ export default function JobDetail({
             )}
           </div>
         )}
+        {/* People — recruiter / hiring manager you found yourself (user-entered, never scraped). */}
+        <div className="mt-3 border-t border-gray-100 pt-2">
+          <ContactsEditor
+            key={`${job.id}:${job.people}`}
+            value={job}
+            onSave={async (f) => {
+              await api.updateJob(job.id, f);
+              onChanged();
+            }}
+          />
+        </div>
         <div className="flex gap-2 mt-3">
           <button
             onClick={evaluate}
