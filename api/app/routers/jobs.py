@@ -181,7 +181,9 @@ def get_job(job_id: str):
     job = store.get_job(job_id)
     if not job:
         raise HTTPException(404, f"job {job_id} not found")
-    return {"job": job.model_dump(), "markdown": store.read_job_md(job_id)}
+    d = job.model_dump()
+    d["skill_fit"] = tools._skill_fit(job.req_skills, tools._user_skills())  # for the detail panel
+    return {"job": d, "markdown": store.read_job_md(job_id)}
 
 
 EDITABLE_JOB_FIELDS = {"starred", "role_category", "status"}

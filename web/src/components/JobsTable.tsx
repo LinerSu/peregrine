@@ -3,19 +3,21 @@ import { api, type Job } from "../api";
 import { fitClass, salaryRange, statusClass } from "../format";
 
 type SortKey =
-  | "fit_score" | "company" | "position" | "role_category"
+  | "fit_score" | "skill_fit" | "company" | "position" | "role_category"
   | "status" | "salary" | "location" | "posted_date";
 type SortDir = "asc" | "desc";
 
 // Always-on columns are Fit / Company / Position / Status. These are toggleable.
-type ColKey = "role_category" | "salary" | "location" | "posted_date";
+type ColKey = "skill_fit" | "role_category" | "salary" | "location" | "posted_date";
 const OPTIONAL_COLS: { key: ColKey; label: string }[] = [
+  { key: "skill_fit", label: "Skill fit" },
   { key: "role_category", label: "Role" },
   { key: "salary", label: "Salary" },
   { key: "location", label: "Location" },
   { key: "posted_date", label: "Posted" },
 ];
 const COL_STORAGE = "peregrine.jobcols";
+const SF_MIGRATED = "peregrine.jobcols.sfmigrated"; // one-time: reveal the new Skill-fit column
 
 const STATUSES = ["open", "applied", "interviewing", "offer", "rejected", "closed", "removed"];
 
@@ -46,6 +48,8 @@ const GROUP_ORDER = ["interviewing", "offer", "applied", "open", "rejected", "cl
 
 function sortValue(j: Job, key: SortKey): number | string {
   if (key === "fit_score") return j.fit_score ?? -1;
+  // Coverage first (how qualified), then # of skills matched as a tie-break (more substantive).
+  if (key === "skill_fit") return j.skill_fit ? j.skill_fit.score + j.skill_fit.have.length / 1000 : -1;
   if (key === "salary") return j.salary_max ?? j.salary_min ?? -1;
   return ((j[key as keyof Job] as string | null) ?? "").toString().toLowerCase();
 }
@@ -65,29 +69,42 @@ export default function JobsTable({
   const [role, setRole] = useState("All");
   const [domain, setDomain] = useState("All");
   const [level, setLevel] = useState("All");
+  const [advancedOpen, setAdvancedOpen] = useState(false); // role/domain/degree filters, collapsed
   const [starredOnly, setStarredOnly] = useState(false);
   const [relevantOnly, setRelevantOnly] = useState(true); // hide off-target (matches your queries)
-  const [mySkillTags, setMySkillTags] = useState<string[]>([]); // your canonical skills (server)
-  const [mySkillSel, setMySkillSel] = useState<Set<string>>(new Set()); // your-skills filter
   const [tab, setTab] = useState<Tab>("all");
   const [grouped, setGrouped] = useState(false);
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
   const [showCols, setShowCols] = useState(false);
-  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "fit_score", dir: "desc" });
+  // Default to skill-fit: it's populated for every job (no LLM eval needed), so a new user lands
+  // on the roles they best match — fit-first triage. They can still sort by the LLM Fit column.
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "skill_fit", dir: "desc" });
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(() => {
     const known = new Set(OPTIONAL_COLS.map((c) => c.key));
     try {
       const parsed = JSON.parse(localStorage.getItem(COL_STORAGE) ?? "null") as unknown;
       if (Array.isArray(parsed)) {
         // Keep only known keys, so a stale/edited value can't inflate colSpan.
-        return new Set(parsed.filter((k): k is ColKey => known.has(k as ColKey)));
+        const set = new Set(parsed.filter((k): k is ColKey => known.has(k as ColKey)));
+        // One-time: surface the new Skill-fit column for users who saved their columns before it
+        // existed — otherwise the default skill-fit sort would order by a hidden column with no
+        // header/arrow. They can still hide it afterwards (the migration runs once).
+        if (!localStorage.getItem(SF_MIGRATED)) {
+          set.add("skill_fit");
+          try {
+            localStorage.setItem(SF_MIGRATED, "1");
+          } catch {
+            /* best-effort */
+          }
+        }
+        return set;
       }
     } catch {
       /* ignore bad localStorage */
     }
     // Salary is off by default — ATS feeds rarely disclose it, so the column was usually
     // empty and just crowded the table next to the detail panel. Re-enable it via "Columns".
-    return new Set<ColKey>(["role_category", "location"]);
+    return new Set<ColKey>(["skill_fit", "role_category", "location"]);
   });
 
   useEffect(() => {
@@ -110,14 +127,6 @@ export default function JobsTable({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Your canonical skills (server-derived) — so you can filter jobs by the skills you have.
-  useEffect(() => {
-    api
-      .getProfile()
-      .then((p) => setMySkillTags(p.skill_tags ?? []))
-      .catch(() => {});
-  }, []);
-
   const roles = useMemo(
     () => ["All", ...Array.from(new Set(jobs.map((j) => j.role_category).filter(Boolean))).sort()],
     [jobs]
@@ -131,35 +140,14 @@ export default function JobsTable({
     () => ["All", ...["PhD", "MS", "BS"].filter((l) => jobs.some((j) => j.level === l))],
     [jobs]
   );
-  // Skills you have (from your profile) that some job actually requires — the chips you can
-  // click to filter to jobs matching your skills.
-  const mySkills = useMemo(() => {
-    if (!mySkillTags.length) return [];
-    const needed = new Set(jobs.flatMap((j) => splitTags(j.req_skills)));
-    return mySkillTags.filter((sk) => needed.has(sk)).sort(); // your skills that some job needs
-  }, [jobs, mySkillTags]);
-  const toggleMySkill = (sk: string) =>
-    setMySkillSel((prev) => {
-      const n = new Set(prev);
-      n.has(sk) ? n.delete(sk) : n.add(sk);
-      return n;
-    });
-
-  // After a jobs refresh/prune the available options can shrink — drop any selection that no
-  // longer exists, so a stale skill chip / domain / degree can't strand the table empty with
-  // its reset control hidden (the "Your skills" row and the option dropdowns only render when
-  // they have content).
+  // After a jobs refresh/prune the available options can shrink — reset a stale domain/degree
+  // to "All" so a filter can't strand the table empty with its control hidden.
   useEffect(() => {
+    if (role !== "All" && !roles.includes(role)) setRole("All");
     if (domain !== "All" && !domains.includes(domain)) setDomain("All");
     if (level !== "All" && !levels.includes(level)) setLevel("All");
-    setMySkillSel((prev) => {
-      const valid = new Set(mySkills);
-      const kept = [...prev].filter((sk) => valid.has(sk));
-      return kept.length === prev.size ? prev : new Set(kept);
-    });
-    // Resets are no-ops once the value is valid (and setMySkillSel bails when unchanged), so
-    // listing domain/level can't loop.
-  }, [domains, levels, mySkills, domain, level]);
+    // Resets are no-ops once the value is valid, so re-listing them can't loop.
+  }, [roles, domains, levels, role, domain, level]);
 
   // Everything except the status tab — so the tab badge counts reflect other filters. The
   // text filter also matches required skills + domains, so you can search jobs by topic
@@ -176,13 +164,12 @@ export default function JobsTable({
         (role === "All" || j.role_category === role) &&
         (domain === "All" || splitTags(j.domains).includes(domain)) &&
         (level === "All" || j.level === level) &&
-        (mySkillSel.size === 0 || splitTags(j.req_skills).some((sk) => mySkillSel.has(sk))) &&
         // Relevance hides only LIVE off-target jobs; dead jobs always show (in the Closed tab),
         // so an off-target closed job is never stranded with the toggle hidden.
         (!relevantOnly || j.relevant !== false || isDead(j)) &&
         (!starredOnly || j.starred)
     );
-  }, [jobs, query, role, domain, level, mySkillSel, relevantOnly, starredOnly]);
+  }, [jobs, query, role, domain, level, relevantOnly, starredOnly]);
 
   // How many live jobs are off-target (hidden by the relevance toggle) — drives the toggle label.
   const offTargetCount = useMemo(
@@ -237,7 +224,7 @@ export default function JobsTable({
     setSort((s) =>
       s.key === key
         ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
-        : { key, dir: key === "fit_score" ? "desc" : "asc" }
+        : { key, dir: key === "fit_score" || key === "skill_fit" ? "desc" : "asc" }
     );
   const arrow = (key: SortKey) => (sort.key === key ? (sort.dir === "asc" ? " ▲" : " ▼") : "");
   const toggleStar = async (e: React.MouseEvent, j: Job) => {
@@ -294,6 +281,33 @@ export default function JobsTable({
       </td>
       <td className="px-3 py-2 font-medium">{j.company}</td>
       <td className="px-3 py-2">{j.position}</td>
+      {colVisible("skill_fit") &&
+        (() => {
+          const sf = j.skill_fit;
+          const total = sf ? sf.have.length + sf.missing.length : 0;
+          return (
+            <td className="px-3 py-2 whitespace-nowrap">
+              {sf && total > 0 ? (
+                <span
+                  title={`You have: ${sf.have.join(", ") || "none"}${
+                    sf.missing.length ? ` · Missing: ${sf.missing.join(", ")}` : ""
+                  }`}
+                  className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                    sf.score >= 0.75
+                      ? "bg-emerald-100 text-emerald-700"
+                      : sf.score >= 0.4
+                        ? "bg-amber-100 text-amber-700"
+                        : "bg-gray-100 text-gray-500"
+                  }`}
+                >
+                  {sf.have.length}/{total}
+                </span>
+              ) : (
+                <span className="text-gray-300">—</span>
+              )}
+            </td>
+          );
+        })()}
       {colVisible("role_category") && (
         <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{j.role_category || "—"}</td>
       )}
@@ -344,45 +358,21 @@ export default function JobsTable({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <select
-          value={role}
-          onChange={(e) => setRole(e.target.value)}
-          className="px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-white"
-          title="Filter by role family"
-        >
-          {roles.map((r) => (
-            <option key={r} value={r}>
-              {r === "All" ? "All roles" : r}
-            </option>
-          ))}
-        </select>
-        {domains.length > 1 && (
-          <select
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
-            className="px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-white"
-            title="Filter by field / domain"
+        {/* `|| advancedOpen` keeps the toggle present to CLOSE the panel even if the options
+            collapse to one while it's open. */}
+        {(roles.length > 1 || domains.length > 1 || levels.length > 1 || advancedOpen) && (
+          <button
+            onClick={() => setAdvancedOpen((v) => !v)}
+            aria-expanded={advancedOpen}
+            title="Filter by role / domain / degree"
+            className={`px-2 py-1.5 text-sm rounded-md border ${
+              role !== "All" || domain !== "All" || level !== "All"
+                ? "border-indigo-400 bg-indigo-50 text-indigo-700"
+                : "border-gray-300 text-gray-500"
+            }`}
           >
-            {domains.map((d) => (
-              <option key={d} value={d}>
-                {d === "All" ? "All domains" : d}
-              </option>
-            ))}
-          </select>
-        )}
-        {levels.length > 1 && (
-          <select
-            value={level}
-            onChange={(e) => setLevel(e.target.value)}
-            className="px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-white"
-            title="Filter by required degree"
-          >
-            {levels.map((l) => (
-              <option key={l} value={l}>
-                {l === "All" ? "Any degree" : `🎓 ${l}`}
-              </option>
-            ))}
-          </select>
+            Filters {advancedOpen ? "▴" : "▾"}
+          </button>
         )}
         {offTargetCount > 0 && (
           <button
@@ -440,29 +430,59 @@ export default function JobsTable({
         </div>
       </div>
 
-      {/* Your skills — click to filter to jobs that require the skills you actually have. */}
-      {mySkills.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-gray-100 bg-white">
-          <span className="text-xs text-gray-500">Your skills:</span>
-          {mySkills.map((sk) => {
-            const on = mySkillSel.has(sk);
-            return (
-              <button
-                key={sk}
-                onClick={() => toggleMySkill(sk)}
-                title={on ? "Click to remove from the filter" : "Filter to jobs requiring this"}
-                className={`px-2 py-0.5 text-xs rounded-full border ${
-                  on
-                    ? "bg-emerald-600 text-white border-emerald-600"
-                    : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
-                }`}
-              >
-                {sk}
-              </button>
-            );
-          })}
-          {mySkillSel.size > 0 && (
-            <button onClick={() => setMySkillSel(new Set())} className="ml-1 text-xs text-gray-400 hover:text-gray-700">
+      {/* Advanced filters — collapsed by default; the list defaults to a skill-fit-ranked,
+          relevance-filtered view, so these are power-user tuning, not always on screen. */}
+      {advancedOpen && (
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-gray-100 bg-gray-50">
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            className="px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-white"
+            title="Filter by role family"
+          >
+            {roles.map((r) => (
+              <option key={r} value={r}>
+                {r === "All" ? "All roles" : r}
+              </option>
+            ))}
+          </select>
+          {domains.length > 1 && (
+            <select
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+              className="px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-white"
+              title="Filter by field / domain"
+            >
+              {domains.map((d) => (
+                <option key={d} value={d}>
+                  {d === "All" ? "All domains" : d}
+                </option>
+              ))}
+            </select>
+          )}
+          {levels.length > 1 && (
+            <select
+              value={level}
+              onChange={(e) => setLevel(e.target.value)}
+              className="px-2 py-1.5 text-sm border border-gray-300 rounded-md bg-white"
+              title="Filter by required degree"
+            >
+              {levels.map((l) => (
+                <option key={l} value={l}>
+                  {l === "All" ? "Any degree" : `🎓 ${l}`}
+                </option>
+              ))}
+            </select>
+          )}
+          {(role !== "All" || domain !== "All" || level !== "All") && (
+            <button
+              onClick={() => {
+                setRole("All");
+                setDomain("All");
+                setLevel("All");
+              }}
+              className="text-xs text-gray-400 hover:text-gray-700"
+            >
               clear
             </button>
           )}
@@ -496,6 +516,7 @@ export default function JobsTable({
               {sortableTh("fit_score", "Fit")}
               {sortableTh("company", "Company")}
               {sortableTh("position", "Position")}
+              {colVisible("skill_fit") && sortableTh("skill_fit", "Skill fit")}
               {colVisible("role_category") && sortableTh("role_category", "Role")}
               {sortableTh("status", "Status")}
               {colVisible("salary") && sortableTh("salary", "Salary")}

@@ -23,6 +23,7 @@ export interface Job {
   domains: string; // comma-joined finer fields
   starred: boolean;
   relevant?: boolean; // derived (server): does it match your scan queries? (separate from status)
+  skill_fit?: { have: string[]; missing: string[]; score: number }; // cheap no-LLM fit signal
 }
 
 export interface Application extends Job {
@@ -54,7 +55,6 @@ export interface Profile {
   headline?: string;
   location?: string;
   skills?: { name: string; level?: string; evidence?: string; category?: string }[];
-  skill_tags?: string[]; // canonical skills (server-derived) for the Jobs "your skills" filter
   links?: Record<string, string>; // named profile links: github/website/linkedin/scholar/email…
   sections?: ProfileSection[];
   [key: string]: unknown;

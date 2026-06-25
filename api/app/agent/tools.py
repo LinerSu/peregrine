@@ -325,6 +325,28 @@ def _matches_queries(text: str, queries: list[str] | None) -> bool:
     return not qs or any(_query_matches(text, q) for q in qs)
 
 
+def _skill_fit(req_skills: str, user_skills: set[str]) -> dict[str, Any]:
+    """Cheap, deterministic fit: which of a job's required skills the user has (both are the
+    same canonical extract_skills vocabulary, so it's an exact set intersection). No LLM.
+    score = fraction of required skills you have; jobs with no listed skills score 0."""
+    req = [s.strip() for s in (req_skills or "").split(",") if s.strip()]
+    have = [s for s in req if s in user_skills]
+    missing = [s for s in req if s not in user_skills]
+    return {"have": have, "missing": missing, "score": len(have) / len(req) if req else 0.0}
+
+
+def _user_skills() -> set[str]:
+    """The user's canonical skills from their profile — same vocabulary as job req_skills, so
+    skill-fit is an exact match. Used by the jobs list and the single-job detail. Best-effort:
+    a malformed profile.yml must not 500 the Jobs page, so fail closed (no skills)."""
+    try:
+        profile = store.read_profile()
+        names = [str(s.get("name") or "") for s in (profile.get("skills") or []) if isinstance(s, dict)]
+        return set(extract_skills("\n".join(names), limit=60))
+    except Exception:
+        return set()
+
+
 def _passes_filters(
     p: providers.RawPosting, filters: dict[str, Any], targets: dict[str, Any] | None = None
 ) -> bool:
@@ -876,12 +898,16 @@ def list_jobs(query: str = "") -> dict[str, Any]:
         for c in (portals.get("companies") or [])
         if (c.get("provider") or "").lower() in _QUERY_PROVIDERS
     }
+    # Cheap fit signal (no LLM): which of a job's required skills the user has. Lets a brand-new
+    # user — who hasn't run any LLM fit evals — still triage to the roles they best match.
+    user_skills = _user_skills()
     out = []
     for j in jobs:
         d = j.model_dump()
         d["relevant"] = j.company.strip().lower() in query_based_cos or _matches_queries(
             _relevance_text(j.position, j.domains, j.req_skills, j.role_category), queries
         )
+        d["skill_fit"] = _skill_fit(j.req_skills, user_skills)
         out.append(d)
     return {"count": len(out), "jobs": out}
 
