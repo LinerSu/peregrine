@@ -17,6 +17,7 @@ dist/
 # --- Env / secrets ---
 .env
 *.env
+.env.*          # .env.local / .env.production / … (suffix variants aren't caught by *.env)
 !.env.example
 
 # --- Personal data — NEVER commit (lives only on your machine) ---
@@ -27,8 +28,10 @@ data/*.csv
 data/*.tmp
 data/*.bak
 data/patterns.json
-data/jobs/*.md
-data/jobs/*.json
+# Everything under data/jobs/ is derived from your postings/CV — snapshots (.md), evaluations
+# (.json), tailored CVs (.cv.tex / .cv.pdf), cover letters (.cover_letter.md). Block the whole
+# dir (keep only the .gitkeep placeholder) so no artifact type can slip through.
+data/jobs/*
 !data/jobs/.gitkeep
 data/index.sqlite
 # Your own cover-letter style samples (read as references; curated samples that

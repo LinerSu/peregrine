@@ -2,11 +2,14 @@
 # Fast local checks before a commit is created:
 #   1. py_compile staged Python (catch syntax breaks)
 #   2. crawl-policy guard: outbound HTTP must go through crawl_policy.safe_get
+#   3. personal-data / PII guard: never commit your real CV, profile, jobs, or contacts
 # Enabled via core.hooksPath=hooks — run scripts/install-hooks.sh once per clone.
 # Bypass in a pinch with: git commit --no-verify
 set -euo pipefail
 
-staged="$(git diff --cached --name-only --diff-filter=ACM)"
+# ACMR (not ACM): include Renames, so a personal file staged via `git mv x config/profile.yml`
+# (status R) can't slip past the guard. --name-only lists the rename DESTINATION (the new path).
+staged="$(git diff --cached --name-only --diff-filter=ACMR)"
 [ -z "$staged" ] && exit 0
 fail=0
 
@@ -32,6 +35,43 @@ if [ -n "$guard_files" ]; then
     printf '  %s\n' "$hits" >&2
     fail=1
   fi
+fi
+
+# 3) Personal-data / PII guard --------------------------------------------
+# Your real CV, profile, tracked jobs, applications, and contacts live ONLY on your
+# machine — they're gitignored. This is the hard backstop in case one is force-added
+# (`git add -f`) or .gitignore is edited. Demo seeds ship as *.example.csv / are
+# generated from code (PEREGRINE_DATASET), so they never match here.
+# Mirrors the personal-data block in .gitignore: ROOT-anchored like git's non-trailing-slash
+# globs (so a future web/src/applications/ source dir isn't falsely blocked), with an optional
+# api/ prefix for the test-mount copies (api/data, api/applications). Blocks ALL of data/jobs/
+# (snapshots, evaluations, tailored CVs .cv.tex/.cv.pdf, cover letters — every artifact is
+# PII-derived) except its .gitkeep, plus the atomic-write .tmp/.bak/.sqlite data artifacts. The
+# README/.gitkeep exempt patterns are END-anchored to the EXACT re-included filenames
+# (README_SECRET.md is NOT exempt).
+pii_paths="$(printf '%s\n' "$staged" | grep -E \
+  '^(api/)?data/.*\.(csv|tmp|bak|sqlite|sqlite3|db)$|^(api/)?data/jobs/|^(api/)?data/patterns\.json$|^(api/)?data/cover_letter_samples/|^(api/)?resume/|^(api/)?applications/|^(api/)?config/(profile|memory|portals)\.ya?ml$|^(api/)?config/(cv_source|job_source)\.md$|(^|/)\.demo/|(^|/)\.env($|\.)|\.env$' \
+  | grep -vE '\.example\.csv$|^(api/)?data/jobs/\.gitkeep$|^(api/)?resume/README\.md$|^(api/)?applications/(README\.md|\.gitkeep)$|\.env\.example$' || true)"
+if [ -n "$pii_paths" ]; then
+  echo "✗ pre-commit: refusing to commit personal-data files (these stay on your machine):" >&2
+  printf '  %s\n' "$pii_paths" >&2
+  fail=1
+fi
+
+# Content scan: a real-looking email in a STAGED ADDED line (test fixtures + demo seeds
+# use @example.com; commit-authoring noreply@ lives in the message, not a file). Catches
+# PII pasted into a source/test/fixture file. Safe domains are allow-listed.
+mail_hits="$(git diff --cached -U0 --diff-filter=ACMR \
+  | grep -E '^\+' | grep -vE '^[+]{3} ([ab]/|/dev/null)' \
+  | grep -Eioh '\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}' \
+  | grep -viE '@(example\.(com|org|net)|test\.com|localhost|anthropic\.com|sentry\.io|schema\.org|[a-z0-9-]+\.example)$' \
+  | grep -viE '^(noreply|no-reply)@' \
+  | sort -u || true)"
+if [ -n "$mail_hits" ]; then
+  echo "✗ pre-commit: a real-looking email address in a staged change (PII?):" >&2
+  printf '    %s\n' "$mail_hits" >&2
+  echo "  if it's a placeholder, use an @example.com address; if intended, bypass with --no-verify." >&2
+  fail=1
 fi
 
 [ "$fail" -eq 0 ] || { echo "  (fix the above, or bypass once with: git commit --no-verify)" >&2; exit 1; }
