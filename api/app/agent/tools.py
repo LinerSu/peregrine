@@ -17,7 +17,7 @@ from ..config import APPLICATIONS_DIR
 from ..cover_letter import gather_style_references
 from ..evaluation import assess_legitimacy, classify_archetype
 from ..logging_config import get_logger
-from ..job_tags import extract_domains, extract_level, extract_skills
+from ..job_tags import extract_domains, extract_keywords, extract_level, extract_skills
 from ..roles import classify_role
 from ..skills import normalize_category
 from ..schemas import Application, Job
@@ -54,6 +54,7 @@ def _job_tag_kwargs(p: providers.RawPosting) -> dict[str, str]:
         "level": extract_level(text),
         "req_skills": ", ".join(extract_skills(text)),
         "domains": ", ".join(extract_domains(text)),
+        "keywords": extract_keywords(p.description),  # description-level recall beyond the tag vocab
     }
 
 
@@ -313,9 +314,12 @@ def _query_matches(text: str, query: str) -> bool:
 
 def _relevance_text(position: str, domains: str, req_skills: str, role_category: str) -> str:
     """The text relevance is judged against — title + structured tags. Used IDENTICALLY at scan
-    time (the gate) and at serve time (the per-job `relevant` flag), so a job that's scanned in
-    is never then hidden as off-target. Tags (not the raw description) so serve-time needs no
-    snapshot read and relevance recomputes instantly when queries change."""
+    time (the gate) and at serve time (the per-job `relevant` flag), so a job that's scanned in is
+    never then hidden as off-target. Tags (not the raw description) so serve-time needs no snapshot
+    read and relevance recomputes instantly when queries change — and stays PRECISE: full-text
+    keyword recall lives in explicit search (the `query` filter in list_jobs, which also matches
+    the description-keyword index), not the default triage, so a generic query word ("design")
+    can't drown the Relevant view in incidental mentions."""
     return f"{position} {domains} {req_skills} {role_category}".lower()
 
 
@@ -879,9 +883,20 @@ def list_jobs(query: str = "") -> dict[str, Any]:
     for j in jobs:  # backfill role for jobs saved before classification existed
         if not j.role_category:
             j.role_category = classify_role(j.position)
-    if query:
-        q = query.lower()
-        jobs = [j for j in jobs if q in j.company.lower() or q in j.position.lower()]
+    if query.strip():
+        # Explicit search = recall ON DEMAND: match the full posting (title + tags + the salient
+        # keyword blob from the description), so you can find jobs by topic ("payments", "rust")
+        # even when the term isn't a curated tag. All query words must appear (same matcher as the
+        # relevance gate) — looser than a phrase, tighter than any-word. This is where description
+        # keywords live; the default `relevant` triage stays precise (title+tags) so a generic word
+        # like "design" can't drown it (see _relevance_text).
+        jobs = [
+            j
+            for j in jobs
+            if _query_matches(
+                f"{j.company} {j.position} {j.req_skills} {j.domains} {j.keywords}".lower(), query
+            )
+        ]
     jobs.sort(key=lambda j: (j.fit_score or 0), reverse=True)
     # Relevance is a DERIVED axis, separate from lifecycle status: does the job match the
     # user's search queries? Judged on the SAME surface as the scan gate (_relevance_text), so
@@ -904,6 +919,7 @@ def list_jobs(query: str = "") -> dict[str, Any]:
     out = []
     for j in jobs:
         d = j.model_dump()
+        d.pop("keywords", None)  # internal search index — matched server-side, never shipped to the client
         d["relevant"] = j.company.strip().lower() in query_based_cos or _matches_queries(
             _relevance_text(j.position, j.domains, j.req_skills, j.role_category), queries
         )

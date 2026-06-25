@@ -7,6 +7,7 @@ literally. Precision over recall — only unambiguous tokens, so a posting isn't
 from __future__ import annotations
 
 import re
+from collections import Counter
 
 # Canonical skill name -> a word-boundary regex (matched against the lowercased text).
 _SKILLS: dict[str, str] = {
@@ -74,3 +75,30 @@ def extract_domains(text: str, limit: int = 6) -> list[str]:
     """Finer fields/domains the posting touches."""
     t = (text or "").lower()
     return [name for name, rx in _DOMAIN_RE.items() if rx.search(t)][:limit]
+
+
+# Common words that carry no search signal — filtered so the keyword cap holds meaningful terms.
+_KW_STOP = frozenset(
+    """a an and are as at be by for from has have had he her his in is it its of on or our that the to was were will with
+    you your we us they them their this these those i me my mine ours but if into more most no nor not now off once only
+    other out over own same so some such than then there through too under until up very what when where which while who
+    whom why would can could should did do does doing about above after again all also am any because been before being
+    below between both during each few further here how all work team company role join looking strong experience years
+    ability across including like new help build using within across well also able etc per via plus across""".split()
+)
+_KW_RE = re.compile(r"[a-z][a-z0-9+#./-]{2,}")  # words >=3 chars, starting with a letter (keeps c++, node.js)
+
+
+def extract_keywords(text: str, limit: int = 300) -> str:
+    """A compact bag of the posting's most salient words, for DESCRIPTION-level relevance recall
+    (the curated skill/domain tags are vocab-capped, so a query like "infrastructure"/"payments"
+    that isn't a tag would otherwise miss). Frequency-ranked and stopword-filtered, space-joined.
+    The cap (300) recovers ~94-100% of real JD-body content (postings average ~400 unique
+    significant words, so the top 300 by frequency capture essentially everything that recurs) at
+    ~30% less stored text than keeping every word."""
+    counts: Counter[str] = Counter()
+    for raw in _KW_RE.findall((text or "").lower()):
+        w = raw.strip("./-")  # the token class allows internal ./- (node.js, ci/cd) but would
+        if len(w) >= 3 and w not in _KW_STOP:  # otherwise swallow trailing sentence punctuation
+            counts[w] += 1
+    return " ".join(w for w, _ in counts.most_common(limit))

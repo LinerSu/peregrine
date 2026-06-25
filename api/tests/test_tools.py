@@ -195,3 +195,34 @@ def test_mark_applied_creates_and_preserves(tmp_path, monkeypatch):
 
 def test_mark_applied_missing_job():
     assert "error" in tools.mark_applied("nope-999")
+
+
+def test_keywords_do_not_widen_relevance():
+    # The description-keyword blob powers SEARCH (recall on demand), NOT the relevance triage —
+    # so a generic word that only appears in a posting's description can't flag an off-target job
+    # as relevant. _relevance_text is title + structured tags only (no keywords).
+    rel = tools._relevance_text("Software Engineer", "Backend", "Python", "engineering")
+    assert not tools._matches_queries(rel, ["payments"])
+    assert tools._matches_queries(rel, ["software engineer"])  # the real title still matches
+
+
+def test_list_jobs_search_matches_description_keywords(tmp_path, monkeypatch):
+    from app import config, data_store as store
+    from app.schemas import Job
+
+    monkeypatch.setattr(config, "JOBS_CSV", tmp_path / "jobs.csv")
+    monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(config, "APPLICATIONS_CSV", tmp_path / "applications.csv")
+    monkeypatch.setattr(config, "PORTALS_YML", tmp_path / "portals.yml")
+    # 'payments' appears ONLY in the keyword index — not the title / skills / domains.
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1", position="Software Engineer",
+                         req_skills="Python", domains="Backend",
+                         keywords="payments ledger settlement reconciliation", status="open"))
+    store.upsert_job(Job(id="2026-002", company="Beta", company_job_id="R2", position="Data Scientist",
+                         req_skills="Python", domains="ML", keywords="forecasting models", status="open"))
+
+    found = tools.list_jobs(query="payments")["jobs"]
+    assert [j["id"] for j in found] == ["2026-001"]          # found via the description-keyword index
+    assert "keywords" not in found[0]                        # internal index never shipped to the client
+    assert tools.list_jobs(query="kubernetes")["jobs"] == []  # a term in no posting matches nothing
+    assert len(tools.list_jobs(query="   ")["jobs"]) == 2     # whitespace-only query = no filter (all jobs)

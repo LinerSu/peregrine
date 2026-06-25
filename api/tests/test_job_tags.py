@@ -1,5 +1,22 @@
 """Per-job tag extraction — required level / skills / domains from a posting (deterministic)."""
-from app.job_tags import extract_domains, extract_level, extract_skills
+from app.job_tags import extract_domains, extract_keywords, extract_level, extract_skills
+
+
+def test_extract_keywords():
+    text = (
+        "We build payments infrastructure. Payments must scale. Our payments team owns the "
+        "payments ledger and settlement."
+    )
+    kw = extract_keywords(text).split()
+    assert "payments" in kw and "settlement" in kw          # salient content words kept
+    assert not ({"the", "we", "our", "and"} & set(kw))      # stopwords filtered out
+    assert "payments" == kw[0]                               # frequency-ranked: most common first
+    # tokens under 3 chars are dropped (so a bare "go"/"ml" can't pollute the index)...
+    assert "go" not in extract_keywords("go go go scale scale").split()
+    # ...but slashed/dotted tokens are kept whole (e.g. ci/cd, node.js)
+    assert "ci/cd" in extract_keywords("strong ci/cd pipelines and ci/cd ownership").split()
+    # the cap is respected
+    assert len(extract_keywords("alpha beta gamma delta epsilon", limit=2).split()) == 2
 
 
 def test_extract_level():
@@ -42,7 +59,7 @@ def test_job_tag_kwargs_used_by_scan_and_ingest():
     assert kw["level"] == "PhD"
     assert "OCaml" in kw["req_skills"] and "Rocq/Coq" in kw["req_skills"]
     assert "Compilers" in kw["domains"]
-    assert set(kw) == {"role_category", "level", "req_skills", "domains"}
+    assert set(kw) == {"role_category", "level", "req_skills", "domains", "keywords"}
 
 
 def test_word_boundaries_no_false_positives():

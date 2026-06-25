@@ -56,16 +56,19 @@ function sortValue(j: Job, key: SortKey): number | string {
 
 export default function JobsTable({
   jobs,
+  query,
+  onQueryChange,
   selectedId,
   onSelect,
   onChanged,
 }: {
   jobs: Job[];
+  query: string;
+  onQueryChange: (q: string) => void;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onChanged: () => void;
 }) {
-  const [query, setQuery] = useState("");
   const [role, setRole] = useState("All");
   const [domain, setDomain] = useState("All");
   const [level, setLevel] = useState("All");
@@ -149,24 +152,21 @@ export default function JobsTable({
     // Resets are no-ops once the value is valid, so re-listing them can't loop.
   }, [roles, domains, levels, role, domain, level]);
 
-  // Everything except the status tab — so the tab badge counts reflect other filters. The
-  // text filter also matches required skills + domains, so you can search jobs by topic
-  // (e.g. "OCaml", "Compilers") across all companies — the role > company use case.
+  // Everything except the status tab — so the tab badge counts reflect other filters. The text
+  // search runs SERVER-SIDE (App debounces `query` -> /api/jobs?query=…, which matches the full
+  // posting incl. the description-keyword index), so `jobs` here is already text-filtered; these
+  // are the remaining instant client-side facets.
   const baseFiltered = useMemo(() => {
-    const q = query.toLowerCase();
     return jobs.filter(
       (j) =>
-        (!q ||
-          j.company.toLowerCase().includes(q) ||
-          j.position.toLowerCase().includes(q) ||
-          (j.req_skills || "").toLowerCase().includes(q) ||
-          (j.domains || "").toLowerCase().includes(q)) &&
         (role === "All" || j.role_category === role) &&
         (domain === "All" || splitTags(j.domains).includes(domain)) &&
         (level === "All" || j.level === level) &&
         // Relevance hides only LIVE off-target jobs; dead jobs always show (in the Closed tab),
-        // so an off-target closed job is never stranded with the toggle hidden.
-        (!relevantOnly || j.relevant !== false || isDead(j)) &&
+        // so an off-target closed job is never stranded with the toggle hidden. An explicit text
+        // search overrides the triage toggle — you asked for these by name, so show them all even
+        // if they don't match your configured role queries (the whole point of recall-on-demand).
+        (!relevantOnly || query.trim() !== "" || j.relevant !== false || isDead(j)) &&
         (!starredOnly || j.starred)
     );
   }, [jobs, query, role, domain, level, relevantOnly, starredOnly]);
@@ -354,9 +354,9 @@ export default function JobsTable({
       <div className="flex flex-wrap items-center gap-2 p-3 border-b border-gray-200">
         <input
           className="flex-1 min-w-[120px] px-3 py-1.5 text-sm border border-gray-300 rounded-md"
-          placeholder="Filter — company, role, skill, domain…"
+          placeholder="Search — company, role, skill, or anything in the description…"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => onQueryChange(e.target.value)}
         />
         {/* `|| advancedOpen` keeps the toggle present to CLOSE the panel even if the options
             collapse to one while it's open. */}
