@@ -72,9 +72,24 @@ export default function App() {
     }
   });
 
+  // Jobs text search runs SERVER-SIDE (it matches the full posting incl. the description-keyword
+  // index, which is never shipped to the client). Held in a ref so refresh()/onChanged keep the
+  // current search after an edit, without re-creating the callback on every keystroke.
+  const [jobQuery, setJobQuery] = useState("");
+  const jobQueryRef = useRef("");
+
+  const refreshJobs = useCallback(async () => {
+    const q = jobQueryRef.current;
+    try {
+      const { jobs } = await api.listJobs(q);
+      if (jobQueryRef.current === q) setJobs(jobs); // ignore a stale response — the query moved on
+    } catch {
+      /* a debounced search failure shouldn't spam the console; the next keystroke retries */
+    }
+  }, []);
   const refresh = useCallback(async () => {
     const [{ jobs }, { applications }] = await Promise.all([
-      api.listJobs(),
+      api.listJobs(jobQueryRef.current),
       api.listApplications(),
     ]);
     setJobs(jobs);
@@ -84,6 +99,19 @@ export default function App() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Debounced server search: refetch jobs (only) as the query changes. Skip the first run — the
+  // mount effect above already did the initial full load.
+  const firstJobQuery = useRef(true);
+  useEffect(() => {
+    jobQueryRef.current = jobQuery;
+    if (firstJobQuery.current) {
+      firstJobQuery.current = false;
+      return;
+    }
+    const t = setTimeout(refreshJobs, 250);
+    return () => clearTimeout(t);
+  }, [jobQuery, refreshJobs]);
 
   // Is the API backed by a real LLM, or returning mock placeholders (no key)?
   useEffect(() => {
@@ -226,6 +254,8 @@ export default function App() {
                   <div className="flex-1 min-h-0">
                     <JobsTable
                       jobs={jobs}
+                      query={jobQuery}
+                      onQueryChange={setJobQuery}
                       selectedId={selectedId}
                       onSelect={setSelectedId}
                       onChanged={refresh}

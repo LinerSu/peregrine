@@ -30,6 +30,7 @@ class Job(BaseModel):
     level: str = ""          # required degree: PhD / MS / BS (highest mentioned)
     req_skills: str = ""     # required skills/languages, e.g. "Python, OCaml, Docker"
     domains: str = ""        # finer fields, e.g. "Compilers, Machine Learning"
+    keywords: str = ""       # salient description words (space-joined), for relevance recall beyond the tag vocab
     starred: bool = False
     # People you found yourself (recruiter / hiring manager / referral …) — USER-ENTERED only,
     # never scraped. A JSON list of {name, role, link} so you record only what you actually know
