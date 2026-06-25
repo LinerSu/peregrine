@@ -1,6 +1,8 @@
 """Jobs API — list, detail (with markdown), scan, evaluate, prepare-to-apply."""
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
@@ -9,6 +11,7 @@ from ..agent import tools
 from ..extract import extract_text
 from ..agent import providers
 from ..schemas import (
+    CONTACT_FIELDS,
     CoverLetterInput,
     CvTexInput,
     EvaluationInput,
@@ -186,7 +189,8 @@ def get_job(job_id: str):
     return {"job": d, "markdown": store.read_job_md(job_id)}
 
 
-EDITABLE_JOB_FIELDS = {"starred", "role_category", "status"}
+# People you found yourself (never scraped) are editable from the Jobs view too.
+EDITABLE_JOB_FIELDS = {"starred", "role_category", "status"} | CONTACT_FIELDS
 # Statuses that also make sense on an application (so a job→app status sync can't set
 # a pre-application status like "open"/"removed" on a tracked application).
 _APP_STATUSES = {"applied", "interviewing", "offer", "rejected", "closed"}
@@ -194,19 +198,25 @@ _APP_STATUSES = {"applied", "interviewing", "offer", "rejected", "closed"}
 
 @router.patch("/{job_id}")
 def update_job(job_id: str, payload: dict):
-    """Update user-controllable job fields: starred, role_category, status."""
+    """Update user-controllable job fields: starred, role_category, status, and people
+    (recruiter / hiring manager)."""
     job = store.get_job(job_id)
     if not job:
         raise HTTPException(404, f"job {job_id} not found")
     changes = {k: v for k, v in payload.items() if k in EDITABLE_JOB_FIELDS}
+    if "people" in changes and not isinstance(changes["people"], str):
+        changes["people"] = json.dumps(changes["people"])  # always a JSON string (the UI parses it)
     updated = job.model_copy(update=changes)
     store.upsert_job(updated)
-    # Keep a linked application's status in sync (shared id) when status changes from
-    # the Jobs view, so the Applications outcomes agree.
-    if "status" in changes and updated.status in _APP_STATUSES:
-        appn = store.get_application(job_id)
-        if appn and appn.status != updated.status:
-            store.upsert_application(appn.model_copy(update={"status": updated.status}))
+    # Keep a linked application (shared id) in sync: status, and the people fields — so contacts
+    # are consistent across Jobs + Applications no matter where you enter them.
+    appn = store.get_application(job_id)
+    if appn:
+        sync = {k: changes[k] for k in CONTACT_FIELDS if k in changes}
+        if "status" in changes and updated.status in _APP_STATUSES and appn.status != updated.status:
+            sync["status"] = updated.status
+        if sync:
+            store.upsert_application(appn.model_copy(update=sync))
     return {"job": updated.model_dump()}
 
 

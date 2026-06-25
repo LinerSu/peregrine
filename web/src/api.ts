@@ -24,6 +24,7 @@ export interface Job {
   starred: boolean;
   relevant?: boolean; // derived (server): does it match your scan queries? (separate from status)
   skill_fit?: { have: string[]; missing: string[]; score: number }; // cheap no-LLM fit signal
+  people: string; // JSON list of {name, role, link} you entered (never scraped); synced job↔app
 }
 
 export interface Application extends Job {

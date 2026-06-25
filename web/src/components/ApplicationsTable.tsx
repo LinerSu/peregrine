@@ -3,6 +3,7 @@ import { api, type Application } from "../api";
 import type { AssistantMode } from "../App";
 import { salaryRange, statusClass } from "../format";
 import JobIngestPanel from "./JobIngestPanel";
+import ContactsEditor from "./ContactsEditor";
 
 const STATUSES = ["applied", "interviewing", "offer", "rejected", "closed"];
 
@@ -204,7 +205,7 @@ export default function ApplicationsTable({
                   </th>
                 ))}
                 <th className="px-3 py-2 text-left font-medium">Salary</th>
-                <th className="px-3 py-2 text-left font-medium">Contacts</th>
+                <th className="px-3 py-2 text-left font-medium">People</th>
                 <th className="px-3 py-2 text-left font-medium">Notes</th>
                 <th className="px-3 py-2"></th>
               </tr>
@@ -257,14 +258,8 @@ export default function ApplicationsTable({
                   <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
                     {salaryRange(a.salary_min, a.salary_max, a.currency)}
                   </td>
-                  <td className="px-3 py-2">
-                    <input
-                      defaultValue={a.contacts}
-                      placeholder="recruiter…"
-                      disabled={savingId === a.id}
-                      onBlur={(e) => e.target.value !== a.contacts && patch(a.id, { contacts: e.target.value })}
-                      className={`${inp} w-32`}
-                    />
+                  <td className="px-3 py-2 min-w-[16rem]">
+                    <ContactsEditor key={`${a.id}:${a.people}`} value={a} onSave={(f) => patch(a.id, f)} />
                   </td>
                   <td className="px-3 py-2">
                     <input

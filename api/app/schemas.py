@@ -31,6 +31,11 @@ class Job(BaseModel):
     req_skills: str = ""     # required skills/languages, e.g. "Python, OCaml, Docker"
     domains: str = ""        # finer fields, e.g. "Compilers, Machine Learning"
     starred: bool = False
+    # People you found yourself (recruiter / hiring manager / referral …) — USER-ENTERED only,
+    # never scraped. A JSON list of {name, role, link} so you record only what you actually know
+    # (often just one recruiter's name + email). Stored as a string (round-trips through the CSV);
+    # the UI parses it. Kept in sync with a linked application so it reads the same everywhere.
+    people: str = ""  # JSON: [{"name": str, "role": str, "link": str}]
 
 
 class Application(Job):
@@ -38,6 +43,10 @@ class Application(Job):
     interview_date: str = ""
     contacts: str = ""
     notes: str = ""
+
+
+# The user-entered people field, kept in sync across a linked job + application.
+CONTACT_FIELDS = frozenset({"people"})
 
 
 class FitEvaluation(BaseModel):
