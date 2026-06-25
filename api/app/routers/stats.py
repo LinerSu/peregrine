@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 
 from .. import data_store as store
 from ..agent import tools
-from ..stats import compute_insights, compute_outcomes
+from ..stats import compute_insights, compute_outcomes, compute_skill_gaps
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
@@ -21,8 +21,13 @@ def stats():
 @router.get("/outcomes")
 def outcomes():
     """Outcome / rejection analytics: conversion rates, outcome by fit-band & role,
-    fit-score calibration, and stale-application follow-ups."""
-    return compute_outcomes(store.list_applications(), date.today())
+    fit-score calibration, stale-application follow-ups, and the aggregate skill gaps
+    (what to learn next) across your live roles + stalled applications."""
+    jobs = store.list_jobs()
+    apps = store.list_applications()
+    result = compute_outcomes(apps, date.today())
+    result["skill_gaps"] = compute_skill_gaps(jobs, apps, tools._user_skills())
+    return result
 
 
 @router.post("/patterns")

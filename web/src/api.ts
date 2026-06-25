@@ -118,6 +118,7 @@ export interface Outcomes {
   };
   follow_ups: { id: string; company: string; position: string; applied_date: string; days: number }[];
   stale_days: number;
+  skill_gaps: { skill: string; required_by: number; missed_in_stalled: number }[];
 }
 
 // LLM narrative over the outcomes ({} when none yet). External generates; Internal saves.

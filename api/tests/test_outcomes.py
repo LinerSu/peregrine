@@ -1,10 +1,30 @@
 """Outcome / rejection analytics (stats.compute_outcomes) — over applications, clock injected."""
 from datetime import date
 
-from app.schemas import Application
-from app.stats import compute_outcomes
+from app.schemas import Application, Job
+from app.stats import compute_outcomes, compute_skill_gaps
 
 TODAY = date(2026, 6, 22)
+
+
+def test_skill_gaps_ranks_by_unlocked_roles_with_outcome_signal():
+    jobs = [
+        # Golang is the canonical token extract_skills emits (bare "Go" never appears in req_skills).
+        Job(id="1", company="A", company_job_id="1", position="X", req_skills="Python, Kubernetes, Golang", status="open"),
+        Job(id="2", company="B", company_job_id="2", position="Y", req_skills="Kubernetes, Docker", status="open"),
+        Job(id="3", company="C", company_job_id="3", position="Z", req_skills="Kubernetes", status="closed"),  # dead -> ignored
+    ]
+    apps = [
+        Application(id="4", company="D", company_job_id="4", position="W", req_skills="Kubernetes, Golang",
+                    status="rejected", applied_date="2026-06-01"),
+    ]
+    gaps = compute_skill_gaps(jobs, apps, user_skills={"Python", "Docker"})
+    top = gaps[0]
+    assert top["skill"] == "Kubernetes"  # required by 2 LIVE roles (closed one ignored)
+    assert top["required_by"] == 2 and top["missed_in_stalled"] == 1
+    assert all(g["skill"] not in ("Python", "Docker") for g in gaps)  # user's own skills aren't gaps
+    go = next(g for g in gaps if g["skill"] == "Golang")
+    assert go["required_by"] == 1 and go["missed_in_stalled"] == 1
 
 
 def _app(aid, status, fit=None, role="", applied="2026-06-10", interview=""):

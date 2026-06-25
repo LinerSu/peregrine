@@ -6,6 +6,7 @@ the output is deterministic and easy to unit-test.
 from __future__ import annotations
 
 import math
+from collections import Counter
 from datetime import date
 from typing import Any
 
@@ -101,6 +102,44 @@ def compute_insights(jobs: list[Job], applications: list[Application]) -> dict[s
         "activity": activity,
         "totals": {"jobs": tracked, "applications": len(applications), "evaluated": evaluated},
     }
+
+
+def compute_skill_gaps(
+    jobs: list[Job], applications: list[Application], user_skills: set[str], limit: int = 8
+) -> list[dict[str, Any]]:
+    """Close the loop: aggregate the skills you're most often MISSING, so the loop says what to
+    LEARN, not just what happened. Deterministic — reuses the same canonical skill vocabulary as
+    skill-fit. Ranked by how many of your live target roles a skill would unlock; the outcome
+    signal `missed_in_stalled` counts applications that have NOT advanced (still in "applied", or
+    "rejected") where the skill was missing (which gaps may be holding you back)."""
+
+    def missing(req_skills: str) -> set[str]:
+        return {
+            s.strip()
+            for s in (req_skills or "").split(",")
+            if s.strip() and s.strip() not in user_skills
+        }
+
+    # Target roles = the live jobs you're considering (dead ones aren't goals).
+    active = [j for j in jobs if j.status not in ("closed", "removed")]
+    # Outcome signal = applications not (yet) advanced: still "applied", or "rejected".
+    stalled = [a for a in applications if a.status in ("applied", "rejected")]
+
+    required_by: Counter[str] = Counter()
+    for j in active:
+        required_by.update(missing(j.req_skills))
+    missed_in_stalled: Counter[str] = Counter()
+    for a in stalled:
+        missed_in_stalled.update(missing(a.req_skills))
+
+    ranked = sorted(
+        required_by.items(),
+        key=lambda kv: (-kv[1], -missed_in_stalled[kv[0]], kv[0]),
+    )
+    return [
+        {"skill": s, "required_by": n, "missed_in_stalled": missed_in_stalled[s]}
+        for s, n in ranked[:limit]
+    ]
 
 
 def compute_outcomes(applications: list[Application], today: date) -> dict[str, Any]:

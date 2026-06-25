@@ -330,6 +330,37 @@ export default function InsightsPanel({ mode }: { mode: AssistantMode }) {
           </>
         )}
 
+        {/* Skill gaps — the prescriptive close-the-loop: what to learn next. Shown whenever there
+            are gaps (even before any applications), from your live roles + stalled applications. */}
+        {!!outcomes && outcomes.skill_gaps.length > 0 && (
+          <section className={section}>
+            <h4 className={heading}>Skill gaps — what to learn next</h4>
+            <p className="-mt-2 mb-3 text-xs text-gray-400">
+              Skills your live target roles ask for that you don't have yet — the top ones unlock the most.
+            </p>
+            <div className="space-y-2">
+              {outcomes.skill_gaps.map((g) => (
+                <div key={g.skill} className="flex items-center gap-3 text-sm">
+                  <span className="px-2 py-0.5 text-xs rounded-full bg-indigo-100 text-indigo-700 font-medium">
+                    {g.skill}
+                  </span>
+                  <span className="text-gray-500">
+                    unlocks {g.required_by} role{g.required_by === 1 ? "" : "s"}
+                  </span>
+                  {g.missed_in_stalled > 0 && (
+                    <span
+                      className="ml-auto text-xs text-amber-600"
+                      title="Required by applications not (yet) advanced — still applied, or rejected"
+                    >
+                      missing in {g.missed_in_stalled} stalled app{g.missed_in_stalled === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Fit-score distribution */}
         <section className={section}>
           <h4 className={heading}>Fit-score distribution</h4>
