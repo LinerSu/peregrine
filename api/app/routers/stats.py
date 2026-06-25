@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 
 from .. import data_store as store
 from ..agent import tools
-from ..stats import compute_insights, compute_outcomes, compute_skill_gaps
+from ..stats import compute_insights, compute_outcomes
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
@@ -23,10 +23,12 @@ def outcomes():
     """Outcome / rejection analytics: conversion rates, outcome by fit-band & role,
     fit-score calibration, stale-application follow-ups, and the aggregate skill gaps
     (what to learn next) across your live roles + stalled applications."""
-    jobs = store.list_jobs()
     apps = store.list_applications()
     result = compute_outcomes(apps, date.today())
-    result["skill_gaps"] = compute_skill_gaps(jobs, apps, tools._user_skills())
+    # Skill gaps are scoped to your TARGET roles (the search queries), not every live posting — so
+    # off-target roles don't dominate "what to learn" (a designer told to learn Python). Shared with
+    # the External narrative path via tools.scoped_skill_gaps.
+    result["skill_gaps"] = tools.scoped_skill_gaps(apps)
     return result
 
 

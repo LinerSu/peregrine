@@ -329,6 +329,49 @@ def _matches_queries(text: str, queries: list[str] | None) -> bool:
     return not qs or any(_query_matches(text, q) for q in qs)
 
 
+def _relevance_predicate(targets_only: bool = False):
+    """The relevance test as a predicate over a Job, built ONCE from portals (empty queries ->
+    everything relevant).
+
+    - `targets_only=False` (the Jobs-tab `relevant` flag): a job counts if its title+tags match one
+      of your search queries OR it's from a query-based provider (Amazon — already a targeted
+      search), so you see what that search returned.
+    - `targets_only=True` (outcome analytics — "what to learn"): your STATED target roles ONLY (the
+      queries), NOT a per-provider search slug. So a designer whose Amazon slug happens to be
+      "machine learning engineer" isn't told to learn Java/C++ — those ML jobs show in the Jobs
+      view (she searched for them) but don't define her skill gaps."""
+    portals = store.read_portals()
+    queries = portals.get("queries") or []
+    query_based_cos = (
+        set()
+        if targets_only
+        else {
+            (c.get("name") or "").strip().lower()
+            for c in (portals.get("companies") or [])
+            if (c.get("provider") or "").lower() in _QUERY_PROVIDERS
+        }
+    )
+
+    def is_relevant(j: Job) -> bool:
+        return j.company.strip().lower() in query_based_cos or _matches_queries(
+            _relevance_text(j.position, j.domains, j.req_skills, j.role_category), queries
+        )
+
+    return is_relevant
+
+
+def scoped_skill_gaps(applications: list[Application]) -> list[dict[str, Any]]:
+    """Skill gaps for the user's TARGET roles (the search queries) — the SINGLE source shared by the
+    /outcomes endpoint (Internal) and analyze_patterns (External), so both narratives see identical
+    data (no copy-paste drift). targets_only -> a stray Amazon "ML engineer" search doesn't define a
+    designer's gaps."""
+    from ..stats import compute_skill_gaps
+
+    is_target = _relevance_predicate(targets_only=True)
+    targets = [j for j in store.list_jobs() if is_target(j)]
+    return compute_skill_gaps(targets, applications, _user_skills())
+
+
 def _skill_fit(req_skills: str, user_skills: set[str]) -> dict[str, Any]:
     """Cheap, deterministic fit: which of a job's required skills the user has (both are the
     same canonical extract_skills vocabulary, so it's an exact set intersection). No LLM.
@@ -598,7 +641,11 @@ def analyze_patterns() -> dict[str, Any]:
     from ..stats import compute_outcomes
 
     status.record("patterns_start", "patterns", current_task="Analyzing application patterns")
-    outcomes = compute_outcomes(store.list_applications(), date.today())
+    apps = store.list_applications()
+    outcomes = compute_outcomes(apps, date.today())
+    # Ground the narrative in the SAME target-scoped skill gaps the /outcomes endpoint serves
+    # (Internal mode reads those), so External + Internal narratives see identical data.
+    outcomes["skill_gaps"] = scoped_skill_gaps(apps)
     insight = patterns_analyst(outcomes)
     saved = save_patterns(insight)
     status.record("patterns_done", "patterns", current_task="idle")
@@ -898,21 +945,12 @@ def list_jobs(query: str = "") -> dict[str, Any]:
             )
         ]
     jobs.sort(key=lambda j: (j.fit_score or 0), reverse=True)
-    # Relevance is a DERIVED axis, separate from lifecycle status: does the job match the
-    # user's search queries? Judged on the SAME surface as the scan gate (_relevance_text), so
-    # it's cheap (no snapshot read), recomputes instantly when queries change, and never hides a
-    # job the scan deliberately kept. Empty queries -> all relevant. The UI hides off-target by
-    # default (a live posting that isn't for you is NOT "closed").
-    portals = store.read_portals()
-    queries = portals.get("queries") or []
-    # Jobs from a query-based provider (Amazon) were fetched by a targeted search and are exempt
-    # from the scan-time gate — so they're relevant by construction here too (mirrors scan_jobs);
-    # otherwise they'd be hidden unless the user duplicated the Amazon slug into portals.queries.
-    query_based_cos = {
-        (c.get("name") or "").strip().lower()
-        for c in (portals.get("companies") or [])
-        if (c.get("provider") or "").lower() in _QUERY_PROVIDERS
-    }
+    # Relevance is a DERIVED axis, separate from lifecycle status: does the job match the user's
+    # search queries? Judged on the SAME surface as the scan gate (_relevance_text), so it's cheap
+    # (no snapshot read), recomputes instantly when queries change, and never hides a job the scan
+    # deliberately kept. The UI hides off-target by default (a live posting that isn't for you is
+    # NOT "closed"). Same predicate scopes the skill-gap analytics (see _relevance_predicate).
+    is_relevant = _relevance_predicate()
     # Cheap fit signal (no LLM): which of a job's required skills the user has. Lets a brand-new
     # user — who hasn't run any LLM fit evals — still triage to the roles they best match.
     user_skills = _user_skills()
@@ -920,9 +958,7 @@ def list_jobs(query: str = "") -> dict[str, Any]:
     for j in jobs:
         d = j.model_dump()
         d.pop("keywords", None)  # internal search index — matched server-side, never shipped to the client
-        d["relevant"] = j.company.strip().lower() in query_based_cos or _matches_queries(
-            _relevance_text(j.position, j.domains, j.req_skills, j.role_category), queries
-        )
+        d["relevant"] = is_relevant(j)
         d["skill_fit"] = _skill_fit(j.req_skills, user_skills)
         out.append(d)
     return {"count": len(out), "jobs": out}
