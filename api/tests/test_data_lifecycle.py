@@ -9,7 +9,6 @@ Design rules pinned here:
   * tailored CVs are deliberately NOT staleness-flagged — their invalidation story is
     on hold pending its own design (explicit user decision 2026-07-27).
 """
-import os
 from datetime import date
 
 import pytest
@@ -26,9 +25,15 @@ def tmp_store(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "JOBS_CSV", tmp_path / "jobs.csv")
     monkeypatch.setattr(config, "APPLICATIONS_CSV", tmp_path / "applications.csv")
     monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(config, "APPLICATIONS_DIR", tmp_path / "applications")
     monkeypatch.setattr(config, "PROFILE_YML", tmp_path / "profile.yml")
     (tmp_path / "jobs").mkdir()
     return store
+
+
+def _stamp_profile(when: float) -> None:
+    """Write a profile whose cv_parsed_at stamp is `when` (epoch seconds)."""
+    config.PROFILE_YML.write_text(f"name: someone\ncv_parsed_at: {when}\n")
 
 
 def _job(id: str, status: str = "open", posted: str = "") -> Job:
@@ -38,17 +43,23 @@ def _job(id: str, status: str = "open", posted: str = "") -> Job:
 
 # --- store.delete_job -----------------------------------------------------------------
 
-def test_delete_job_removes_row_and_artifacts(tmp_store):
+def test_delete_job_removes_row_artifacts_and_materials_mirror(tmp_store):
     tmp_store.upsert_job(_job("2026-001"))
     tmp_store.upsert_job(_job("2026-002"))
     for name in ("2026-001.md", "2026-001.evaluation.json", "2026-001.cover_letter.md",
                  "2026-001.cv.tex", "2026-0011.md"):  # last one: PREFIX collision, must survive
         (config.JOBS_DIR / name).write_text("x")
+    # the applications/<id>/ materials mirror must go too — a later job REUSING the
+    # id (ids are minted sequentially) must not inherit the old job's materials
+    mirror = config.APPLICATIONS_DIR / "2026-001"
+    mirror.mkdir(parents=True)
+    (mirror / "cover_letter.md").write_text("old")
 
     assert tmp_store.delete_job("2026-001") is True
     assert [j.id for j in tmp_store.list_jobs()] == ["2026-002"]
     left = sorted(p.name for p in config.JOBS_DIR.iterdir())
     assert left == ["2026-0011.md"], "only the exact <id>.* family may be removed"
+    assert not mirror.exists()
 
 
 def test_delete_job_unknown_returns_false(tmp_store):
@@ -71,6 +82,42 @@ def test_purge_is_conservative(tmp_store):
     assert out == {"deleted": 1, "skipped_linked": 1, "skipped_undated": 1}
     assert sorted(j.id for j in tmp_store.list_jobs()) == [
         "2026-002", "2026-003", "2026-004", "2026-005"]
+
+
+def test_purge_refuses_zero_and_negative_windows(tmp_store):
+    # A negative window flips the cutoff into the FUTURE — it must never delete.
+    tmp_store.upsert_job(_job("2026-001", "closed", "2026-07-26"))
+    for bad in (0, -1, -180):
+        assert tmp_store.purge_closed_jobs(bad) == {
+            "deleted": 0, "skipped_linked": 0, "skipped_undated": 0}
+    assert len(tmp_store.list_jobs()) == 1
+
+
+def test_purge_boundary_exactly_n_days_old_is_deleted(tmp_store):
+    # posted exactly N days before today: cutoff comparison is `posted > cutoff` to
+    # KEEP, so the exact boundary falls on the delete side — pinned deliberately.
+    today = date(2026, 7, 27)
+    tmp_store.upsert_job(_job("2026-001", "closed", "2026-01-28"))  # exactly 180 days
+    assert tmp_store.purge_closed_jobs(180, today=today)["deleted"] == 1
+
+
+def test_scan_applies_retention_only_when_positive(tmp_store, monkeypatch):
+    from app.agent import tools
+
+    monkeypatch.setattr(tools.status, "record", lambda *a, **k: None)
+    monkeypatch.setattr(tmp_store, "read_targets", lambda: {}, raising=False)
+    old = _job("2026-001", "closed", "2000-01-01")
+
+    for retention, expect_left in ((-180, 1), (0, 1), (30, 0)):
+        tmp_store.upsert_job(old)
+        monkeypatch.setattr(
+            tmp_store, "read_portals",
+            lambda r=retention: {"companies": [], "filters": {"retention_days": r}},
+            raising=False,
+        )
+        summary = tools.scan_jobs()
+        assert len(tmp_store.list_jobs()) == expect_left, f"retention={retention}"
+        assert summary["purged"] == (1 if retention == 30 else 0)
 
 
 # --- API endpoints --------------------------------------------------------------------
@@ -106,28 +153,58 @@ def test_scan_filters_accept_retention_days():
 
 # --- staleness flags ------------------------------------------------------------------
 
-def _age(path, seconds_back: int):
-    t = os.stat(path).st_mtime - seconds_back
-    os.utime(path, (t, t))
+def test_evaluation_and_cover_stale_track_the_cv_parse_stamp(tmp_store):
+    import time as _time
 
-
-def test_evaluation_and_cover_stale_when_profile_is_newer(tmp_store):
     c = TestClient(app)
     tmp_store.upsert_job(_job("2026-001"))
     c.put("/api/jobs/2026-001/evaluation", json={"fit_score": 0.8})
     c.put("/api/jobs/2026-001/cover-letter", json={"content": "Dear team"})
+    now = _time.time()
 
-    # artifacts newer than the profile -> current
+    # no profile / no cv_parsed_at stamp yet -> nothing is stale (fail-safe)
+    assert c.get("/api/jobs/2026-001/evaluation").json()["stale"] is False
     config.PROFILE_YML.write_text("name: someone\n")
-    _age(config.PROFILE_YML, 1000)
     assert c.get("/api/jobs/2026-001/evaluation").json()["stale"] is False
     assert c.get("/api/jobs/2026-001/cover-letter").json()["stale"] is False
 
-    # profile re-parsed AFTER the artifacts -> both flagged as built on the old CV
-    _age(config.JOBS_DIR / "2026-001.evaluation.json", 5000)
-    _age(config.JOBS_DIR / "2026-001.cover_letter.md", 5000)
+    # CV parsed BEFORE the artifacts were made -> current
+    _stamp_profile(now - 5000)
+    assert c.get("/api/jobs/2026-001/evaluation").json()["stale"] is False
+    assert c.get("/api/jobs/2026-001/cover-letter").json()["stale"] is False
+
+    # CV re-parsed AFTER the artifacts -> both flagged as built on the old CV,
+    # and the LIST nulls the now-meaningless fit score
+    _stamp_profile(now + 5000)
     assert c.get("/api/jobs/2026-001/evaluation").json()["stale"] is True
     assert c.get("/api/jobs/2026-001/cover-letter").json()["stale"] is True
+    listed = c.get("/api/jobs").json()["jobs"][0]
+    assert listed["fit_score"] is None
+
+
+def test_preferences_save_must_not_flag_staleness(tmp_store):
+    # REGRESSION PIN: profile.yml is ALSO rewritten by preferences saves
+    # (write_targets). Only a CV re-parse moves the stamp — a routine keyword tweak
+    # must never hide every evaluation in the app behind a false "previous CV" banner.
+    import time as _time
+
+    c = TestClient(app)
+    tmp_store.upsert_job(_job("2026-001"))
+    c.put("/api/jobs/2026-001/evaluation", json={"fit_score": 0.8})
+    _stamp_profile(_time.time() - 5000)  # CV parsed before the artifact -> current
+    assert c.get("/api/jobs/2026-001/evaluation").json()["stale"] is False
+
+    tmp_store.write_targets({"roles": ["ML Engineer"]})  # the preferences-save path
+    assert c.get("/api/jobs/2026-001/evaluation").json()["stale"] is False
+    assert tmp_store.read_profile().get("cv_parsed_at") is not None, "stamp must survive"
+
+
+def test_cv_intake_paths_move_the_stamp(tmp_store):
+    # Internal-mode store-only save is one of exactly two flows allowed to move it.
+    from app.agent import tools
+
+    tools.save_profile({"name": "someone"})
+    assert tmp_store.read_profile().get("cv_parsed_at") is not None
 
 
 def test_empty_responses_carry_no_stale_key(tmp_store):

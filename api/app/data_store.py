@@ -330,11 +330,22 @@ def delete_job(job_id: str) -> bool:
     if len(remaining) == len(jobs):
         return False
     _write_csv(config.JOBS_CSV, JOB_FIELDS, [j.model_dump() for j in remaining])
-    for p in config.JOBS_DIR.glob(f"{job_id}.*"):
-        try:
-            p.unlink()
-        except OSError:
-            log.warning("delete_job: could not remove artifact %s", p)
+    # Exact-prefix match, not glob(f"{job_id}.*"): ids come from our own rows, but a
+    # name with glob metacharacters must never widen the match — startswith can't.
+    try:
+        for p in config.JOBS_DIR.iterdir():
+            if p.name.startswith(f"{job_id}."):
+                try:
+                    p.unlink()
+                except OSError:
+                    log.warning("delete_job: could not remove artifact %s", p)
+    except OSError:
+        pass
+    # The applications/<id>/ mirror (prepared materials) goes too — otherwise a later
+    # job that REUSES this id (ids are minted per-year sequentially) would silently
+    # inherit the old job's materials. Safe: the caller guarantees no application row
+    # exists for this id.
+    shutil.rmtree(config.APPLICATIONS_DIR / job_id, ignore_errors=True)
     log.info("delete_job id=%s", job_id)
     return True
 
@@ -347,6 +358,12 @@ def purge_closed_jobs(older_than_days: int, today: "date | None" = None) -> dict
     missing/unparseable posted_date are skipped rather than guessed at. `today` is
     injectable for tests."""
     from datetime import date, timedelta
+
+    zeros = {"deleted": 0, "skipped_linked": 0, "skipped_undated": 0}
+    if older_than_days < 1:
+        # A zero/negative window would flip the cutoff into the future and delete
+        # EVERYTHING closed — refuse here so no caller can ever do that.
+        return zeros
 
     cutoff = (today or date.today()) - timedelta(days=older_than_days)
     deleted = skipped_linked = skipped_undated = 0

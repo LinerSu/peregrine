@@ -13,7 +13,9 @@ services:
       HOME: /tmp
     env_file: .env
     ports:
-      - "${API_PORT:-8000}:8000"
+      # Loopback only: this API can delete your tracked jobs and serves your personal
+      # data — it must not be reachable from the LAN.
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     volumes:
       - ./data:/app/data
       - ./config:/app/config
@@ -54,7 +56,8 @@ services:
         VITE_TERMINAL_URL: ${VITE_TERMINAL_URL:-}
     container_name: peregrine-web
     ports:
-      - "5173:80"
+      # Loopback only — the UI fronts the same personal data.
+      - "127.0.0.1:5173:80"
     depends_on:
       - api
     restart: unless-stopped

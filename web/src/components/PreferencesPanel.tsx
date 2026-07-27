@@ -316,8 +316,8 @@ export default function PreferencesPanel({ onChanged }: { onChanged: () => void 
             <button
               onClick={async () => {
                 const days = parseInt(purgeDays, 10);
-                if (!days || days < 1) {
-                  setPurgeMsg("Enter a number of days (e.g. 180).");
+                if (!days || days < 1 || days > 3650) {
+                  setPurgeMsg("Enter a number of days between 1 and 3650 (e.g. 180).");
                   return;
                 }
                 if (!window.confirm(`Permanently delete closed jobs posted over ${days} days ago (and their generated materials)?`)) return;
@@ -330,8 +330,9 @@ export default function PreferencesPanel({ onChanged }: { onChanged: () => void 
                       (r.skipped_linked ? ` · kept ${r.skipped_linked} with applications` : "") +
                       (r.skipped_undated ? ` · kept ${r.skipped_undated} without a posted date` : "")
                   );
-                } catch {
-                  setPurgeMsg("Purge failed — is the API up?");
+                } catch (e) {
+                  // Surface the API's actual reason (e.g. a rejected bound), not a guess.
+                  setPurgeMsg(e instanceof Error ? e.message : "Purge failed.");
                 } finally {
                   setPurgeBusy(false);
                 }

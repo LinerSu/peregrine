@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import time
 from datetime import date
 from typing import Any
 
@@ -95,6 +96,7 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
     # end. `index` is the dedup lookup over (company, company_job_id) — so we don't re-read
     # the CSV per posting (find_job_by_key) or rewrite it per new/dead job (upsert_job).
     jobs = store.list_jobs()
+    preloaded_ids = {j.id for j in jobs}  # to reconcile hard-deletes that land mid-scan
     index = {(j.company.strip().lower(), j.company_job_id.strip().lower()): j for j in jobs}
     mint = store.id_minter()
     # company (lowercased) -> the set of company_job_ids its board currently lists. Recorded
@@ -173,7 +175,11 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
             dead += 1
 
     if new or dead:  # one write for the whole batch (no per-row rewrite)
-        store.write_jobs(jobs)
+        # A job hard-deleted (DELETE /jobs/{id} or a purge) while this scan ran must
+        # not be resurrected by our preloaded copy; rows this scan minted itself
+        # (absent from the preload) are always kept.
+        current_ids = {j.id for j in store.list_jobs()}
+        store.write_jobs([j for j in jobs if j.id in current_ids or j.id not in preloaded_ids])
 
     pruned = _prune_orphan_snapshots({j.id for j in jobs})
 
@@ -181,8 +187,10 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
     # than the window are REMOVED (rows + artifacts) at the end of each scan — aging
     # marks them closed above; this is the opt-in second step that keeps the list from
     # accumulating dead rows forever. Linked applications are never touched.
+    # `> 0`, not truthiness: a negative value would flip the cutoff into the FUTURE
+    # and mass-delete every closed job (the store guards too — belt and braces).
     retention = _safe_int(filters.get("retention_days"))
-    purged = store.purge_closed_jobs(retention)["deleted"] if retention else 0
+    purged = store.purge_closed_jobs(retention)["deleted"] if retention > 0 else 0
 
     summary = {"new": new, "duplicates": dup, "filtered": filtered,
                "capped": capped, "dead": dead, "pruned_snapshots": pruned,
@@ -635,14 +643,32 @@ def save_cover_letter(job_id: str, content: str) -> dict[str, Any]:
     return {"job_id": job_id, "content": content}
 
 
-def artifact_stale(job_id: str, suffix: str) -> bool:
-    """True when a per-job artifact predates the CURRENT profile — i.e. it was built
-    against a previous CV and must not be presented as current analysis. Tailored CVs
-    are deliberately NOT flagged: their invalidation story (versioning? auto-regen?)
-    needs its own design — explicit user decision, do not extend this to `.cv.tex`."""
+def cv_parsed_stamp() -> float | None:
+    """Epoch seconds of the last CV parse (either mode), stamped into the profile by
+    the two CV-intake paths ONLY. None before any parse (or on a bad value)."""
+    v = store.read_profile().get("cv_parsed_at")
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def artifact_stale(job_id: str, suffix: str, cv_ts: float | None = ...) -> bool:  # type: ignore[assignment]
+    """True when a per-job artifact predates the last CV PARSE — i.e. it was built
+    against a previous CV and must not be presented as current analysis.
+
+    Keyed to the `cv_parsed_at` stamp, NOT profile.yml's mtime: preferences saves
+    (PUT /api/preferences → write_targets) rewrite profile.yml too, and a routine
+    keyword tweak must never flag every evaluation in the app as outdated. No stamp
+    yet → nothing is stale. Tailored CVs are deliberately NOT flagged: their
+    invalidation story needs its own design — explicit user decision, do not extend
+    this to `.cv.tex`. Pass `cv_ts` (from cv_parsed_stamp()) when calling in a loop."""
+    ts = cv_parsed_stamp() if cv_ts is ... else cv_ts
+    if ts is None:
+        return False
     artifact = config.JOBS_DIR / f"{job_id}{suffix}"
     try:
-        return artifact.stat().st_mtime < config.PROFILE_YML.stat().st_mtime
+        return artifact.stat().st_mtime < ts
     except OSError:
         return False
 
@@ -690,6 +716,7 @@ def save_profile(fields: dict[str, Any]) -> dict[str, Any]:
     existing profile, matching parse_cv's merge so both modes behave the same."""
     profile = store.read_profile()
     profile.update({k: v for k, v in fields.items() if v})  # same filter as parse_cv
+    profile["cv_parsed_at"] = time.time()  # the staleness stamp — CV-intake paths only
     store.write_profile(profile)
     return profile
 
@@ -929,6 +956,7 @@ def parse_cv(cv_text: str) -> dict[str, Any]:
     profile = store.read_profile()
     if valid:
         profile.update(fields)
+        profile["cv_parsed_at"] = time.time()  # the staleness stamp — CV-intake paths only
         store.write_profile(profile)
     n = len(fields.get("sections", [])) if valid else 0
     status.record("cv_intake_done", f"sections={n}", current_task="idle")
@@ -974,12 +1002,18 @@ def list_jobs(query: str = "") -> dict[str, Any]:
     # Cheap fit signal (no LLM): which of a job's required skills the user has. Lets a brand-new
     # user — who hasn't run any LLM fit evals — still triage to the roles they best match.
     user_skills = _user_skills()
+    cv_ts = cv_parsed_stamp()  # fetched once — artifact_stale in a loop must not re-read yaml
     out = []
     for j in jobs:
         d = j.model_dump()
         d.pop("keywords", None)  # internal search index — matched server-side, never shipped to the client
         d["relevant"] = is_relevant(j)
         d["skill_fit"] = _skill_fit(j.req_skills, user_skills)
+        # A fit score evaluated against a PREVIOUS CV is never shown as current — the
+        # list nulls it (so ranking/sorting drop it too), matching the detail pane's
+        # stale-hiding. Re-running Evaluate fit restores it.
+        if d.get("fit_score") is not None and artifact_stale(j.id, ".evaluation.json", cv_ts):
+            d["fit_score"] = None
         out.append(d)
     return {"count": len(out), "jobs": out}
 

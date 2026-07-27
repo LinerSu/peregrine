@@ -135,6 +135,8 @@ export default function JobDetail({
     setCoverPrompt("");
     setWaitingCover(false);
     setCoverLetter(null);
+    setCoverStale(false); // per-job — must not leak the previous job's stale state
+    setShowStaleCover(false); // nor its "show anyway" bypass
     setCoverError("");
     setCoverPromptCopied(false);
     setCoverTextCopied(false);
@@ -288,6 +290,11 @@ export default function JobDetail({
     try {
       const res = await api.generateCoverLetter(jobId);
       setCoverLetter(res.content);
+      // Freshly drafted -> current by definition; without this the new letter stays
+      // hidden behind the stale banner (mode-contract: Internal's poll clears these
+      // on save, External must too).
+      setCoverStale(false);
+      setShowStaleCover(false);
       setCoverTextCopied(false);
     } catch {
       // The cover-letter LLM call is the longest in the app — surface failures.

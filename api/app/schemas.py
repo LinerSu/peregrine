@@ -242,7 +242,8 @@ class ScanFilters(BaseModel):
     max_age_days: int = 0
     # 0 = keep closed jobs forever. N = after each scan, closed jobs whose posting is
     # older than N days are DELETED (rows + artifacts; linked applications skipped).
-    retention_days: int = 0
+    # ge=0: a negative would flip the cutoff into the future and delete everything.
+    retention_days: int = Field(default=0, ge=0)
 
 
     @field_validator("locations", mode="before")

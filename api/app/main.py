@@ -1,6 +1,8 @@
 """FastAPI application entry point."""
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -17,7 +19,17 @@ app = FastAPI(title="Peregrine API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # local-first dev; tighten for any real deployment
+    # Pinned to the local web UI, not "*": the API now has destructive endpoints
+    # (DELETE /jobs/{id}, POST /jobs/purge), and a wildcard would let any web page
+    # you visit fire drive-by requests at them. Override via PEREGRINE_WEB_ORIGINS
+    # (comma-separated) if you serve the UI elsewhere.
+    allow_origins=[
+        o.strip()
+        for o in os.environ.get(
+            "PEREGRINE_WEB_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+        ).split(",")
+        if o.strip()
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
