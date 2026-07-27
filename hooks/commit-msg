@@ -1,7 +1,24 @@
 #!/usr/bin/env bash
-# Reject commit messages whose subject isn't `<type>: <summary>` (Conventional-ish).
+# 1. PII scan: no real-looking emails or personal denylist terms in the MESSAGE itself
+#    (a leaked address in a commit message lands on GitHub just like one in a file).
+# 2. Reject commit messages whose subject isn't `<type>: <summary>` (Conventional-ish).
 # Enabled via core.hooksPath=hooks — run scripts/install-hooks.sh once per clone.
 set -euo pipefail
+
+# Shared PII patterns/filters — single source of truth with pre-commit + CI backstop.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/pii-lib.sh"
+
+# PII scan runs for EVERY message (merges/reverts/fixups included — they can carry
+# pasted text too). Commit-authoring noreply@ trailers are allow-listed in the lib.
+msg_mails="$(pii_offending_emails < "$1")"
+msg_terms="$(pii_offending_terms < "$1")"
+if [ -n "$msg_mails$msg_terms" ]; then
+  echo "✗ commit-msg: personal data in the commit message:" >&2
+  [ -n "$msg_mails" ] && printf '    email: %s\n' $msg_mails >&2
+  [ -n "$msg_terms" ] && printf '    denylist term: %s\n' "$msg_terms" >&2
+  echo "  reword the message (placeholders like jane@example.com are fine)." >&2
+  exit 1
+fi
 
 subject="$(sed -n '1p' "$1")"
 

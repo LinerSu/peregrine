@@ -5,5 +5,6 @@ cd "$(git rev-parse --show-toplevel)"
 git config core.hooksPath hooks
 chmod +x hooks/* 2>/dev/null || true
 echo "✓ git hooks installed (core.hooksPath=hooks)"
-echo "  commit-msg: enforce <type>: <summary>"
-echo "  pre-commit: py_compile staged + crawl-policy guard"
+echo "  commit-msg: PII scan of the message + enforce <type>: <summary>"
+echo "  pre-commit: py_compile staged + crawl-policy guard + PII path/email/denylist guard"
+echo "  tip: cp config/pii_terms.example.txt config/pii_terms.txt and add YOUR terms"

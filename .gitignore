@@ -17,7 +17,9 @@ dist/
 # --- Env / secrets ---
 .env
 *.env
-.env.*          # .env.local / .env.production / … (suffix variants aren't caught by *.env)
+# .env.local / .env.production / … (suffix variants aren't caught by *.env).
+# NB: gitignore has no inline comments — a trailing "# …" becomes part of the pattern.
+.env.*
 !.env.example
 
 # --- Personal data — NEVER commit (lives only on your machine) ---
@@ -33,16 +35,26 @@ data/patterns.json
 # dir (keep only the .gitkeep placeholder) so no artifact type can slip through.
 data/jobs/*
 !data/jobs/.gitkeep
-data/index.sqlite
+# The derived index (and any other db artifact) over your real corpus — match the
+# hook's extension list (sqlite|sqlite3|db), not one filename.
+data/*.sqlite
+data/*.sqlite3
+data/*.db
 # Your own cover-letter style samples (read as references; curated samples that
 # ship with the repo live in api/app/cover_letters/ instead). Documented in
 # docs/FILESYSTEM.md (the folder is protected, so no README ships inside it).
 data/cover_letter_samples/
 config/profile.yml
+config/profile.yaml
 config/memory.yml
+config/memory.yaml
 config/portals.yml
+config/portals.yaml
 config/cv_source.md
 config/job_source.md
+# Your personal-term denylist (name/phone/handles) read by the PII guards — the
+# file itself is concentrated PII. Seed it from config/pii_terms.example.txt.
+config/pii_terms.txt
 
 # Your résumé, cover letters, and any application materials
 resume/*

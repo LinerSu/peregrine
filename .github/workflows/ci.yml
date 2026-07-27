@@ -10,6 +10,18 @@ permissions:
   contents: read
 
 jobs:
+  pii-guard:
+    name: PII guard (generic backstop)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the guard diffs against the PR base / push `before` sha
+      # Generic subset only (personal paths + emails) — the personal-term denylist
+      # stays local by design; see scripts/ci_pii_guard.sh for the threat model.
+      - name: Scan pushed diff for personal paths / real emails
+        run: bash scripts/ci_pii_guard.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
+
   backend:
     name: Backend tests
     runs-on: ubuntu-latest
