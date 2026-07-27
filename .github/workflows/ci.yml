@@ -33,6 +33,16 @@ jobs:
       - name: Scan pushed diff for personal paths / real emails
         run: bash scripts/ci_pii_guard.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
 
+  compose-validate:
+    name: docker-compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Interpolation/structure check for the compose file (user: directive, mounts,
+      # env defaults) — the data-loss class its mounts fix has no other CI floor.
+      - name: Validate compose file
+        run: cp .env.example .env && docker compose config -q
+
   backend:
     name: Backend tests
     runs-on: ubuntu-latest

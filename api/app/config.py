@@ -50,7 +50,9 @@ else:
 
 JOBS_DIR = DATA_DIR / "jobs"
 SKILLS_DIR = ROOT / ".agents" / "skills"
-LOGS_DIR = ROOT / "logs"
+# Anchored beside DATA_DIR so demo datasets get their OWN logs + status page —
+# otherwise demo activity overwrites the live user's runtime log/status.
+LOGS_DIR = DATA_DIR.parent / "logs"
 
 JOBS_CSV = DATA_DIR / "jobs.csv"
 APPLICATIONS_CSV = DATA_DIR / "applications.csv"
@@ -60,7 +62,12 @@ CV_SOURCE = CONFIG_DIR / "cv_source.md"  # raw CV text the user submits (Interna
 JOB_SOURCE = CONFIG_DIR / "job_source.md"  # raw job posting the user pastes/uploads (Internal mode reads it)
 MEMORY_YML = CONFIG_DIR / "memory.yml"
 PORTALS_YML = CONFIG_DIR / "portals.yml"
-STATUS_FILE = ROOT / "STATUS.md"
+# Under logs/ (a DIRECTORY bind mount), not the repo root: a root-level STATUS.md
+# was git-tracked — the runtime writer put the user's real activity (chat excerpts,
+# job events) into a committable file no guard covered — and a single-file bind
+# mount is fragile besides (git/editor renames detach the inode; a missing host
+# file makes Docker create a root-owned directory in its place).
+STATUS_FILE = LOGS_DIR / "STATUS.md"
 
 
 class Settings(BaseSettings):
@@ -113,8 +120,12 @@ def ensure_dirs() -> None:
             marker.write_text(f"{DATASET}\n", encoding="utf-8")
         return
 
-    # Normal mode: the live CSVs are gitignored (personal data). On a fresh clone
-    # copy the committed examples so the app isn't empty — never the reverse.
+    # Normal mode: the live CSVs are gitignored (personal data). On a fresh clone copy
+    # the committed examples so the files exist with the right schema — never the
+    # reverse. The example CSVs are HEADER-ONLY on purpose: a seeded sample job would
+    # (a) carry a pre-baked fit score with no profile to explain it and (b) satisfy
+    # jobs.length > 0, which suppresses the web's auto-opened "Get started" onboarding
+    # (App.tsx) — the guided flow, not a mystery sample row, greets a new user.
     for live, example in (
         (JOBS_CSV, DATA_DIR / "jobs.example.csv"),
         (APPLICATIONS_CSV, DATA_DIR / "applications.example.csv"),

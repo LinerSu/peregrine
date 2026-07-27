@@ -291,6 +291,12 @@ export const api = {
   // Whether External-mode LLM calls are real or mock placeholders (no key). The UI
   // warns in External mode when mock so results aren't mistaken for real analysis.
   getLlmStatus: () => http<{ mock: boolean; provider: string }>("/api/llm-status"),
+  // Active demo dataset (PEREGRINE_DATASET) or null in live mode — drives the header
+  // badge so demo data is never mistaken for the user's real workspace.
+  getHealth: () =>
+    http<{ status: string; provider: string; model: string; dataset: string | null }>(
+      "/api/health"
+    ),
   getStats: () => http<Insights>("/api/stats"),
   getOutcomes: () => http<Outcomes>("/api/stats/outcomes"),
   // Pattern insights: External generates the narrative via the LLM; Internal polls the

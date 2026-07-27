@@ -91,6 +91,11 @@ BLOCKED_PATHS = [
     "applications/README_notes.md",  # README-PREFIX collision — NOT the exempt README.md
     ".demo/jobs.csv",           # a generated demo dataset (root)
     "src/.demo/snapshot.json",  # nested .demo (exercises the (^|/) alternative)
+    "STATUS.md",                # runtime status page — carries real activity (chat
+                                # excerpts, job events); legacy root location
+    "api/STATUS.md",            # test-mount copy
+    "logs/STATUS.md",           # current location (under the logs/ dir mount)
+    "logs/agent.log",           # runtime activity log — same PII class
     ".env",                     # secrets
     ".env.local",               # secret variant (NOT caught by *.env)
     ".env.production",          # secret variant

@@ -7,9 +7,11 @@ sections:
       - what-is-peregrine
   - title: Do your first tasks
     pages:
+      # cv-help before check-fit: fit scores are computed AGAINST the profile, so a
+      # literal-order reader must build one before evaluating anything.
       - find-jobs
-      - check-fit
       - cv-help
+      - check-fit
       - prepare-apply
       - track-applications
   - title: Going further
