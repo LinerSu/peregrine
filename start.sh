@@ -15,6 +15,11 @@ set -euo pipefail
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # repo root (this script lives here)
 
+# Self-heal the git hooks (PII + crawl-policy guards) — a fresh clone that never ran
+# scripts/install-hooks.sh would otherwise commit with NO guard, silently. The logic
+# lives in its own script so the test suite can pin it; it never fails the launch.
+./scripts/ensure-hooks.sh
+
 echo "▶ Bringing up the Peregrine stack (web + api)…"
 docker compose up -d --build
 

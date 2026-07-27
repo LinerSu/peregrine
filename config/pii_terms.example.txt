@@ -1,0 +1,22 @@
+# Personal-term denylist for the PII guards (pre-commit + commit-msg).
+#
+# Copy this file to config/pii_terms.txt (which is gitignored — it IS concentrated
+# PII and must never be committed) and replace the samples with YOUR real strings,
+# one per line:
+#
+#   - your full name and common variants / transliterations
+#   - personal email addresses (the generic guard only knows placeholder domains)
+#   - phone numbers, in the formats you actually type them
+#   - street-address fragments
+#   - handles that identify you (LinkedIn slug, personal GitHub, etc.)
+#
+# Matching is case-insensitive substring, over staged added lines, staged filenames,
+# and commit messages. Lines starting with # and blank lines are skipped, and so are
+# terms shorter than 4 BYTES — i.e. 1-3 ASCII characters, or a single CJK character
+# (too short = false positives everywhere) — keep each term distinctive. Non-ASCII
+# terms work: a 2-3 character Chinese name is fine (2 chars = 6 bytes), but there is
+# no case-folding for them, so add each variant you actually use.
+Jane Q. Applicant
+jane.applicant@example.com
+555-0100
+linkedin.com/in/jane-applicant
