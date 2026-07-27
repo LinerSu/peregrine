@@ -60,7 +60,10 @@ fi
 # Content scan: a real-looking email in a STAGED ADDED line (test fixtures + demo seeds
 # use @example.com; commit-authoring noreply@ lives in the message, not a file). Catches
 # PII pasted into a source/test/fixture file. Safe domains are allow-listed.
-added_lines="$(git -c core.quotepath=off diff --cached -U0 --diff-filter=ACMR \
+# --no-ext-diff: `git diff` is porcelain and honors GIT_EXTERNAL_DIFF / diff.external
+# (difftastic/delta setups) — driver output has no ^+ lines, which would silently
+# blank BOTH the email scan and the denylist scan below (fail-open, no signal).
+added_lines="$(git -c core.quotepath=off diff --cached -U0 --no-ext-diff --diff-filter=ACMR \
   | grep -E '^\+' | grep -vE '^[+]{3} ([ab]/|/dev/null)' || true)"
 mail_hits="$(printf '%s\n' "$added_lines" | pii_offending_emails)"
 if [ -n "$mail_hits" ]; then

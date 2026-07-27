@@ -20,6 +20,12 @@ jobs:
       # Generic subset only (personal paths + emails) — the personal-term denylist
       # stays local by design; see scripts/ci_pii_guard.sh for the threat model.
       - name: Scan pushed diff for personal paths / real emails
+        env:
+          # Known-clean floor for the unusable-base fallback: the commit that removed
+          # the initial scaffold's demo files from personal-data paths. Without it, a
+          # full-history fallback scan (force-push / branch creation) is guaranteed-red
+          # on those permanent legacy commits, burying any real signal.
+          PII_GUARD_BASELINE: 4381499cb1d7bcc50585538ef2f679f90d00d14b
         run: bash scripts/ci_pii_guard.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
 
   backend:

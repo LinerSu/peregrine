@@ -20,7 +20,12 @@ set -euo pipefail
 # OPEN on e.g. a pasted transcript line `# ping someone@…`. Detect the editor flow
 # by git's own template line and emulate strip only then; otherwise scan the file
 # raw. (Assumes default core.commentChar '#'.)
-if grep -q '^# Please enter' "$1"; then
+# Editor-flow evidence: git's template line (English) OR the real scissors marker
+# (locale-independent — gettext localizes the prose but not the 24-dash `>8` line;
+# a pasted short lookalike like `# -- >8 --` stays below the 20-dash floor and is
+# scanned raw). Residual: localized NON-verbose editor commits fall to the raw
+# branch — fail-closed (possible false block), never fail-open.
+if grep -q '^# Please enter' "$1" || grep -qE '^# -{20,} >8 -{20,}$' "$1"; then
   msg_clean="$(sed -e '/^# -\{2,\} >8 -\{2,\}$/,$d' -e '/^#/d' "$1")"
 else
   msg_clean="$(cat "$1")"

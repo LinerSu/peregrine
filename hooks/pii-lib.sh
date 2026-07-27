@@ -25,7 +25,16 @@ PII_EMAIL_NOREPLY_RE='^(noreply|no-reply)@'
 
 # Your personal-term denylist: real name, addresses, phone, handles — one per line.
 # Gitignored AND path-blocked above; seed it from config/pii_terms.example.txt.
-PII_TERMS_FILE="config/pii_terms.txt"
+# Resolved via the shared git common dir so LINKED WORKTREES use the main checkout's
+# denylist too (the untracked file exists only there — a relative path would make the
+# layer a silent no-op in `git worktree add` checkouts). Falls back to the relative
+# path when there is no git context (e.g. the commit-msg tests run without a repo).
+_pii_common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+if [ -n "$_pii_common" ]; then
+  PII_TERMS_FILE="${_pii_common%/.git}/config/pii_terms.txt"
+else
+  PII_TERMS_FILE="config/pii_terms.txt"
+fi
 
 # stdin: candidate paths (one per line) -> stdout: personal-data paths that must not ship.
 pii_offending_paths() {

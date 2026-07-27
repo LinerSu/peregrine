@@ -15,6 +15,7 @@ where absent, e.g. the api container has no git).
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -25,6 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 HOOK = REPO_ROOT / "hooks" / "pre-commit"
 MSG_HOOK = REPO_ROOT / "hooks" / "commit-msg"
 CI_GUARD = REPO_ROOT / "scripts" / "ci_pii_guard.sh"
+INSTALL_HOOKS = REPO_ROOT / "scripts" / "install-hooks.sh"
 GITIGNORE = REPO_ROOT / ".gitignore"
 
 pytestmark = pytest.mark.skipif(
@@ -89,6 +91,8 @@ BLOCKED_PATHS = [
     ".env",                     # secrets
     ".env.local",               # secret variant (NOT caught by *.env)
     ".env.production",          # secret variant
+    "deploy/prod.env",          # the `\.env$` SUFFIX branch — the three cases above all
+                                # also match `(^|/)\.env($|\.)`, so only this pins it
 ]
 
 ALLOWED_PATHS = [
@@ -107,11 +111,13 @@ ALLOWED_PATHS = [
 
 
 def _run(tmp_path: Path, files: dict[str, str],
-         unstaged: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+         unstaged: dict[str, str] | None = None,
+         env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     """Stage `files` in a fresh git repo and run the real pre-commit hook against them.
 
     `unstaged` files (e.g. a planted config/pii_terms.txt) are written but NOT staged —
-    the denylist must act on what it READS, not on being staged itself.
+    the denylist must act on what it READS, not on being staged itself. `env` overlays
+    the environment for the hook run (e.g. GIT_EXTERNAL_DIFF).
     """
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=tmp_path, check=True)
@@ -125,7 +131,8 @@ def _run(tmp_path: Path, files: dict[str, str],
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content)
         subprocess.run(["git", "add", rel], cwd=tmp_path, check=True)  # no .gitignore here -> plain add
-    return subprocess.run(["bash", str(HOOK)], cwd=tmp_path, capture_output=True, text=True)
+    return subprocess.run(["bash", str(HOOK)], cwd=tmp_path, capture_output=True, text=True,
+                          env={**os.environ, **(env or {})})
 
 
 @pytest.mark.parametrize("path", BLOCKED_PATHS)
@@ -225,6 +232,40 @@ def test_blocks_a_personal_file_staged_via_rename(tmp_path):
 def test_allows_a_clean_source_file(tmp_path):
     r = _run(tmp_path, {"web/src/x.ts": "export const x = 1;\n"})
     assert r.returncode == 0, r.stderr
+
+
+def test_email_scan_survives_external_diff_driver(tmp_path):
+    # porcelain `git diff` honors GIT_EXTERNAL_DIFF / diff.external (difftastic/delta
+    # setups): driver output has no ^+ lines, silently blanking the content scans.
+    # --no-ext-diff must keep the real patch — else this fails OPEN with no signal.
+    r = _run(tmp_path, {"docs/note.md": f"contact: {_REAL2}\n"},
+             env={"GIT_EXTERNAL_DIFF": "/bin/true"})
+    assert r.returncode == 1, r.stderr
+    assert "email" in r.stderr.lower()
+
+
+def test_denylist_applies_in_linked_worktree(tmp_path):
+    # the terms file is untracked and lives only in the MAIN checkout — resolved via
+    # the shared git common dir, a linked worktree must still be covered (a relative
+    # path would make the denylist a silent no-op there).
+    main = tmp_path / "main"
+    main.mkdir()
+    for cmd in (["git", "init", "-q"], ["git", "config", "user.email", "t@example.com"],
+                ["git", "config", "user.name", "t"]):
+        subprocess.run(cmd, cwd=main, check=True)
+    (main / "a.txt").write_text("x\n")
+    subprocess.run(["git", "add", "a.txt"], cwd=main, check=True)
+    subprocess.run(["git", "commit", "-qm", "seed", "--no-verify"], cwd=main, check=True)
+    (main / "config").mkdir()
+    (main / "config" / "pii_terms.txt").write_text(_TERMS)
+    wt = tmp_path / "wt"
+    subprocess.run(["git", "worktree", "add", "-q", str(wt), "-b", "wtb"], cwd=main, check=True)
+    (wt / "docs").mkdir()
+    (wt / "docs" / "note.md").write_text("hello Jane Petrova\n")
+    subprocess.run(["git", "add", "docs/note.md"], cwd=wt, check=True)
+    r = subprocess.run(["bash", str(HOOK)], cwd=wt, capture_output=True, text=True)
+    assert r.returncode == 1, r.stderr
+    assert "personal term" in r.stderr
 
 
 # --- personal-term denylist (config/pii_terms.txt) ------------------------------------
@@ -351,6 +392,28 @@ def test_commit_msg_ignores_comment_template_lines(tmp_path):
     assert r.returncode == 0, r.stderr
 
 
+def test_commit_msg_blocks_pii_in_editor_flow_body(tmp_path):
+    # the strip branch must remove ONLY comment/scissors content — PII in the kept
+    # body must still block, or an over-aggressive sed edit fails open undetected.
+    msg = (f"fix: contact {_REAL} about the role\n\n"
+           "# Please enter the commit message for your changes. Lines starting\n"
+           "# with '#' will be ignored, and an empty message aborts the commit.\n")
+    r = _run_msg(tmp_path, msg)
+    assert r.returncode == 1
+    assert "personal data" in r.stderr
+
+
+def test_commit_msg_scissors_marker_alone_marks_editor_flow(tmp_path):
+    # localized git translates the '# Please enter' prose but NOT the 24-dash scissors
+    # marker — the marker alone must select the strip branch, or every non-English
+    # `git commit -v` scrub commit is falsely blocked.
+    scissors = "# " + "-" * 24 + " >8 " + "-" * 24 + "\n"
+    msg = (f"fix: scrub the leaked address\n\n{scissors}"
+           f"diff --git a/x b/x\n-old: {_REAL}\n+new: TBD\n")
+    r = _run_msg(tmp_path, msg, terms=_TERMS)
+    assert r.returncode == 0, r.stderr
+
+
 def test_commit_msg_scans_hash_lines_of_dash_m_messages(tmp_path):
     # `git commit -m` defaults to cleanup=whitespace: '#' lines ARE recorded. Without
     # git's editor-template marker the hook must scan them raw — stripping would fail
@@ -435,6 +498,69 @@ def test_ci_guard_catches_pii_added_then_removed_in_range(tmp_path):
     assert "personal-data" in r.stderr
 
 
+def test_ci_guard_catches_pii_in_merge_conflict_resolution(tmp_path):
+    # `git log -p` skips merge diffs, so PII introduced ONLY in an evil-merge conflict
+    # resolution is invisible to the per-commit scan — the endpoint-diff belt must
+    # catch it (this is the case the belt exists for).
+    base = _seeded_repo(tmp_path)
+    default = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=tmp_path,
+                             check=True, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "checkout", "-qb", "side"], cwd=tmp_path, check=True)
+    _commit(tmp_path, "docs/x.md", "side version\n")
+    subprocess.run(["git", "checkout", "-q", default], cwd=tmp_path, check=True)
+    _commit(tmp_path, "docs/x.md", "main version\n")
+    subprocess.run(["git", "merge", "side"], cwd=tmp_path, capture_output=True)  # conflicts
+    (tmp_path / "docs" / "x.md").write_text(f"resolved: ping {_REAL}\n")
+    subprocess.run(["git", "add", "docs/x.md"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "--no-verify", "-m", "fix: merge side"],
+                   cwd=tmp_path, check=True)
+    r = subprocess.run(["bash", str(CI_GUARD), base], cwd=tmp_path, capture_output=True, text=True)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "email" in r.stderr.lower()
+
+
+def test_ci_guard_baseline_bounds_unusable_base_fallback(tmp_path):
+    # this repo's permanent early history holds since-removed demo files under
+    # personal-data paths: an UNBOUNDED full-history fallback is guaranteed-red
+    # forever (worst on the run right after a leak-scrub force-push). The baseline
+    # env caps the fallback at a known-clean floor; without it, full history scans.
+    _seeded_repo(tmp_path)
+    _commit(tmp_path, "config/profile.yml", "legacy demo\n")
+    subprocess.run(["git", "rm", "-q", "config/profile.yml"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "cleanup", "--no-verify"], cwd=tmp_path, check=True)
+    baseline = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, check=True,
+                              capture_output=True, text=True).stdout.strip()
+    _commit(tmp_path, "docs/clean.md", "clean\n")
+    r = subprocess.run(["bash", str(CI_GUARD), _ZEROS], cwd=tmp_path, capture_output=True,
+                       text=True, env={**os.environ, "PII_GUARD_BASELINE": baseline})
+    assert r.returncode == 0, r.stdout + r.stderr
+    r = subprocess.run(["bash", str(CI_GUARD), _ZEROS], cwd=tmp_path, capture_output=True, text=True)
+    assert r.returncode == 1, "unbounded fallback must still scan full history"
+
+
+def test_ci_guard_email_redaction_hides_org_domain(tmp_path):
+    # masking only the first domain label would print `j***@m***.acme-corp.com` — the
+    # registrable org domain identifies the person; everything after the first domain
+    # character must be masked.
+    base = _seeded_repo(tmp_path)
+    _commit(tmp_path, "docs/note.md", f"ping jsmith{_AT}mail.acme-corp.com\n")
+    r = subprocess.run(["bash", str(CI_GUARD), base], cwd=tmp_path, capture_output=True, text=True)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "acme-corp" not in r.stderr, "org domain leaked into CI output"
+    assert "j***@m***" in r.stderr
+
+
+def test_ci_guard_path_redaction_hides_subdirectories(tmp_path):
+    # user-named SUBDIRECTORIES under resume/ or applications/ carry names just like
+    # basenames — only the first, repo-structural component may survive into the log.
+    base = _seeded_repo(tmp_path)
+    _commit(tmp_path, "resume/JanePetrova_2026/cv.pdf", "cv\n")
+    r = subprocess.run(["bash", str(CI_GUARD), base], cwd=tmp_path, capture_output=True, text=True)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "JanePetrova" not in r.stderr, "user-named directory leaked into CI output"
+    assert "resume/<redacted>" in r.stderr
+
+
 def test_ci_guard_scans_commit_messages_in_range(tmp_path):
     # the commit-msg hook is bypassable (--no-verify / uninstalled hooks); a leaked
     # address in a MESSAGE lands on GitHub like file content and must fail CI.
@@ -494,3 +620,39 @@ def test_ci_guard_unusable_base_scans_whole_history_not_just_head(tmp_path):
     r = subprocess.run(["bash", str(CI_GUARD), _ZEROS], cwd=tmp_path, capture_output=True, text=True)
     assert r.returncode == 1, r.stdout + r.stderr
     assert "personal-data" in r.stderr
+
+
+# --- hook installer (scripts/install-hooks.sh) ----------------------------------------
+
+def test_install_hooks_refuses_nested_copy(tmp_path):
+    # a tarball copy nested inside ANOTHER repo's work tree must be refused — running
+    # would rewrite that unrelated repo's core.hooksPath (silently disabling its own
+    # hooks) while claiming these guards were installed.
+    for cmd in (["git", "init", "-q"], ["git", "config", "user.email", "t@example.com"],
+                ["git", "config", "user.name", "t"]):
+        subprocess.run(cmd, cwd=tmp_path, check=True)
+    nested = tmp_path / "nested-copy"
+    (nested / "scripts").mkdir(parents=True)
+    shutil.copy(INSTALL_HOOKS, nested / "scripts" / "install-hooks.sh")
+    shutil.copytree(REPO_ROOT / "hooks", nested / "hooks")
+    r = subprocess.run(["bash", "scripts/install-hooks.sh"], cwd=nested,
+                       capture_output=True, text=True)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "refusing" in r.stderr
+    hp = subprocess.run(["git", "config", "core.hooksPath"], cwd=tmp_path,
+                        capture_output=True, text=True)
+    assert hp.stdout.strip() != "hooks", "enclosing repo's hooksPath was rewritten"
+
+
+def test_install_hooks_installs_in_own_checkout(tmp_path):
+    # happy path, including a checkout reached via its physical location.
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "scripts").mkdir()
+    shutil.copy(INSTALL_HOOKS, tmp_path / "scripts" / "install-hooks.sh")
+    shutil.copytree(REPO_ROOT / "hooks", tmp_path / "hooks")
+    r = subprocess.run(["bash", "scripts/install-hooks.sh"], cwd=tmp_path,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    hp = subprocess.run(["git", "config", "core.hooksPath"], cwd=tmp_path,
+                        capture_output=True, text=True)
+    assert hp.stdout.strip() == "hooks"

@@ -7,7 +7,9 @@ set -euo pipefail
 # tarball/zip copy nested inside another repo's work tree would rewrite that
 # unrelated repo's core.hooksPath — silently disabling its own hooks — while
 # printing a success message for guards that were never installed here.
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# pwd -P (physical): `git rev-parse --show-toplevel` resolves symlinks, so a logical
+# path here would false-refuse a perfectly valid clone reached via a symlink.
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 top="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null || true)"
 if [ "$top" != "$root" ]; then
   echo "✗ install-hooks: $root is not the top of a git checkout (git sees: ${top:-no repo})" >&2

@@ -22,12 +22,18 @@
 set -euo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../hooks/pii-lib.sh"
 
-base="${1:-}"
 zeros="0000000000000000000000000000000000000000"
-if [ -z "$base" ] || [ "$base" = "$zeros" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
-  base=""
-fi
-if [ -n "$base" ]; then
+usable() { [ -n "$1" ] && [ "$1" != "$zeros" ] && git cat-file -e "$1^{commit}" 2>/dev/null; }
+
+base="${1:-}"
+# Known-clean floor for the fallback: the repo's EARLY history contains since-removed
+# demo scaffolding under personal-data paths (pre-*.example.csv rename), so an
+# unbounded full-history scan is guaranteed-red forever — including on the very CI
+# run that follows a leak scrub (force-push ⇒ unusable `before` sha), burying the
+# real signal. PII_GUARD_BASELINE (set in ci.yml) bounds the fallback to commits
+# after that point; everything since is scanned, still fail-closed.
+if ! usable "$base"; then base="${PII_GUARD_BASELINE:-}"; fi
+if usable "$base"; then
   # merge-base so a stale PR base doesn't blame main's own history on this branch.
   endpoint_base="$(git merge-base "$base" HEAD 2>/dev/null || echo "$base")"
   range="${endpoint_base}..HEAD"
@@ -53,7 +59,10 @@ added_lines() {
   {
     git -c core.quotepath=off log -p -U0 --format= --diff-filter=ACMR "$range"
     if [ -n "$endpoint_base" ]; then
-      git -c core.quotepath=off diff -U0 --diff-filter=ACMR "$endpoint_base" HEAD
+      # --no-ext-diff: porcelain `git diff` honors external diff drivers, whose output
+      # has no ^+ lines — the scan would silently blank on a local run (git log
+      # already defaults to no-ext-diff).
+      git -c core.quotepath=off diff -U0 --no-ext-diff --diff-filter=ACMR "$endpoint_base" HEAD
     fi
   } | grep -E '^\+' | grep -vE '^[+]{3} ([ab]/|/dev/null)' || true
 }
@@ -64,7 +73,11 @@ paths="$(changed_paths | sort -u | pii_offending_paths)"
 if [ -n "$paths" ]; then
   echo "✗ ci-pii-guard: personal-data paths in this push (basenames redacted here —" >&2
   echo "  a résumé/CV filename can itself carry a real name, and Actions logs persist):" >&2
-  printf '%s\n' "$paths" | sed -E 's|[^/]+$|<basename-redacted>|' | sed 's/^/  /' >&2
+  # keep only the first (repo-structural) component: user-named SUBDIRECTORIES under
+  # resume/ or applications/ can carry a real name just like a basename.
+  printf '%s\n' "$paths" \
+    | sed -E -e 's|^([^/]+)/.+$|\1/<redacted>|' -e 's|^[^/]+$|<redacted>|' \
+    | sort -u | sed 's/^/  /' >&2
   echo "  run the local pre-commit hook (or git log --name-only) for the full paths." >&2
   fail=1
 fi
@@ -73,7 +86,9 @@ mails="$(added_lines | pii_offending_emails)"
 if [ -n "$mails" ]; then
   echo "✗ ci-pii-guard: real-looking email addresses in added lines (redacted here —" >&2
   echo "  Actions logs persist and outlive a branch scrub; run the local hook for the full strings):" >&2
-  printf '%s\n' "$mails" | sed -E 's/^(.)[^@]*@(.)[^.]*/    \1***@\2***/' >&2
+  # mask EVERYTHING after the first domain character — leaving later labels visible
+  # (`j***@m***.acme-corp.com`) would leak the identifying org domain into the log.
+  printf '%s\n' "$mails" | sed -E 's/^(.)[^@]*@(.).*$/    \1***@\2***/' >&2
   echo "  use @example.com placeholders in anything that ships." >&2
   fail=1
 fi
@@ -81,7 +96,7 @@ fi
 msg_mails="$(git log --format=%B "$range" | pii_offending_emails)"
 if [ -n "$msg_mails" ]; then
   echo "✗ ci-pii-guard: real-looking email addresses in a commit MESSAGE in this range (redacted):" >&2
-  printf '%s\n' "$msg_mails" | sed -E 's/^(.)[^@]*@(.)[^.]*/    \1***@\2***/' >&2
+  printf '%s\n' "$msg_mails" | sed -E 's/^(.)[^@]*@(.).*$/    \1***@\2***/' >&2
   echo "  reword via rebase — the message is recorded on GitHub just like file content." >&2
   fail=1
 fi

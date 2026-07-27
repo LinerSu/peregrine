@@ -22,7 +22,7 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # repo root (this script li
 # it, and the install would rewrite that unrelated repo's core.hooksPath (silently
 # disabling its own hooks) while claiming success here. On sudo (dubious-ownership
 # refusal), a no-git box, or a nested copy: warn loudly and keep the launch alive.
-if [ "$(git rev-parse --show-toplevel 2>/dev/null || true)" = "$PWD" ]; then
+if [ "$(git rev-parse --show-toplevel 2>/dev/null || true)" = "$(pwd -P)" ]; then
   if [ "$(git config core.hooksPath 2>/dev/null || true)" != "hooks" ]; then
     ./scripts/install-hooks.sh
   fi
