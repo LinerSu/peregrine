@@ -96,6 +96,8 @@ BLOCKED_PATHS = [
     ".env.production",          # secret variant
     "deploy/prod.env",          # the `\.env$` SUFFIX branch — the three cases above all
                                 # also match `(^|/)\.env($|\.)`, so only this pins it
+    "data/jobs\\backup.csv",    # backslash in the name: git C-quotes it EVEN with
+                                # quotepath=off — pins the fail-closed quoted-line rule
 ]
 
 ALLOWED_PATHS = [
@@ -235,6 +237,14 @@ def test_blocks_a_personal_file_staged_via_rename(tmp_path):
 def test_allows_a_clean_source_file(tmp_path):
     r = _run(tmp_path, {"web/src/x.ts": "export const x = 1;\n"})
     assert r.returncode == 0, r.stderr
+
+
+def test_blocks_email_in_staged_filename(tmp_path):
+    # an email-shaped FILENAME (saved correspondence, exported .eml) leaks exactly
+    # like content — the email scan must see staged paths, not just added lines.
+    r = _run(tmp_path, {f"docs/contact-{_REAL2}.md": "clean content\n"})
+    assert r.returncode == 1, r.stderr
+    assert "email" in r.stderr.lower()
 
 
 def test_email_scan_is_case_insensitive(tmp_path):
@@ -784,3 +794,13 @@ def test_ensure_hooks_warns_but_never_fails_launch_in_nested_copy(tmp_path):
     hp = subprocess.run(["git", "config", "core.hooksPath"], cwd=tmp_path,
                         capture_output=True, text=True)
     assert hp.stdout.strip() != "hooks", "enclosing repo's hooksPath was rewritten"
+
+
+def test_ci_guard_blocks_email_in_committed_filename(tmp_path):
+    # filenames feed the email scan in CI too, and stay redacted in the output.
+    base = _seeded_repo(tmp_path)
+    _commit(tmp_path, f"docs/contact-{_REAL2}.md", "clean content\n")
+    r = subprocess.run(["bash", str(CI_GUARD), base], cwd=tmp_path, capture_output=True, text=True)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "email" in r.stderr.lower()
+    assert _REAL2 not in r.stderr, "verbatim email leaked into CI output"

@@ -88,7 +88,8 @@ if [ -n "$paths" ]; then
   fail=1
 fi
 
-mails="$(added_lines | pii_offending_emails)"
+# Filenames feed the email scan too — an email-shaped name leaks like content does.
+mails="$({ changed_paths; added_lines; } | pii_offending_emails)"
 if [ -n "$mails" ]; then
   echo "✗ ci-pii-guard: real-looking email addresses in added lines (redacted here —" >&2
   echo "  Actions logs persist and outlive a branch scrub; run the local hook for the full strings):" >&2

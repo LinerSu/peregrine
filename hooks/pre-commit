@@ -65,7 +65,9 @@ fi
 # blank BOTH the email scan and the denylist scan below (fail-open, no signal).
 added_lines="$(git -c core.quotepath=off diff --cached -U0 --no-ext-diff --diff-filter=ACMR \
   | grep -E '^\+' | grep -vE '^[+]{3} ([ab]/|/dev/null)' || true)"
-mail_hits="$(printf '%s\n' "$added_lines" | pii_offending_emails)"
+# Filenames are scanned too: an email-shaped NAME (saved correspondence, exported
+# .eml, recruiter-named notes) leaks exactly like one in content.
+mail_hits="$(printf '%s\n' "$staged" "$added_lines" | pii_offending_emails)"
 if [ -n "$mail_hits" ]; then
   echo "✗ pre-commit: a real-looking email address in a staged change (PII?):" >&2
   printf '    %s\n' "$mail_hits" >&2

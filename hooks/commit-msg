@@ -21,16 +21,14 @@ set -euo pipefail
 # by git's own template line and emulate strip only then; otherwise scan the file
 # raw. (Assumes default core.commentChar '#'.)
 # Editor-flow evidence: git's template line (English) OR the real scissors marker
-# (locale-independent — gettext localizes the prose but not the 24-dash `>8` line;
-# a pasted short lookalike like `# -- >8 --` stays below the 20-dash floor and is
-# scanned raw). Residual: localized NON-verbose editor commits fall to the raw
-# branch — fail-closed (possible false block), never fail-open.
-if grep -q '^# Please enter' "$1" || grep -qE '^# -{20,} >8 -{20,}$' "$1"; then
-  # Truncation floor MUST match the detection floor (20 dashes): git only cuts at its
-  # real 24-dash scissors line, so truncating at a pasted short lookalike would skip
-  # recorded lines between the lookalike and the template — a fail-open. A short
-  # lookalike is just a '#' comment: dropped by the /^#/d, its surroundings scanned.
-  msg_clean="$(sed -e '/^# -\{20,\} >8 -\{20,\}$/,$d' -e '/^#/d' "$1")"
+# (locale-independent — gettext localizes the prose but not the `>8` cut line).
+# Both the detection and the truncation below use git's EXACT constant (24 dashes a
+# side, wt-status.c cut_line): git only truncates there, so any other dash count is
+# an ordinary '#' comment whose surroundings ARE recorded and must be scanned.
+# Residual: localized NON-verbose editor commits fall to the raw branch —
+# fail-closed (possible false block), never fail-open.
+if grep -q '^# Please enter' "$1" || grep -qE '^# -{24} >8 -{24}$' "$1"; then
+  msg_clean="$(sed -e '/^# -\{24\} >8 -\{24\}$/,$d' -e '/^#/d' "$1")"
 else
   msg_clean="$(cat "$1")"
 fi

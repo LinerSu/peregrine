@@ -9,7 +9,12 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
 if [ "$(git rev-parse --show-toplevel 2>/dev/null || true)" = "$(pwd -P)" ]; then
   if [ "$(git config core.hooksPath 2>/dev/null || true)" != "hooks" ]; then
-    ./scripts/install-hooks.sh
+    # never-fail-the-launch also covers install failure (.git root-owned after a
+    # prior `sudo ./start.sh`, read-only mount): degrade to a loud warning.
+    ./scripts/install-hooks.sh || {
+      echo "⚠ could not install the PII/crawl-policy hooks (.git unwritable? sudo-owned?) —" >&2
+      echo "  launch continues UNGUARDED; fix permissions and re-run scripts/install-hooks.sh" >&2
+    }
   fi
 else
   echo "⚠ this directory is not its own git checkout (tarball copy? sudo?) —" >&2

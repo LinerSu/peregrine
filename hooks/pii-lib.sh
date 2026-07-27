@@ -39,10 +39,20 @@ case "$_pii_common" in
   /*) PII_TERMS_FILE="${_pii_common%/.git}/config/pii_terms.txt" ;;
   *)  PII_TERMS_FILE="config/pii_terms.txt" ;;
 esac
+# --separate-git-dir / submodule checkouts: the common dir doesn't end in /.git, so
+# the strip above is a no-op and the derived path points inside the git dir. Hooks
+# run from the toplevel — fall back to the cwd copy rather than silently scanning
+# against a file that can never exist.
+if [ ! -f "$PII_TERMS_FILE" ] && [ -f "config/pii_terms.txt" ]; then
+  PII_TERMS_FILE="config/pii_terms.txt"
+fi
 
 # stdin: candidate paths (one per line) -> stdout: personal-data paths that must not ship.
+# Lines starting with a literal `"` are git C-quoted names: quotepath=off does NOT stop
+# quoting for double-quote/backslash/control characters, and the anchored regex can't
+# see into the quoted form — fail CLOSED and flag the quoted line itself.
 pii_offending_paths() {
-  grep -E "$PII_PATH_RE" | grep -vE "$PII_PATH_EXEMPT_RE" || true
+  grep -E "${PII_PATH_RE}"'|^"' | grep -vE "$PII_PATH_EXEMPT_RE" || true
 }
 
 # stdin: text -> stdout: unique real-looking addresses after the allow-list filters.

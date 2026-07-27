@@ -13,19 +13,24 @@ jobs:
   pii-guard:
     name: PII guard (generic backstop)
     runs-on: ubuntu-latest
+    env:
+      # Known-clean floor for the unusable-base fallback: the commit that removed
+      # the initial scaffold's demo files from personal-data paths. Without it, a
+      # full-history fallback scan (force-push / branch creation) is guaranteed-red
+      # on those permanent legacy commits, burying any real signal.
+      PII_GUARD_BASELINE: 4381499cb1d7bcc50585538ef2f679f90d00d14b
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # the guard diffs against the PR base / push `before` sha
+      # Tripwire HERE, not only in pytest: the backend job's shallow checkout always
+      # skips the pytest version, and a fresh full clone is exactly where a
+      # post-history-rewrite stale baseline would first stop resolving.
+      - name: Baseline sha still resolves
+        run: git cat-file -e "${PII_GUARD_BASELINE}^{commit}" || { echo "::error::PII_GUARD_BASELINE no longer resolves — update ci.yml after the history rewrite"; exit 1; }
       # Generic subset only (personal paths + emails) — the personal-term denylist
       # stays local by design; see scripts/ci_pii_guard.sh for the threat model.
       - name: Scan pushed diff for personal paths / real emails
-        env:
-          # Known-clean floor for the unusable-base fallback: the commit that removed
-          # the initial scaffold's demo files from personal-data paths. Without it, a
-          # full-history fallback scan (force-push / branch creation) is guaranteed-red
-          # on those permanent legacy commits, burying any real signal.
-          PII_GUARD_BASELINE: 4381499cb1d7bcc50585538ef2f679f90d00d14b
         run: bash scripts/ci_pii_guard.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
 
   backend:
