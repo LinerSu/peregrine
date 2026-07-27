@@ -8,9 +8,15 @@
 // It is full shell access — never expose that port off your machine.
 // `||` (not `??`) so an empty build-time value also falls back to the default —
 // the Docker build injects VITE_TERMINAL_URL as "" when the arg is unset.
+import { useState } from "react";
+
 const TERMINAL_URL = import.meta.env.VITE_TERMINAL_URL || "http://localhost:7681";
 
 export default function TerminalPanel() {
+  // Bumping the key remounts the iframe — the recovery path for "the terminal
+  // wasn't running when this first loaded, I started it, now reconnect" (an
+  // iframe that failed to load has no other retry).
+  const [reloadTick, setReloadTick] = useState(0);
   return (
     <div className="flex flex-col h-full">
       <div className="px-3 py-2 text-xs text-gray-500 border-b border-gray-200 bg-gray-50">
@@ -18,7 +24,15 @@ export default function TerminalPanel() {
         start the{" "}
         <code className="px-1 rounded bg-gray-200 text-gray-700">peregrine-terminal</code>{" "}
         service, or run{" "}
-        <code className="px-1 rounded bg-gray-200 text-gray-700">./start.sh</code>.{" "}
+        <code className="px-1 rounded bg-gray-200 text-gray-700">./start.sh</code>, then{" "}
+        <button
+          onClick={() => setReloadTick((n) => n + 1)}
+          className="text-indigo-600 hover:underline"
+          title="Reconnect the embedded terminal (reloads the frame)"
+        >
+          reconnect
+        </button>
+        .{" "}
         <a
           href={TERMINAL_URL}
           target="_blank"
@@ -29,6 +43,7 @@ export default function TerminalPanel() {
         </a>
       </div>
       <iframe
+        key={reloadTick}
         title="Local terminal"
         src={TERMINAL_URL}
         className="flex-1 w-full border-0"

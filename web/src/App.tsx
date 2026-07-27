@@ -204,12 +204,15 @@ export default function App() {
         <div className="ml-auto flex items-center gap-2">
           {/* Demo-data badge: without it, demo and live modes are pixel-identical and a
               forgotten PEREGRINE_DATASET quietly impersonates the user's real workspace. */}
+          {/* Never fully hidden — on narrow screens it collapses to the emoji (with
+              the tooltip), because a demo dataset invisibly impersonating the real
+              workspace is the exact problem this badge exists to prevent. */}
           {dataset && (
             <span
               title={`Demo dataset "${dataset}" is active (PEREGRINE_DATASET). Your real config/ + data/ are untouched — switch back with: ./scripts/dataset.sh off`}
-              className="hidden md:inline-flex truncate max-w-[12rem] px-2.5 py-1 text-xs font-medium rounded-full border border-amber-300 bg-amber-50 text-amber-800"
+              className="inline-flex truncate max-w-[12rem] px-2.5 py-1 text-xs font-medium rounded-full border border-amber-300 bg-amber-50 text-amber-800"
             >
-              🧪 Demo data: {dataset}
+              🧪<span className="hidden md:inline">&nbsp;Demo data: {dataset}</span>
             </span>
           )}
 
@@ -262,7 +265,13 @@ export default function App() {
                 key={m}
                 type="button"
                 aria-pressed={mode === m}
-                onClick={() => setMode(m)}
+                onClick={() => {
+                  setMode(m);
+                  // Internal mode IS the rail (the terminal lives there) — selecting it
+                  // with the rail collapsed would point every guided prompt at a hidden
+                  // terminal, so re-open it.
+                  if (m === "internal") setRailOpen(true);
+                }}
                 className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
                   mode === m
                     ? m === "internal"

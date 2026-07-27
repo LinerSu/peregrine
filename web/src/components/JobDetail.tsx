@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Evaluation, type Job } from "../api";
 import type { AssistantMode } from "../App";
-import { fitClass, legitimacyClass, relativeTime, salaryRange, statusClass } from "../format";
+import { fitClass, legitimacyClass, relativeTime, safeHttpUrl, salaryRange, statusClass } from "../format";
 import JobMarkdown from "./JobMarkdown";
 import ContactsEditor from "./ContactsEditor";
 
@@ -93,6 +93,7 @@ export default function JobDetail({
   const [cvTexPromptCopied, setCvTexPromptCopied] = useState(false);
   const [cvTexCopied, setCvTexCopied] = useState(false);
   const [cvError, setCvError] = useState("");
+  const [starBusy, setStarBusy] = useState(false); // in-flight guard for the star PATCH
   const baseline = useRef(""); // job markdown before the run
   const coverBaseline = useRef<string | null>(null); // cover letter before the run
   const cvTexBaseline = useRef<string | null>(null); // tailored CV before the run
@@ -356,11 +357,20 @@ export default function JobDetail({
       return [];
     }
   })();
+  const postingHref = safeHttpUrl(job.url); // never render a non-http(s) scheme as a link
   const toggleStar = async () => {
+    if (starBusy) return; // two rapid clicks would race their PATCHes out of order
     const next = !job.starred;
-    setJob({ ...job, starred: next }); // optimistic — the list syncs via onChanged
-    await api.updateJob(job.id, { starred: next });
-    onChanged();
+    setStarBusy(true);
+    setJob({ ...job, starred: next }); // optimistic — reverted below if the PATCH fails
+    try {
+      await api.updateJob(job.id, { starred: next });
+      onChanged();
+    } catch {
+      setJob((j) => (j ? { ...j, starred: !next } : j));
+    } finally {
+      setStarBusy(false);
+    }
   };
 
   return (
@@ -390,9 +400,9 @@ export default function JobDetail({
           >
             {job.starred ? "★" : "☆"}
           </button>
-          {job.url && (
+          {postingHref && (
             <a
-              href={job.url}
+              href={postingHref}
               target="_blank"
               rel="noopener noreferrer"
               title="Open the original posting (viewing ≠ applying — the apply gate is below)"

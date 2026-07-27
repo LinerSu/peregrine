@@ -1,17 +1,28 @@
 // Shared display formatting for jobs/applications tables.
 
-// "today" / "3d ago" / "2w ago" / "5mo ago" for a YYYY-MM-DD date; "" for
-// empty/invalid input so callers can simply omit the segment.
+// "today" / "3d ago" / "2w ago" / "5mo ago" / "2y ago" for a YYYY-MM-DD date;
+// "" for empty/invalid input so callers can simply omit the segment.
 export function relativeTime(dateStr: string): string {
   if (!dateStr) return "";
   const d = new Date(`${dateStr}T00:00:00`);
   if (isNaN(d.getTime())) return "";
-  const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
+  // Diff LOCAL MIDNIGHTS and round: subtracting the date from raw `now` drifts
+  // ±1h across a DST boundary, which floor() turns into an off-by-one day.
+  const days = Math.round((new Date().setHours(0, 0, 0, 0) - d.getTime()) / 86_400_000);
   if (days < 0) return dateStr; // future "posted" date — show it verbatim
   if (days === 0) return "today";
   if (days < 7) return `${days}d ago`;
-  if (days < 60) return `${Math.floor(days / 7)}w ago`;
-  return `${Math.floor(days / 30)}mo ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+  return `${Math.floor(days / 365)}y ago`;
+}
+
+// Only http(s) URLs may be rendered as links — job.url comes from scraped or
+// LLM-extracted posting fields, so a javascript:/data: scheme must never reach
+// an href. undefined (not "") so callers can gate rendering on it.
+export function safeHttpUrl(u?: string): string | undefined {
+  const t = (u || "").trim();
+  return /^https?:\/\//i.test(t) ? t : undefined;
 }
 
 export function salaryRange(
