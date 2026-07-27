@@ -32,7 +32,10 @@ experience you don't have. You can export it (including a LaTeX/PDF version) fro
 
 ## Tips
 
-- Re-parse your CV any time you update it; the profile refreshes.
+- Re-parse your CV any time you update it; the profile refreshes. Skill-match chips and
+  rankings update immediately. Fit evaluations and cover letters made with your **previous**
+  CV are hidden as outdated (a banner on the job points at re-running them); tailored CVs
+  are left as-is for now.
 - The richer your profile, the better the fit scores and drafts.
 - For real extraction (not mock), use an AI key or **Internal (Claude)** mode.
 

@@ -27,6 +27,9 @@ export default function PreferencesPanel({ onChanged }: { onChanged: () => void 
   const [detected, setDetected] = useState<DetectedSource[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(""); // latest action feedback
+  const [purgeDays, setPurgeDays] = useState("180"); // housekeeping: retention cutoff
+  const [purgeBusy, setPurgeBusy] = useState(false);
+  const [purgeMsg, setPurgeMsg] = useState("");
 
   useEffect(() => {
     api.getPreferences().then((tt) => {
@@ -297,6 +300,54 @@ export default function PreferencesPanel({ onChanged }: { onChanged: () => void 
               />
             </div>
           </div>
+        </section>
+
+        <section className="space-y-2">
+          <h3 className={h}>Housekeeping</h3>
+          <div className="flex flex-wrap items-center gap-2 text-sm text-gray-700">
+            Remove <b>closed</b> jobs posted more than
+            <input
+              className="w-20 px-2 py-1 text-sm border border-gray-300 rounded-md"
+              inputMode="numeric"
+              value={purgeDays}
+              onChange={(e) => setPurgeDays(e.target.value.replace(/\D/g, ""))}
+            />
+            days ago
+            <button
+              onClick={async () => {
+                const days = parseInt(purgeDays, 10);
+                if (!days || days < 1) {
+                  setPurgeMsg("Enter a number of days (e.g. 180).");
+                  return;
+                }
+                if (!window.confirm(`Permanently delete closed jobs posted over ${days} days ago (and their generated materials)?`)) return;
+                setPurgeBusy(true);
+                setPurgeMsg("");
+                try {
+                  const r = await api.purgeJobs(days);
+                  setPurgeMsg(
+                    `Removed ${r.deleted}` +
+                      (r.skipped_linked ? ` · kept ${r.skipped_linked} with applications` : "") +
+                      (r.skipped_undated ? ` · kept ${r.skipped_undated} without a posted date` : "")
+                  );
+                } catch {
+                  setPurgeMsg("Purge failed — is the API up?");
+                } finally {
+                  setPurgeBusy(false);
+                }
+              }}
+              disabled={purgeBusy}
+              className="px-3 py-1.5 text-sm font-medium text-rose-700 border border-rose-300 rounded-md hover:bg-rose-50 disabled:opacity-50"
+            >
+              {purgeBusy ? "Purging…" : "Purge now"}
+            </button>
+            {purgeMsg && <span className="text-xs text-gray-500">{purgeMsg}</span>}
+          </div>
+          <p className="text-xs text-gray-500">
+            Jobs linked to an application are never removed. For automatic cleanup after each
+            scan, set <code className="px-1 rounded bg-gray-100">filters.retention_days</code> in{" "}
+            <code className="px-1 rounded bg-gray-100">config/portals.yml</code>.
+          </p>
         </section>
 
         <div className="border-t border-gray-200 pt-4 flex flex-wrap items-center gap-3">

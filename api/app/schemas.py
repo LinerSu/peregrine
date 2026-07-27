@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 JobStatus = Literal["open", "closed", "removed", "applied", "interviewing", "rejected", "offer"]
 
@@ -240,12 +240,21 @@ class ScanFilters(BaseModel):
     remote_only: bool = False
     min_base: float = 0.0
     max_age_days: int = 0
+    # 0 = keep closed jobs forever. N = after each scan, closed jobs whose posting is
+    # older than N days are DELETED (rows + artifacts; linked applications skipped).
+    retention_days: int = 0
+
 
     @field_validator("locations", mode="before")
     @classmethod
     def _locs(cls, v):
         # _as_str maps None->"" (str(None) would persist the literal "None"); drop blanks.
         return [s for s in (_as_str(x).strip() for x in v) if s] if isinstance(v, list) else []
+
+
+class PurgeInput(BaseModel):
+    """POST /api/jobs/purge — one-shot removal of aged-out closed jobs."""
+    older_than_days: int = Field(ge=1, le=3650)
 
 
 class PortalsInput(BaseModel):

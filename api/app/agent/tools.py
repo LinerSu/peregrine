@@ -177,8 +177,16 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
 
     pruned = _prune_orphan_snapshots({j.id for j in jobs})
 
+    # Retention: with filters.retention_days set, closed jobs whose posting is older
+    # than the window are REMOVED (rows + artifacts) at the end of each scan — aging
+    # marks them closed above; this is the opt-in second step that keeps the list from
+    # accumulating dead rows forever. Linked applications are never touched.
+    retention = _safe_int(filters.get("retention_days"))
+    purged = store.purge_closed_jobs(retention)["deleted"] if retention else 0
+
     summary = {"new": new, "duplicates": dup, "filtered": filtered,
-               "capped": capped, "dead": dead, "pruned_snapshots": pruned}
+               "capped": capped, "dead": dead, "pruned_snapshots": pruned,
+               "purged": purged}
     status.record("scan_done", str(summary), current_task="idle")
     return summary
 
@@ -625,6 +633,18 @@ def save_cover_letter(job_id: str, content: str) -> dict[str, Any]:
         return {"error": f"job {job_id} not found"}
     store.write_cover_letter(job_id, content)
     return {"job_id": job_id, "content": content}
+
+
+def artifact_stale(job_id: str, suffix: str) -> bool:
+    """True when a per-job artifact predates the CURRENT profile — i.e. it was built
+    against a previous CV and must not be presented as current analysis. Tailored CVs
+    are deliberately NOT flagged: their invalidation story (versioning? auto-regen?)
+    needs its own design — explicit user decision, do not extend this to `.cv.tex`."""
+    artifact = config.JOBS_DIR / f"{job_id}{suffix}"
+    try:
+        return artifact.stat().st_mtime < config.PROFILE_YML.stat().st_mtime
+    except OSError:
+        return False
 
 
 def get_cover_letter(job_id: str) -> dict[str, Any] | None:

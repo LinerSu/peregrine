@@ -205,9 +205,20 @@ function accent(title: string): string {
   return "border-l-gray-200";
 }
 
-export default function JobMarkdown({ md }: { md: string }) {
+export default function JobMarkdown({
+  md,
+  hideSections = [],
+}: {
+  md: string;
+  // Section titles to suppress (case-insensitive substring) — e.g. "Agent evaluation"
+  // when the stored evaluation predates the current CV and must not read as current.
+  hideSections?: string[];
+}) {
   if (!md.trim()) return <p className="text-sm text-gray-400">No snapshot yet.</p>;
-  const sections = parseSections(md).filter((s) => s.level !== 1); // header already shows the title
+  const hidden = hideSections.map((h) => h.toLowerCase());
+  const sections = parseSections(md)
+    .filter((s) => s.level !== 1) // header already shows the title
+    .filter((s) => !hidden.some((h) => s.title.toLowerCase().includes(h)));
 
   return (
     <div className="space-y-3">
