@@ -113,8 +113,12 @@ def ensure_dirs() -> None:
             marker.write_text(f"{DATASET}\n", encoding="utf-8")
         return
 
-    # Normal mode: the live CSVs are gitignored (personal data). On a fresh clone
-    # copy the committed examples so the app isn't empty — never the reverse.
+    # Normal mode: the live CSVs are gitignored (personal data). On a fresh clone copy
+    # the committed examples so the files exist with the right schema — never the
+    # reverse. The example CSVs are HEADER-ONLY on purpose: a seeded sample job would
+    # (a) carry a pre-baked fit score with no profile to explain it and (b) satisfy
+    # jobs.length > 0, which suppresses the web's auto-opened "Get started" onboarding
+    # (App.tsx) — the guided flow, not a mystery sample row, greets a new user.
     for live, example in (
         (JOBS_CSV, DATA_DIR / "jobs.example.csv"),
         (APPLICATIONS_CSV, DATA_DIR / "applications.example.csv"),

@@ -216,12 +216,17 @@ export default function InsightsPanel({ mode }: { mode: AssistantMode }) {
               <div key={f.stage} className="flex items-center gap-3">
                 <div className="w-24 text-sm text-gray-600">{f.stage}</div>
                 <div className="flex-1 h-6 bg-gray-100 rounded">
-                  <div
-                    className="h-6 rounded bg-indigo-500 flex items-center justify-end px-2 text-xs text-white"
-                    style={{ width: `${(f.count / maxFunnel) * 100}%`, minWidth: f.count ? "1.5rem" : 0 }}
-                  >
-                    {f.count || ""}
-                  </div>
+                  {/* Zero renders as an EMPTY track — no fill at all. The px-2 padding
+                      plus border-box sizing otherwise clamps width:0% to a ~1rem nub,
+                      which reads as a small-but-nonzero value. */}
+                  {f.count > 0 && (
+                    <div
+                      className="h-6 rounded bg-indigo-500 flex items-center justify-end px-2 text-xs text-white"
+                      style={{ width: `${(f.count / maxFunnel) * 100}%`, minWidth: "1.5rem" }}
+                    >
+                      {f.count}
+                    </div>
+                  )}
                 </div>
                 <div className="w-10 text-right text-xs text-gray-400">{Math.round(f.rate * 100)}%</div>
               </div>

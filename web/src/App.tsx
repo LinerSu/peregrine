@@ -32,6 +32,7 @@ export default function App() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [llmMock, setLlmMock] = useState(false); // External mode has no LLM key -> mock
+  const [dataset, setDataset] = useState<string | null>(null); // active demo persona, or null = live
   const [showOnboarding, setShowOnboarding] = useState(false);
   const ONBOARDED_KEY = "peregrine.onboarded";
 
@@ -114,9 +115,11 @@ export default function App() {
   }, [jobQuery, refreshJobs]);
 
   // Is the API backed by a real LLM, or returning mock placeholders (no key)?
+  // And is a demo dataset active (header badge — live vs demo is otherwise invisible)?
   useEffect(() => {
     let live = true;
     api.getLlmStatus().then((s) => live && setLlmMock(s.mock)).catch(() => {});
+    api.getHealth().then((h) => live && setDataset(h.dataset)).catch(() => {});
     return () => {
       live = false;
     };
@@ -149,6 +152,17 @@ export default function App() {
           <h1 className="text-base font-bold">Peregrine</h1>
           <p className="text-xs text-gray-500">Personal AI job-search assistant</p>
         </div>
+
+        {/* Demo-data badge: without it, demo and live modes are pixel-identical and a
+            forgotten PEREGRINE_DATASET quietly impersonates the user's real workspace. */}
+        {dataset && (
+          <span
+            title={`Demo dataset "${dataset}" is active (PEREGRINE_DATASET). Your real config/ + data/ are untouched — switch back with: ./scripts/dataset.sh off`}
+            className="px-2.5 py-1 text-xs font-medium rounded-full border border-amber-300 bg-amber-50 text-amber-800"
+          >
+            🧪 Demo data: {dataset}
+          </span>
+        )}
 
         <button
           onClick={() => setShowOnboarding(true)}

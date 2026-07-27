@@ -28,6 +28,11 @@ docker compose up --build
 > — it starts the stack **and** the local Claude terminal. See
 > [Assistant: External vs Internal (Claude)](#assistant-external-vs-internal-claude).
 
+**First launch is empty by design** — the guided **Get started** flow opens
+automatically (CV → search → companies → first scan). Prefer doing it by hand?
+Drop your résumé (PDF/`.tex`/`.md`/`.txt`) into `resume/` → **Profile → Import
+from resume/**, and list companies to watch in the **Targets** tab.
+
 Then in the chat bar try: **"find jobs matching my CV"** → review the scored
 results → open a job → **Evaluate fit** → **Prepare to apply** → Apply.
 
@@ -155,6 +160,20 @@ to `api/`, so these datasets live under `api/.demo/<name>/`.)
 
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) boots every persona and
 smoke-tests the API against it.
+
+## Contributing
+
+`./start.sh` self-installs the repo's git hooks on first launch (or run
+`scripts/install-hooks.sh` once per clone): a **PII guard** that blocks real
+CVs/profiles/jobs/emails from ever being committed, plus crawl-policy and
+commit-message checks. To make the guard also catch **your** name/phone/handles:
+
+```bash
+cp config/pii_terms.example.txt config/pii_terms.txt   # then add your real strings
+```
+
+The terms file is gitignored *and* hook-blocked — it never leaves your machine.
+CI re-runs the generic (path + email) checks on every push as a backstop.
 
 ## Scope, limits & disclaimer
 

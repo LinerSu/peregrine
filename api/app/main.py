@@ -38,8 +38,13 @@ def _startup() -> None:
 
 @app.get("/api/health")
 def health() -> dict:
+    from .config import DATASET
+
     s = get_settings()
-    return {"status": "ok", "provider": s.llm_provider, "model": s.llm_model}
+    # `dataset` drives the web's demo-data badge: without it the UI is pixel-identical
+    # in live and demo modes, and users forget which identity they're looking at.
+    return {"status": "ok", "provider": s.llm_provider, "model": s.llm_model,
+            "dataset": DATASET or None}
 
 
 @app.get("/api/status")

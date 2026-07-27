@@ -42,6 +42,14 @@ fi
 # Fail clearly if the port is already taken, rather than ttyd's cryptic bind error.
 if (exec 3<>"/dev/tcp/127.0.0.1/${PORT}") 2>/dev/null; then
   exec 3>&-
+  # Our own always-on user service holding the DEFAULT port is the RECOMMENDED state,
+  # not an error — say so plainly instead of the worried bullets below (a real user
+  # hit this and thought something was broken).
+  if [ "${PORT}" = "7681" ] && systemctl --user is-active --quiet peregrine-terminal 2>/dev/null; then
+    echo "✓ terminal already running via the peregrine-terminal service (port ${PORT}) — nothing to start."
+    echo "  Open the web UI and switch the assistant to 'Internal (Claude)'."
+    exit 0
+  fi
   echo "Port ${PORT} is already in use — not starting a second terminal." >&2
   echo "  • Already set? The peregrine-terminal service may be running:" >&2
   echo "      systemctl --user status peregrine-terminal" >&2

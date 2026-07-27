@@ -33,6 +33,23 @@ Then just click **Internal (Claude)** in the top bar. (Or run `./start.sh` to br
 stack and the terminal together for one session.) The terminal is bound to `127.0.0.1` —
 local-only; never expose it.
 
+## Troubleshooting the terminal
+
+**"Port 7681 is already in use" when running `./start.sh` / `terminal.sh`** — three cases:
+
+1. **The service is already running (most common — this is fine).** If you installed the
+   background service, the terminal is *already there*; nothing needed to start. Check with
+   `systemctl --user status peregrine-terminal`, then just click **Internal (Claude)**.
+2. **Ubuntu's packaged `ttyd` service.** `sudo apt install ttyd` enables a *root login
+   shell* on the same port — you'd see a username/password prompt instead of Claude.
+   Disable it once: `sudo systemctl disable --now ttyd.service`.
+3. **Something else owns the port.** Run on another port:
+   `PEREGRINE_TERMINAL_PORT=7682 ./scripts/terminal.sh`.
+
+**Terminal shows a shell prompt instead of Claude** — Claude Code isn't installed or
+logged in on the host: install it, run `claude` once to log in, then restart the service
+(`systemctl --user restart peregrine-terminal`).
+
 ## How to choose
 
 - **Have API budget / want it fully automatic?** → External with a key.

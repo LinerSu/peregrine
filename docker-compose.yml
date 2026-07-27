@@ -2,6 +2,15 @@ services:
   api:
     build: ./api
     container_name: peregrine-api
+    # Run as the HOST user, not root: everything the app writes into the bind mounts
+    # (data/ CSVs via atomic rewrite, logs/, .demo/ personas) otherwise lands on the
+    # host owned by root:root — breaking host-side edits, cleanup, and pytest runs.
+    # Override if your uid/gid isn't 1000: PEREGRINE_UID/PEREGRINE_GID in .env.
+    user: "${PEREGRINE_UID:-1000}:${PEREGRINE_GID:-1000}"
+    environment:
+      # uid 1000 has no passwd entry in the image, so $HOME would be unset/unwritable —
+      # give tools that write there (pip user-installs in test runs, caches) a real home.
+      HOME: /tmp
     env_file: .env
     ports:
       - "${API_PORT:-8000}:8000"
@@ -10,6 +19,15 @@ services:
       - ./config:/app/config
       - ./.agents:/app/.agents
       - ./logs:/app/logs
+      # These three were never mounted, so the (root) container silently kept PRIVATE
+      # copies inside its own fs: dropped résumés were invisible to "Import from
+      # resume/", prepared application materials evaporated on rebuild, and STATUS.md
+      # updates never reached the host. Running as ${PEREGRINE_UID} (above) also
+      # requires them — /app itself is root-owned image fs, so the app can't create
+      # its own copies anymore (that crash is what exposed the missing mounts).
+      - ./applications:/app/applications
+      - ./resume:/app/resume
+      - ./STATUS.md:/app/STATUS.md
       # Persist datasets (PEREGRINE_DATASET) on the host — incl. a private, gitignored
       # local test profile under .demo/<name>/. Code personas re-seed from code.
       - ./.demo:/app/.demo
