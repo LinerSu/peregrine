@@ -157,9 +157,13 @@ export default function App() {
         >
           Get started
         </button>
+        {/* New tab: /docs is a separate page (see main.tsx), so same-tab navigation
+            would drop the app's state (open job, chat, scroll). */}
         <a
           href="/docs"
-          title="Project documentation"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Project documentation (opens in a new tab)"
           className="px-2.5 py-1 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-md hover:bg-indigo-50"
         >
           Docs
