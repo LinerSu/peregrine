@@ -44,8 +44,12 @@ if (exec 3<>"/dev/tcp/127.0.0.1/${PORT}") 2>/dev/null; then
   exec 3>&-
   # Our own always-on user service holding the DEFAULT port is the RECOMMENDED state,
   # not an error — say so plainly instead of the worried bullets below (a real user
-  # hit this and thought something was broken).
-  if [ "${PORT}" = "7681" ] && systemctl --user is-active --quiet peregrine-terminal 2>/dev/null; then
+  # hit this and thought something was broken). INVOCATION_ID guard: when THIS run
+  # IS the service (systemd sets it; the unit's ExecStart is this script), asking
+  # systemd "is the service active?" is a tautology — exiting 0 here would mask a
+  # foreign port-holder (e.g. apt's root ttyd) as success and stop Restart= retries.
+  if [ -z "${INVOCATION_ID:-}" ] && [ "${PORT}" = "7681" ] \
+      && systemctl --user is-active --quiet peregrine-terminal 2>/dev/null; then
     echo "✓ terminal already running via the peregrine-terminal service (port ${PORT}) — nothing to start."
     echo "  Open the web UI and switch the assistant to 'Internal (Claude)'."
     exit 0

@@ -50,7 +50,9 @@ else:
 
 JOBS_DIR = DATA_DIR / "jobs"
 SKILLS_DIR = ROOT / ".agents" / "skills"
-LOGS_DIR = ROOT / "logs"
+# Anchored beside DATA_DIR so demo datasets get their OWN logs + status page —
+# otherwise demo activity overwrites the live user's runtime log/status.
+LOGS_DIR = DATA_DIR.parent / "logs"
 
 JOBS_CSV = DATA_DIR / "jobs.csv"
 APPLICATIONS_CSV = DATA_DIR / "applications.csv"
@@ -60,7 +62,12 @@ CV_SOURCE = CONFIG_DIR / "cv_source.md"  # raw CV text the user submits (Interna
 JOB_SOURCE = CONFIG_DIR / "job_source.md"  # raw job posting the user pastes/uploads (Internal mode reads it)
 MEMORY_YML = CONFIG_DIR / "memory.yml"
 PORTALS_YML = CONFIG_DIR / "portals.yml"
-STATUS_FILE = ROOT / "STATUS.md"
+# Under logs/ (a DIRECTORY bind mount), not the repo root: a root-level STATUS.md
+# was git-tracked — the runtime writer put the user's real activity (chat excerpts,
+# job events) into a committable file no guard covered — and a single-file bind
+# mount is fragile besides (git/editor renames detach the inode; a missing host
+# file makes Docker create a root-owned directory in its place).
+STATUS_FILE = LOGS_DIR / "STATUS.md"
 
 
 class Settings(BaseSettings):

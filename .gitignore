@@ -66,9 +66,12 @@ applications/*
 !applications/README.md
 !applications/.gitkeep
 
-# --- Logs ---
+# --- Logs / runtime status ---
 logs/
 *.log
+# The runtime status page (agent-written, carries real activity incl. chat
+# excerpts). Lives at logs/STATUS.md now; the root path is the legacy location.
+/STATUS.md
 
 # Runtime artifacts written when tests mount ./api as /app (ROOT becomes ./api):
 # the live data/logs/applications/status, NOT source. The real ones live at repo root.

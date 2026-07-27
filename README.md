@@ -48,6 +48,14 @@ docker compose up -d --build web     # or `--build` to rebuild both
 
 (If the API ever seems to serve old behavior, `docker compose up -d --build api`.)
 
+> **Upgrading an install from before the non-root container change:** the api now
+> runs as *your* user, but files the old root-mode container wrote are still
+> root-owned and will crash it on boot. One-time fix (or just use `./start.sh`,
+> which detects this and prints the same command):
+> `sudo chown -R $(id -u):$(id -g) data config logs .demo applications resume`
+> If your uid isn't 1000 and you run `docker compose up` directly, set
+> `PEREGRINE_UID`/`PEREGRINE_GID` in `.env` (see `.env.example`).
+
 ## Assistant: External vs Internal (Claude)
 
 The assistant panel has a toggle between two modes:
