@@ -14,6 +14,7 @@ export interface Job {
   salary_max: number | null;
   currency: string;
   posted_date: string;
+  close_date: string; // application deadline ("" when the posting doesn't state one)
   url: string;
   fit_score: number | null;
   detail_md: string;

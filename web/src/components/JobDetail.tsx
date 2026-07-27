@@ -1,9 +1,63 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Evaluation, type Job } from "../api";
 import type { AssistantMode } from "../App";
-import { legitimacyClass } from "../format";
+import { fitClass, legitimacyClass, relativeTime, safeHttpUrl, salaryRange, statusClass } from "../format";
 import JobMarkdown from "./JobMarkdown";
 import ContactsEditor from "./ContactsEditor";
+
+// One line of the Internal-mode prompt strip: the command to copy into the Claude
+// terminal + its per-action copied state and waiting indicator. Accent classes are
+// written out literally per color so Tailwind's scanner keeps them.
+const PROMPT_ACCENTS = {
+  indigo: {
+    code: "border-indigo-200",
+    btn: "text-indigo-700 border-indigo-300 hover:bg-indigo-50",
+  },
+  purple: {
+    code: "border-purple-200",
+    btn: "text-purple-700 border-purple-300 hover:bg-purple-50",
+  },
+  teal: {
+    code: "border-teal-200",
+    btn: "text-teal-700 border-teal-300 hover:bg-teal-50",
+  },
+} as const;
+
+function PromptLine({
+  prompt,
+  copied,
+  onCopied,
+  waiting,
+  waitingText,
+  accent,
+}: {
+  prompt: string;
+  copied: boolean;
+  onCopied: () => void;
+  waiting: boolean;
+  waitingText: string;
+  accent: keyof typeof PROMPT_ACCENTS;
+}) {
+  const a = PROMPT_ACCENTS[accent];
+  return (
+    <div className="flex items-center gap-2">
+      <code className={`flex-1 px-2 py-1 rounded bg-white border ${a.code} text-xs text-gray-800`}>
+        {prompt}
+      </code>
+      <button
+        onClick={() => navigator.clipboard?.writeText(prompt).then(onCopied).catch(() => {})}
+        className={`px-2 py-1 text-xs font-medium bg-white border rounded ${a.btn}`}
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+      {waiting && (
+        <span className="text-xs text-gray-400 animate-pulse" title={waitingText}>
+          waiting…
+        </span>
+      )}
+    </div>
+  );
+}
 
 // Job detail with the human-in-the-loop apply gate. "Evaluate fit" is mode-aware:
 //   External — the API runs the evaluation on click.
@@ -39,9 +93,11 @@ export default function JobDetail({
   const [cvTexPromptCopied, setCvTexPromptCopied] = useState(false);
   const [cvTexCopied, setCvTexCopied] = useState(false);
   const [cvError, setCvError] = useState("");
+  const [starBusy, setStarBusy] = useState(false); // in-flight guard for the star PATCH
   const baseline = useRef(""); // job markdown before the run
   const coverBaseline = useRef<string | null>(null); // cover letter before the run
   const cvTexBaseline = useRef<string | null>(null); // tailored CV before the run
+  const gateRef = useRef<HTMLDivElement>(null); // the apply gate lives at the END of the scroll now
 
   // Empty {} from the API (no evaluation yet) -> null.
   const normEval = (ev: Evaluation | null) => (ev && Object.keys(ev).length ? ev : null);
@@ -264,6 +320,11 @@ export default function JobDetail({
       const res = await api.prepare(jobId);
       setApplyUrl(res.apply_url);
       await load();
+      // The gate lives at the END of the scroll now — bring it into view so the
+      // unlocked Apply link is never a mystery below the fold.
+      requestAnimationFrame(() =>
+        gateRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+      );
     } finally {
       setBusy(false);
     }
@@ -283,34 +344,182 @@ export default function JobDetail({
   if (!job) return <div className="p-6 text-gray-400">Loading…</div>;
 
   const applied = job.status === "applied";
+  const postedAgo = relativeTime(job.posted_date);
+  const metaLine = [postedAgo && `Posted ${postedAgo}`, job.close_date && `Apply by ${job.close_date}`]
+    .filter(Boolean)
+    .join(" · ");
+  const salary = salaryRange(job.salary_min, job.salary_max, job.currency);
+  const people: unknown[] = (() => {
+    try {
+      const p = JSON.parse(job.people || "[]");
+      return Array.isArray(p) ? p : [];
+    } catch {
+      return [];
+    }
+  })();
+  const postingHref = safeHttpUrl(job.url); // never render a non-http(s) scheme as a link
+  const toggleStar = async () => {
+    if (starBusy) return; // two rapid clicks would race their PATCHes out of order
+    const next = !job.starred;
+    setStarBusy(true);
+    setJob({ ...job, starred: next }); // optimistic — reverted below if the PATCH fails
+    try {
+      await api.updateJob(job.id, { starred: next });
+      onChanged();
+    } catch {
+      setJob((j) => (j ? { ...j, starred: !next } : j));
+    } finally {
+      setStarBusy(false);
+    }
+  };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-4 border-b border-gray-200">
+    // ONE scroll container — the old fixed header could grow unbounded (chips +
+    // contacts + buttons + prompt cards) and crush the markdown body on short
+    // viewports, and the old fixed footer reserved ~52px for a mostly-empty hint.
+    <div className="h-full overflow-auto">
+      <div className="p-4 bg-white border-b border-gray-200">
         <h2 className="text-lg font-semibold">{job.position}</h2>
         <p className="text-sm text-gray-500">
-          {/* Only the segments that carry real info — no "· —" / "· fit n/a" placeholders. */}
-          {[
-            job.company,
-            job.location || null,
-            job.fit_score != null ? `fit ${job.fit_score.toFixed(2)}` : null,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
+          {[job.company, job.location || null].filter(Boolean).join(" · ")}
         </p>
-        {/* Structured tags pulled from the posting: field · degree · domains · required skills */}
-        {(job.role_category || job.level || job.domains || job.req_skills) && (
+        {metaLine && <p className="mt-0.5 text-xs text-gray-400">{metaLine}</p>}
+
+        {/* Action row: bookmark + the posting itself first (reference layout), then
+            the AI actions. "View posting" is just the source link — the APPLY gate
+            (Prepare → review → Apply) is unchanged, at the end of the page. */}
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          <button
+            onClick={toggleStar}
+            title={job.starred ? "Unstar" : "Star this job"}
+            className={`px-2.5 py-1.5 text-sm rounded-md border ${
+              job.starred
+                ? "border-amber-400 bg-amber-50 text-amber-600"
+                : "border-gray-300 text-gray-400 hover:text-amber-600"
+            }`}
+          >
+            {job.starred ? "★" : "☆"}
+          </button>
+          {postingHref && (
+            <a
+              href={postingHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open the original posting (viewing ≠ applying — the apply gate is below)"
+              className="px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
+            >
+              View posting ↗
+            </a>
+          )}
+          <button
+            onClick={evaluate}
+            disabled={busy || waitingEval}
+            className="px-3 py-1.5 text-sm font-medium text-white bg-emerald-600 rounded-md hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {busy ? "Working…" : waitingEval ? "Waiting…" : "Evaluate fit"}
+          </button>
+          <button
+            onClick={prepare}
+            disabled={busy}
+            className="px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-100 rounded-md hover:bg-indigo-200 disabled:opacity-50"
+          >
+            Prepare to apply
+          </button>
+          <button
+            onClick={draftCoverLetter}
+            disabled={busy || waitingCover}
+            className="px-2.5 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 border border-purple-200 rounded-md hover:bg-purple-100 disabled:opacity-50"
+          >
+            {busy ? "Working…" : waitingCover ? "Waiting…" : coverLetter != null ? "Redraft cover letter" : "Cover letter"}
+          </button>
+          <button
+            onClick={tailorCv}
+            disabled={busy || waitingCvTex}
+            className="px-2.5 py-1.5 text-xs font-medium text-teal-700 bg-teal-50 border border-teal-200 rounded-md hover:bg-teal-100 disabled:opacity-50"
+          >
+            {busy ? "Working…" : waitingCvTex ? "Waiting…" : cvTex != null ? "Re-tailor CV" : "Tailor CV"}
+          </button>
+        </div>
+
+        {/* Internal mode: ONE compact strip for the guided prompts (was three ~90px
+            cards that pushed the posting content off-screen). */}
+        {mode === "internal" && (evalPrompt || coverPrompt || cvTexPrompt) && (
+          <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-2.5 space-y-1.5">
+            <p className="text-xs font-medium text-gray-600">
+              Run in the Internal (Claude) terminal — results appear below when saved:
+            </p>
+            {evalPrompt && (
+              <PromptLine
+                prompt={evalPrompt}
+                copied={copied}
+                onCopied={() => setCopied(true)}
+                waiting={waitingEval}
+                waitingText="Waiting for Claude to save the evaluation…"
+                accent="indigo"
+              />
+            )}
+            {coverPrompt && (
+              <PromptLine
+                prompt={coverPrompt}
+                copied={coverPromptCopied}
+                onCopied={() => setCoverPromptCopied(true)}
+                waiting={waitingCover}
+                waitingText="Waiting for Claude to save the cover letter…"
+                accent="purple"
+              />
+            )}
+            {cvTexPrompt && (
+              <PromptLine
+                prompt={cvTexPrompt}
+                copied={cvTexPromptCopied}
+                onCopied={() => setCvTexPromptCopied(true)}
+                waiting={waitingCvTex}
+                waitingText="Waiting for Claude to save the tailored CV…"
+                accent="teal"
+              />
+            )}
+          </div>
+        )}
+        {coverError && <p className="mt-2 text-sm text-rose-600">{coverError}</p>}
+        {cvError && <p className="mt-2 text-sm text-rose-600">{cvError}</p>}
+
+        {/* At a glance — the facts the old layout never showed (salary, flexibility,
+            deadline lives in the meta line) plus status + fit at a glance. */}
+        <div className="flex flex-wrap items-center gap-1.5 mt-3">
+          {salary !== "—" && (
+            <span className="px-2 py-0.5 text-xs rounded-full bg-emerald-50 text-emerald-800" title="Salary range from the posting">
+              {salary}
+            </span>
+          )}
+          {job.flexibility && (
+            <span className="px-2 py-0.5 text-xs rounded-full bg-sky-50 text-sky-700" title="Work arrangement">
+              {job.flexibility}
+            </span>
+          )}
+          {job.level && (
+            <span className="px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-800" title="Required degree">
+              🎓 {job.level}
+            </span>
+          )}
+          {job.role_category && job.role_category !== "Other" && (
+            <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700" title="Role family">
+              {job.role_category}
+            </span>
+          )}
+          <span className={`px-2 py-0.5 text-xs rounded-full ${statusClass(job.status)}`} title="Tracking status">
+            {job.status}
+          </span>
+          {job.fit_score != null && (
+            <span className={`px-2 py-0.5 text-xs rounded-full ${fitClass(job.fit_score)}`} title="LLM fit score">
+              fit {job.fit_score.toFixed(2)}
+            </span>
+          )}
+        </div>
+
+        {/* Structured tags pulled from the posting: domains + required skills.
+            (Role + degree moved up into the glance row.) */}
+        {(job.domains || job.req_skills || job.skill_fit) && (
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
-            {job.role_category && job.role_category !== "Other" && (
-              <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-700" title="Role family">
-                {job.role_category}
-              </span>
-            )}
-            {job.level && (
-              <span className="px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-800" title="Required degree">
-                🎓 {job.level}
-              </span>
-            )}
             {(job.domains || "").split(",").map((d) => d.trim()).filter(Boolean).map((d) => (
               <span key={`d-${d}`} className="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-700" title="Field / domain">
                 {d}
@@ -341,8 +550,11 @@ export default function JobDetail({
             )}
           </div>
         )}
-        {/* People — recruiter / hiring manager you found yourself (user-entered, never scraped). */}
-        <div className="mt-3 border-t border-gray-100 pt-2">
+
+        {/* People — recruiter / hiring manager you found yourself (user-entered, never
+            scraped). The bordered band only appears when there ARE people; empty state
+            is ContactsEditor's own one-line "+ add people" link. */}
+        <div className={people.length ? "mt-3 border-t border-gray-100 pt-2" : "mt-2"}>
           <ContactsEditor
             key={`${job.id}:${job.people}`}
             value={job}
@@ -352,126 +564,9 @@ export default function JobDetail({
             }}
           />
         </div>
-        <div className="flex gap-2 mt-3">
-          <button
-            onClick={evaluate}
-            disabled={busy || waitingEval}
-            className="px-3 py-1.5 text-sm font-medium text-white bg-emerald-600 rounded-md hover:bg-emerald-700 disabled:opacity-50"
-          >
-            {busy ? "Working…" : waitingEval ? "Waiting…" : "Evaluate fit"}
-          </button>
-          <button
-            onClick={prepare}
-            disabled={busy}
-            className="px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-100 rounded-md hover:bg-indigo-200 disabled:opacity-50"
-          >
-            Prepare to apply
-          </button>
-          <button
-            onClick={draftCoverLetter}
-            disabled={busy || waitingCover}
-            className="px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-100 rounded-md hover:bg-purple-200 disabled:opacity-50"
-          >
-            {busy ? "Working…" : waitingCover ? "Waiting…" : coverLetter != null ? "Redraft cover letter" : "Cover letter"}
-          </button>
-          <button
-            onClick={tailorCv}
-            disabled={busy || waitingCvTex}
-            className="px-3 py-1.5 text-sm font-medium text-teal-700 bg-teal-100 rounded-md hover:bg-teal-200 disabled:opacity-50"
-          >
-            {busy ? "Working…" : waitingCvTex ? "Waiting…" : cvTex != null ? "Re-tailor CV" : "Tailor CV"}
-          </button>
-        </div>
-
-        {/* Internal mode: the guided prompt to run in the Claude terminal. */}
-        {mode === "internal" && evalPrompt && (
-          <div className="mt-3 rounded-md border border-indigo-200 bg-indigo-50 p-3 text-sm">
-            <p className="text-indigo-900 font-medium">Run this in the Internal (Claude) terminal:</p>
-            <div className="mt-1.5 flex items-center gap-2">
-              <code className="flex-1 px-2 py-1 rounded bg-white border border-indigo-200 text-gray-800">
-                {evalPrompt}
-              </code>
-              <button
-                onClick={() =>
-                  navigator.clipboard
-                    ?.writeText(evalPrompt)
-                    .then(() => setCopied(true))
-                    .catch(() => {})
-                }
-                className="px-2 py-1 text-xs font-medium text-indigo-700 bg-white border border-indigo-300 rounded hover:bg-indigo-100"
-              >
-                {copied ? "Copied" : "Copy"}
-              </button>
-            </div>
-            <p className="mt-1.5 text-xs text-indigo-700">
-              {waitingEval
-                ? "Waiting for Claude to save the evaluation… it'll appear below."
-                : "Switch the assistant to Internal (Claude) and run it — the result appears below."}
-            </p>
-          </div>
-        )}
-
-        {/* Internal mode: the guided prompt to draft the cover letter. */}
-        {mode === "internal" && coverPrompt && (
-          <div className="mt-3 rounded-md border border-purple-200 bg-purple-50 p-3 text-sm">
-            <p className="text-purple-900 font-medium">Run this in the Internal (Claude) terminal:</p>
-            <div className="mt-1.5 flex items-center gap-2">
-              <code className="flex-1 px-2 py-1 rounded bg-white border border-purple-200 text-gray-800">
-                {coverPrompt}
-              </code>
-              <button
-                onClick={() =>
-                  navigator.clipboard
-                    ?.writeText(coverPrompt)
-                    .then(() => setCoverPromptCopied(true))
-                    .catch(() => {})
-                }
-                className="px-2 py-1 text-xs font-medium text-purple-700 bg-white border border-purple-300 rounded hover:bg-purple-100"
-              >
-                {coverPromptCopied ? "Copied" : "Copy"}
-              </button>
-            </div>
-            <p className="mt-1.5 text-xs text-purple-700">
-              {waitingCover
-                ? "Waiting for Claude to save the cover letter… it'll appear below."
-                : "Switch the assistant to Internal (Claude) and run it — the draft appears below."}
-            </p>
-          </div>
-        )}
-
-        {coverError && <p className="mt-3 text-sm text-rose-600">{coverError}</p>}
-
-        {/* Internal mode: the guided prompt to tailor the CV. */}
-        {mode === "internal" && cvTexPrompt && (
-          <div className="mt-3 rounded-md border border-teal-200 bg-teal-50 p-3 text-sm">
-            <p className="text-teal-900 font-medium">Run this in the Internal (Claude) terminal:</p>
-            <div className="mt-1.5 flex items-center gap-2">
-              <code className="flex-1 px-2 py-1 rounded bg-white border border-teal-200 text-gray-800">
-                {cvTexPrompt}
-              </code>
-              <button
-                onClick={() =>
-                  navigator.clipboard
-                    ?.writeText(cvTexPrompt)
-                    .then(() => setCvTexPromptCopied(true))
-                    .catch(() => {})
-                }
-                className="px-2 py-1 text-xs font-medium text-teal-700 bg-white border border-teal-300 rounded hover:bg-teal-100"
-              >
-                {cvTexPromptCopied ? "Copied" : "Copy"}
-              </button>
-            </div>
-            <p className="mt-1.5 text-xs text-teal-700">
-              {waitingCvTex
-                ? "Waiting for Claude to save the tailored CV…"
-                : "Run it in the Claude terminal — the CV (and a PDF) appear below."}
-            </p>
-          </div>
-        )}
-        {cvError && <p className="mt-3 text-sm text-rose-600">{cvError}</p>}
       </div>
 
-      <div className="flex-1 overflow-auto p-4 bg-gray-50">
+      <div className="p-4 bg-gray-50">
         {evaluation &&
           (evaluation.archetype ||
             Number.isFinite(evaluation.legitimacy_score) ||
@@ -568,37 +663,40 @@ export default function JobDetail({
             )}
           </div>
         )}
-      </div>
 
-      <div className="p-4 border-t border-gray-200 bg-gray-50">
-        {applied ? (
-          <p className="text-sm text-center font-medium text-blue-700">
-            ✓ Applied — tracked in the Applications tab.
-          </p>
-        ) : applyUrl ? (
-          <div className="flex gap-2">
-            <a
-              href={applyUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-1 text-center px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
-            >
-              Apply on company site ↗
-            </a>
-            <button
-              onClick={markApplied}
-              disabled={busy}
-              className="px-4 py-2 text-sm font-semibold text-indigo-700 bg-white border border-indigo-300 rounded-md hover:bg-indigo-50 disabled:opacity-50"
-            >
-              I applied ✓
-            </button>
-          </div>
-        ) : (
-          <p className="text-xs text-center text-gray-500">
-            Review strengths, weaknesses &amp; materials above, then click <b>Prepare to apply</b> to unlock the
-            Apply link.
-          </p>
-        )}
+        {/* Apply gate — inline at the end of the review flow (was a permanently
+            reserved footer row). Semantics unchanged: the Apply link unlocks only
+            after Prepare; prepare() scrolls here. */}
+        <div ref={gateRef} className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
+          {applied ? (
+            <p className="text-sm text-center font-medium text-blue-700">
+              ✓ Applied — tracked in the Applications tab.
+            </p>
+          ) : applyUrl ? (
+            <div className="flex gap-2">
+              <a
+                href={applyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 text-center px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+              >
+                Apply on company site ↗
+              </a>
+              <button
+                onClick={markApplied}
+                disabled={busy}
+                className="px-4 py-2 text-sm font-semibold text-indigo-700 bg-white border border-indigo-300 rounded-md hover:bg-indigo-50 disabled:opacity-50"
+              >
+                I applied ✓
+              </button>
+            </div>
+          ) : (
+            <p className="text-xs text-center text-gray-500">
+              Review strengths, weaknesses &amp; materials above, then click <b>Prepare to apply</b> to unlock the
+              Apply link.
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
