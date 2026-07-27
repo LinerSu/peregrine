@@ -298,16 +298,6 @@ export default function App() {
       )}
 
       <main className="flex flex-1 min-h-0">
-        {/* Collapse via CLASS SWAP only — conditional JSX would unmount the ttyd
-            iframe and kill the user's live terminal session. */}
-        <section
-          className={
-            railOpen ? "w-1/3 max-w-md border-r border-gray-200 bg-white" : "hidden"
-          }
-        >
-          <AssistantPanel onAction={refresh} mode={mode} />
-        </section>
-
         <section className="flex flex-col flex-1 min-w-0 bg-white">
           <div className="flex-1 min-h-0">
             {tab === "jobs" && (
@@ -351,6 +341,18 @@ export default function App() {
 
             {tab === "upskilling" && <UpskillingPanel jobs={jobs} mode={mode} />}
           </div>
+        </section>
+
+        {/* Assistant rail on the RIGHT (user preference once the tabs moved into the
+            top bar): content reads left, tools sit right. Collapse via CLASS SWAP
+            only — conditional JSX would unmount the ttyd iframe and kill the live
+            terminal session. */}
+        <section
+          className={
+            railOpen ? "w-1/3 max-w-md border-l border-gray-200 bg-white" : "hidden"
+          }
+        >
+          <AssistantPanel onAction={refresh} mode={mode} />
         </section>
       </main>
 
