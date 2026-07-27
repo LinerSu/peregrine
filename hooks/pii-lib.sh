@@ -12,7 +12,10 @@
 # PII). The exempt patterns are END-anchored to the EXACT re-included filenames
 # (README_SECRET.md is NOT exempt).
 PII_PATH_RE='^(api/)?data/.*\.(csv|tmp|bak|sqlite|sqlite3|db)$|^(api/)?data/jobs/|^(api/)?data/patterns\.json$|^(api/)?data/cover_letter_samples/|^(api/)?resume/|^(api/)?applications/|^(api/)?config/(profile|memory|portals)\.ya?ml$|^(api/)?config/(cv_source|job_source)\.md$|^(api/)?config/pii_terms\.txt$|(^|/)\.demo/|(^|/)\.env($|\.)|\.env$'
-PII_PATH_EXEMPT_RE='\.example\.csv$|^(api/)?data/jobs/\.gitkeep$|^(api/)?resume/README\.md$|^(api/)?applications/(README\.md|\.gitkeep)$|\.env\.example$'
+# The example-csv exemption is anchored to WHERE shipped seeds live (direct children
+# of data/) — an any-depth `.example.csv$` exemption would let the hook allow nested
+# files that .gitignore's root-only `!data/*.example.csv` re-include still ignores.
+PII_PATH_EXEMPT_RE='^data/[^/]*\.example\.csv$|^(api/)?data/jobs/\.gitkeep$|^(api/)?resume/README\.md$|^(api/)?applications/(README\.md|\.gitkeep)$|\.env\.example$'
 
 # A real-looking email address (test fixtures + demo seeds use @example.com; the
 # reserved RFC-2606 .example TLD and commit-authoring noreply@ are allow-listed).

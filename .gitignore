@@ -76,6 +76,11 @@ api/STATUS.md
 api/data/
 api/logs/
 api/applications/
+# Mountpoints for ./config and ./resume that a test-mount can materialize REAL
+# profile/CV files into — hook-blocked (api/ prefix in PII_PATH_RE), so .gitignore
+# must match (pinned by the parity tests).
+api/config/
+api/resume/
 # Empty mountpoints Docker creates in ./api when the docs are bind-mounted into /app
 # during a `docker compose run` test (the real docs live at repo root).
 api/README.md

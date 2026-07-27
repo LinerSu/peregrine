@@ -11,14 +11,20 @@ set -euo pipefail
 # PII scan runs for EVERY message (merges/reverts/fixups included — they can carry
 # pasted text too). Commit-authoring noreply@ trailers are allow-listed in the lib.
 #
-# Scan what git will RECORD, not the raw editor file: commit-msg runs BEFORE git's
-# cleanup, so $1 still holds the '#' status template (untracked filenames!) and, with
-# `git commit -v`, the full staged diff below the scissors line — context/deletion
-# lines pre-commit deliberately does NOT scan. Unstripped, a scrub commit REMOVING a
-# leaked email would be blocked, and a denylist term in an untracked filename would
-# block an unrelated interactive commit. Reproduce the cleanup: truncate at the
-# scissors line, then drop comment lines (assumes default core.commentChar '#').
-msg_clean="$(sed -e '/^# -\{2,\} >8 -\{2,\}$/,$d' -e '/^#/d' "$1")"
+# Scan what git will RECORD, not the raw editor file — and git's cleanup DEPENDS on
+# how the message was given. Editor commits (incl. -v) default to cleanup=strip: the
+# '#' status template (untracked filenames!) and the scissors diff are removed, so
+# scanning them would false-block — e.g. the scrub commit REMOVING a leaked email
+# shows that email as a deletion line in the -v diff. But -m/-F default to
+# cleanup=whitespace, which RECORDS '#' lines verbatim — stripping those would fail
+# OPEN on e.g. a pasted transcript line `# ping someone@…`. Detect the editor flow
+# by git's own template line and emulate strip only then; otherwise scan the file
+# raw. (Assumes default core.commentChar '#'.)
+if grep -q '^# Please enter' "$1"; then
+  msg_clean="$(sed -e '/^# -\{2,\} >8 -\{2,\}$/,$d' -e '/^#/d' "$1")"
+else
+  msg_clean="$(cat "$1")"
+fi
 msg_mails="$(printf '%s\n' "$msg_clean" | pii_offending_emails)"
 msg_terms="$(printf '%s\n' "$msg_clean" | pii_offending_terms)"
 if [ -n "$msg_mails$msg_terms" ]; then

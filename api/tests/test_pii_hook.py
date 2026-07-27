@@ -65,6 +65,12 @@ BLOCKED_PATHS = [
     "data/jobs/2026-001.cv.tex",   # tailored CV — full PII (was NOT gitignored before)
     "data/jobs/2026-001.cv.pdf",   # compiled tailored CV
     "api/data/applications.csv",   # the test-mount copy (api/ prefix)
+    "api/config/profile.yml",      # test-mount copy of the parsed CV
+    "api/config/pii_terms.txt",    # test-mount copy of the personal-term denylist
+    "api/config/cv_source.md",     # test-mount copy of the raw CV text
+    "api/resume/cv.pdf",           # test-mount copy of the résumé
+    "data/exports/seed.example.csv",  # example exemption is anchored to data/ ROOT — a
+                                      # nested one is NOT a shipped seed and stays blocked
     "config/profile.yml",       # parsed CV
     "config/profile.yaml",      # (the ya?ml variant)
     "config/memory.yml",        # agent memory
@@ -325,7 +331,10 @@ def test_commit_msg_ignores_verbose_diff_below_scissors(tmp_path):
     # before recording, so a real email there (e.g. a context line, or the deletion line of
     # the very scrub commit that REMOVES a leak) must not block the commit.
     scissors = "# ------------------------ >8 ------------------------\n"
-    msg = (f"fix: scrub the leaked address\n\n{scissors}"
+    msg = ("fix: scrub the leaked address\n\n"
+           "# Please enter the commit message for your changes. Lines starting\n"
+           "# with '#' will be ignored, and an empty message aborts the commit.\n"
+           f"{scissors}"
            f"diff --git a/docs/note.md b/docs/note.md\n-contact: {_REAL}\n+contact: TBD\n")
     r = _run_msg(tmp_path, msg, terms=_TERMS)
     assert r.returncode == 0, r.stderr
@@ -335,10 +344,28 @@ def test_commit_msg_ignores_comment_template_lines(tmp_path):
     # The '#' status template (branch info, untracked-file listings) is stripped by git's
     # cleanup — a denylist term in an untracked FILENAME must not block an unrelated commit.
     msg = ("docs: tidy readme\n\n"
+           "# Please enter the commit message for your changes. Lines starting\n"
            "# Untracked files:\n#   notes/janepetrova_call.md\n"
            f"# Author: someone <{_REAL2}>\n")
     r = _run_msg(tmp_path, msg, terms=_TERMS)
     assert r.returncode == 0, r.stderr
+
+
+def test_commit_msg_scans_hash_lines_of_dash_m_messages(tmp_path):
+    # `git commit -m` defaults to cleanup=whitespace: '#' lines ARE recorded. Without
+    # git's editor-template marker the hook must scan them raw — stripping would fail
+    # OPEN on e.g. a pasted transcript line.
+    r = _run_msg(tmp_path, f"fix: tidy\n\n# ping {_REAL} for details\n")
+    assert r.returncode == 1
+    assert "personal data" in r.stderr
+
+
+def test_commit_msg_scans_below_pasted_scissors_lookalike(tmp_path):
+    # outside the editor/-v flow git records content below a scissors-looking line —
+    # the truncation must not fire for -m/-F style messages.
+    r = _run_msg(tmp_path, f"fix: tidy\n\n# -- >8 --\nsee {_REAL2}\n")
+    assert r.returncode == 1
+    assert "personal data" in r.stderr
 
 
 def test_commit_msg_scans_merge_messages_too(tmp_path):
@@ -378,6 +405,49 @@ def test_ci_guard_blocks_personal_path_in_diff(tmp_path):
     r = subprocess.run(["bash", str(CI_GUARD), base], cwd=tmp_path, capture_output=True, text=True)
     assert r.returncode == 1, r.stdout + r.stderr
     assert "personal-data" in r.stderr
+    # a résumé filename can itself carry a real name — Actions logs must only ever see
+    # the directory prefix, mirroring the email redaction.
+    assert "profile.yml" not in r.stderr, "verbatim basename leaked into CI output"
+    assert "config/" in r.stderr
+
+
+def test_ci_guard_blocks_nonascii_path(tmp_path):
+    # pins the CI guard's OWN -c core.quotepath=off (independent of pre-commit's):
+    # without it, git C-quotes the path and the ^-anchored regex fails OPEN.
+    base = _seeded_repo(tmp_path)
+    _commit(tmp_path, "resume/简历-CV.pdf", "cv body\n")
+    r = subprocess.run(["bash", str(CI_GUARD), base], cwd=tmp_path, capture_output=True, text=True)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "personal-data" in r.stderr
+
+
+def test_ci_guard_catches_pii_added_then_removed_in_range(tmp_path):
+    # the fixup-on-top pattern: PII committed, then a later commit removes it. The
+    # ENDPOINT diff is clean, but the bytes are pushed (reachable via refs/pull
+    # forever) — the per-commit scan must still fail the run.
+    base = _seeded_repo(tmp_path)
+    _commit(tmp_path, "config/profile.yml", "name: someone\n")
+    (tmp_path / "config/profile.yml").unlink()
+    subprocess.run(["git", "rm", "-q", "config/profile.yml"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "remove", "--no-verify"], cwd=tmp_path, check=True)
+    r = subprocess.run(["bash", str(CI_GUARD), base], cwd=tmp_path, capture_output=True, text=True)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "personal-data" in r.stderr
+
+
+def test_ci_guard_scans_commit_messages_in_range(tmp_path):
+    # the commit-msg hook is bypassable (--no-verify / uninstalled hooks); a leaked
+    # address in a MESSAGE lands on GitHub like file content and must fail CI.
+    base = _seeded_repo(tmp_path)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/clean.md").write_text("clean\n")
+    subprocess.run(["git", "add", "docs/clean.md"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "--no-verify", "-m", f"fix: ping {_REAL2}"],
+                   cwd=tmp_path, check=True)
+    r = subprocess.run(["bash", str(CI_GUARD), base], cwd=tmp_path, capture_output=True, text=True)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "message" in r.stderr.lower()
+    assert _REAL2 not in r.stderr, "verbatim email leaked into CI output"
 
 
 def test_ci_guard_blocks_email_in_diff(tmp_path):
