@@ -15,9 +15,17 @@ export default function AssistantPanel({
   onAction: () => void;
   mode: AssistantMode;
 }) {
+  // BOTH children stay mounted, hidden by CSS — a ternary would unmount the ttyd
+  // iframe on every mode flip and kill the live terminal session (and drop chat
+  // history on the way back). Same rule as the rail collapse in App.tsx.
   return (
     <div className="flex flex-col h-full min-h-0">
-      {mode === "external" ? <ChatPanel onAction={onAction} /> : <TerminalPanel />}
+      <div className={mode === "external" ? "flex flex-col h-full min-h-0" : "hidden"}>
+        <ChatPanel onAction={onAction} />
+      </div>
+      <div className={mode === "internal" ? "flex flex-col h-full min-h-0" : "hidden"}>
+        <TerminalPanel />
+      </div>
     </div>
   );
 }

@@ -25,6 +25,7 @@ const TABS: { id: Tab; label: string }[] = [
 export type AssistantMode = "external" | "internal";
 
 const MODE_KEY = "peregrine.mode";
+const RAIL_KEY = "peregrine.rail";
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("jobs");
@@ -72,6 +73,23 @@ export default function App() {
       return "external"; // localStorage can throw in private/sandboxed contexts
     }
   });
+
+  // Assistant rail visibility — collapsed, the Jobs master-detail gets the full width.
+  // Persisted so the choice survives reloads (like the mode toggle).
+  const [railOpen, setRailOpen] = useState(() => {
+    try {
+      return localStorage.getItem(RAIL_KEY) !== "collapsed";
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(RAIL_KEY, railOpen ? "open" : "collapsed");
+    } catch {
+      /* best-effort */
+    }
+  }, [railOpen]);
 
   // Jobs text search runs SERVER-SIDE (it matches the full posting incl. the description-keyword
   // index, which is never shipped to the client). Held in a ref so refresh()/onChanged keep the
@@ -139,64 +157,112 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen text-gray-900">
-      <header className="px-4 py-3 bg-white border-b border-gray-200 flex items-center gap-3">
+      {/* ONE top bar: brand + primary nav + right cluster. A separate tab row cost
+          ~42px and left this row's middle as pure dead space. */}
+      <header className="px-3 h-12 shrink-0 bg-white border-b border-gray-200 flex items-center gap-2">
         <img
           src="/peregrine-icon.png"
           alt="Peregrine"
-          className="w-9 h-9 rounded-lg object-cover"
+          className="w-7 h-7 rounded-lg object-cover"
           onError={(e) => {
             e.currentTarget.style.display = "none";
           }}
         />
-        <div>
-          <h1 className="text-base font-bold">Peregrine</h1>
-          <p className="text-xs text-gray-500">Personal AI job-search assistant</p>
-        </div>
+        <h1 className="text-base font-bold whitespace-nowrap" title="Personal AI job-search assistant">
+          Peregrine
+        </h1>
 
-        {/* Demo-data badge: without it, demo and live modes are pixel-identical and a
-            forgotten PEREGRINE_DATASET quietly impersonates the user's real workspace. */}
-        {dataset && (
-          <span
-            title={`Demo dataset "${dataset}" is active (PEREGRINE_DATASET). Your real config/ + data/ are untouched — switch back with: ./scripts/dataset.sh off`}
-            className="px-2.5 py-1 text-xs font-medium rounded-full border border-amber-300 bg-amber-50 text-amber-800"
+        <nav className="flex items-stretch gap-1 self-stretch overflow-x-auto ml-2">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`px-3 flex items-center text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
+                tab === t.id
+                  ? "border-indigo-600 text-indigo-700"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              {t.label}
+              {t.id === "applications" && applications.length > 0 && (
+                <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-indigo-100 text-indigo-700">
+                  {applications.length}
+                </span>
+              )}
+              {t.id === "applications" && orphanCount > 0 && (
+                <span
+                  title={`${orphanCount} application${orphanCount > 1 ? "s have" : " has"} no linked job posting`}
+                  className="ml-1 px-1.5 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700"
+                >
+                  ⚠{orphanCount}
+                </span>
+              )}
+            </button>
+          ))}
+        </nav>
+
+        <div className="ml-auto flex items-center gap-2">
+          {/* Demo-data badge: without it, demo and live modes are pixel-identical and a
+              forgotten PEREGRINE_DATASET quietly impersonates the user's real workspace. */}
+          {dataset && (
+            <span
+              title={`Demo dataset "${dataset}" is active (PEREGRINE_DATASET). Your real config/ + data/ are untouched — switch back with: ./scripts/dataset.sh off`}
+              className="hidden md:inline-flex truncate max-w-[12rem] px-2.5 py-1 text-xs font-medium rounded-full border border-amber-300 bg-amber-50 text-amber-800"
+            >
+              🧪 Demo data: {dataset}
+            </span>
+          )}
+
+          <button
+            onClick={() => setRailOpen((v) => !v)}
+            aria-pressed={railOpen}
+            title={railOpen ? "Hide the assistant panel" : "Show the assistant panel"}
+            className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors ${
+              railOpen
+                ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                : "border-gray-200 text-gray-500 hover:text-gray-700"
+            }`}
           >
-            🧪 Demo data: {dataset}
-          </span>
-        )}
+            ⌨ Assistant
+          </button>
 
-        <button
-          onClick={() => setShowOnboarding(true)}
-          title="Guided setup: CV → search → companies → first scan"
-          className="ml-auto px-2.5 py-1 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-md hover:bg-indigo-50"
-        >
-          Get started
-        </button>
-        {/* New tab: /docs is a separate page (see main.tsx), so same-tab navigation
-            would drop the app's state (open job, chat, scroll). */}
-        <a
-          href="/docs"
-          target="_blank"
-          rel="noopener noreferrer"
-          title="Project documentation (opens in a new tab)"
-          className="px-2.5 py-1 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-md hover:bg-indigo-50"
-        >
-          Docs
-        </a>
+          <button
+            onClick={() => setShowOnboarding(true)}
+            title="Guided setup: CV → search → companies → first scan"
+            className="px-2.5 py-1 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-md hover:bg-indigo-50"
+          >
+            Get started
+          </button>
+          {/* New tab: /docs is a separate page (see main.tsx), so same-tab navigation
+              would drop the app's state (open job, chat, scroll). */}
+          <a
+            href="/docs"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Project documentation (opens in a new tab)"
+            className="px-2.5 py-1 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-md hover:bg-indigo-50"
+          >
+            Docs
+          </a>
 
-        {/* Global assistant mode — every LLM action follows this. */}
-        <div className="flex flex-col items-end gap-0.5">
-          <div className="flex items-center rounded-md border border-gray-200 p-0.5">
+          {/* Global assistant mode — every LLM action follows this. The old second-line
+              status caption lives in this control's tooltip now. */}
+          <div
+            className="flex items-center rounded-md border border-gray-200 p-0.5"
+            title={
+              mode === "internal"
+                ? "LLM actions run on local Claude (free)"
+                : llmMock
+                ? "No LLM key — External responses are mock placeholders"
+                : "LLM actions use the API (metered)"
+            }
+          >
             {(["external", "internal"] as AssistantMode[]).map((m) => (
               <button
                 key={m}
                 type="button"
                 aria-pressed={mode === m}
                 onClick={() => setMode(m)}
-                title={
-                  m === "external"
-                    ? "API-backed — uses LLM_PROVIDER + key (metered)"
-                    : "Local Claude in the terminal — free on your own subscription"
-                }
                 className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
                   mode === m
                     ? m === "internal"
@@ -209,13 +275,6 @@ export default function App() {
               </button>
             ))}
           </div>
-          <span className="text-[10px] text-gray-400">
-            {mode === "internal"
-              ? "LLM actions run on local Claude (free)"
-              : llmMock
-              ? "No LLM key — responses are mock"
-              : "LLM actions use the API (metered)"}
-          </span>
         </div>
       </header>
 
@@ -230,44 +289,23 @@ export default function App() {
       )}
 
       <main className="flex flex-1 min-h-0">
-        <section className="w-1/3 max-w-md border-r border-gray-200 bg-white">
+        {/* Collapse via CLASS SWAP only — conditional JSX would unmount the ttyd
+            iframe and kill the user's live terminal session. */}
+        <section
+          className={
+            railOpen ? "w-1/3 max-w-md border-r border-gray-200 bg-white" : "hidden"
+          }
+        >
           <AssistantPanel onAction={refresh} mode={mode} />
         </section>
 
         <section className="flex flex-col flex-1 min-w-0 bg-white">
-          <nav className="flex items-center gap-1 px-3 pt-2 border-b border-gray-200 bg-white">
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                className={`px-3 py-2 text-sm font-medium rounded-t-md border-b-2 -mb-px transition-colors ${
-                  tab === t.id
-                    ? "border-indigo-600 text-indigo-700"
-                    : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                {t.label}
-                {t.id === "applications" && applications.length > 0 && (
-                  <span className="ml-1.5 px-1.5 py-0.5 text-xs rounded-full bg-indigo-100 text-indigo-700">
-                    {applications.length}
-                  </span>
-                )}
-                {t.id === "applications" && orphanCount > 0 && (
-                  <span
-                    title={`${orphanCount} application${orphanCount > 1 ? "s have" : " has"} no linked job posting`}
-                    className="ml-1 px-1.5 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700"
-                  >
-                    ⚠{orphanCount}
-                  </span>
-                )}
-              </button>
-            ))}
-          </nav>
-
           <div className="flex-1 min-h-0">
             {tab === "jobs" && (
               <div className="flex h-full min-h-0">
-                <div className="w-2/5 min-w-[320px] border-r border-gray-200 flex flex-col min-h-0">
+                {/* Fixed-ish list width so the DETAIL pane (the reading surface) takes
+                    the majority — mirrors the master-detail reference layout. */}
+                <div className="w-[400px] xl:w-[440px] min-w-[340px] shrink-0 border-r border-gray-200 flex flex-col min-h-0">
                   <AddJobsBar mode={mode} onChanged={refresh} />
                   <div className="flex-1 min-h-0">
                     <JobsTable

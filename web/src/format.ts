@@ -1,5 +1,19 @@
 // Shared display formatting for jobs/applications tables.
 
+// "today" / "3d ago" / "2w ago" / "5mo ago" for a YYYY-MM-DD date; "" for
+// empty/invalid input so callers can simply omit the segment.
+export function relativeTime(dateStr: string): string {
+  if (!dateStr) return "";
+  const d = new Date(`${dateStr}T00:00:00`);
+  if (isNaN(d.getTime())) return "";
+  const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
+  if (days < 0) return dateStr; // future "posted" date — show it verbatim
+  if (days === 0) return "today";
+  if (days < 7) return `${days}d ago`;
+  if (days < 60) return `${Math.floor(days / 7)}w ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}
+
 export function salaryRange(
   min: number | null,
   max: number | null,

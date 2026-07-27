@@ -59,7 +59,7 @@ export default function AddJobsBar({
   };
 
   return (
-    <div className="border-b border-gray-200 bg-white px-3 py-2">
+    <div className="border-b border-gray-200 bg-white px-2 py-1.5">
       <div className="flex flex-wrap items-center gap-2">
         {sources.length > 1 && (
           <div className="relative flex items-center gap-1.5 text-sm">
