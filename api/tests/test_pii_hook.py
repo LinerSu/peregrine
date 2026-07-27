@@ -41,8 +41,9 @@ _REAL2 = f"recruiter{_AT}gmail.com"
 _REAL_SFX = f"victim{_AT}gmail.com.example"   # real address merely suffixed with the .example TLD
 
 # A fictional personal-term denylist (the real one is config/pii_terms.txt, gitignored).
-# "ab" pins the <4-chars skip; the comment line pins comment handling.
-_TERMS = "# comment lines are skipped\nJane Petrova\njanepetrova\nab\n"
+# "ab" pins the <4-BYTES skip; the comment line pins comment handling; 王小明 (a stock
+# placeholder name, 9 UTF-8 bytes) pins that short-in-CHARACTERS CJK names still match.
+_TERMS = "# comment lines are skipped\nJane Petrova\njanepetrova\nab\n王小明\n"
 
 # One case per DISTINCT branch of the path regex (a missing branch must fail a test, not pass
 # silently) — plus the README-prefix collision and the api/ test-mount copies. Shared by the
@@ -57,6 +58,8 @@ BLOCKED_PATHS = [
     "data/index.db",            # (distinct extension literal)
     "data/patterns.json",       # learned application patterns
     "data/cover_letter_samples/style.txt",  # your own cover-letter style samples
+    "data/backups/index.sqlite",  # NESTED db artifact — pins the data/**/* gitignore depth
+    "data/exports/jobs.csv",      # NESTED csv — same depth-parity pin
     "data/jobs/2026-001.md",    # a posting snapshot (md)
     "data/jobs/2026-001.json",  # a posting snapshot (json)
     "data/jobs/2026-001.cv.tex",   # tailored CV — full PII (was NOT gitignored before)
@@ -70,6 +73,8 @@ BLOCKED_PATHS = [
     "config/job_source.md",     # pasted posting text
     "config/pii_terms.txt",     # the personal-term denylist ITSELF (concentrated PII)
     "resume/cv.pdf",            # the résumé itself
+    "resume/简历-CV.pdf",        # non-ASCII filename — pins the core.quotepath=off fix (git's
+                                 # default C-quoting made the ^-anchored regex fail OPEN)
     "resume/README_SECRET.md",  # README-PREFIX collision — NOT the exempt resume/README.md
     "applications/2026-001/cover_letter.md",
     "applications/README_notes.md",  # README-PREFIX collision — NOT the exempt README.md
@@ -234,10 +239,22 @@ def test_denylist_blocks_term_in_staged_filename(tmp_path):
 
 
 def test_denylist_skips_comments_and_short_terms(tmp_path):
-    # "ab" (<4 chars) and the "# comment…" line must NOT match, else everything false-positives.
-    r = _run(tmp_path, {"docs/note.md": "ab initio comment lines everywhere\n"},
+    # "ab" (<4 bytes) and the "# comment…" line must NOT match, else everything false-positives.
+    # The staged content contains the comment line's OWN text verbatim: if comment lines are
+    # ever treated as terms, it substring-matches and this test fails (mutation-proof — a
+    # content without '#' passed even with the comment-skip branch deleted).
+    r = _run(tmp_path, {"docs/note.md": "ab initio # comment lines are skipped everywhere\n"},
              unstaged={"config/pii_terms.txt": _TERMS})
     assert r.returncode == 0, r.stderr
+
+
+def test_denylist_matches_short_cjk_name(tmp_path):
+    # A 3-character CJK name is only 3 CHARACTERS but 9 bytes — the length floor must count
+    # bytes, or the documented "name in Chinese" use case silently gets no protection.
+    r = _run(tmp_path, {"docs/note.md": "intro call with 王小明 on Friday\n"},
+             unstaged={"config/pii_terms.txt": _TERMS})
+    assert r.returncode == 1, r.stderr
+    assert "personal term" in r.stderr
 
 
 def test_denylist_absent_file_is_a_noop(tmp_path):
@@ -303,6 +320,27 @@ def test_commit_msg_blocks_denylist_term(tmp_path):
     assert "personal data" in r.stderr
 
 
+def test_commit_msg_ignores_verbose_diff_below_scissors(tmp_path):
+    # `git commit -v` appends the FULL staged diff below the scissors line; git strips it
+    # before recording, so a real email there (e.g. a context line, or the deletion line of
+    # the very scrub commit that REMOVES a leak) must not block the commit.
+    scissors = "# ------------------------ >8 ------------------------\n"
+    msg = (f"fix: scrub the leaked address\n\n{scissors}"
+           f"diff --git a/docs/note.md b/docs/note.md\n-contact: {_REAL}\n+contact: TBD\n")
+    r = _run_msg(tmp_path, msg, terms=_TERMS)
+    assert r.returncode == 0, r.stderr
+
+
+def test_commit_msg_ignores_comment_template_lines(tmp_path):
+    # The '#' status template (branch info, untracked-file listings) is stripped by git's
+    # cleanup — a denylist term in an untracked FILENAME must not block an unrelated commit.
+    msg = ("docs: tidy readme\n\n"
+           "# Untracked files:\n#   notes/janepetrova_call.md\n"
+           f"# Author: someone <{_REAL2}>\n")
+    r = _run_msg(tmp_path, msg, terms=_TERMS)
+    assert r.returncode == 0, r.stderr
+
+
 def test_commit_msg_scans_merge_messages_too(tmp_path):
     # merges bypass the FORMAT check but must still be PII-scanned.
     r = _run_msg(tmp_path, f"Merge branch 'x'\n\nnotes: ping {_REAL2}\n")
@@ -348,6 +386,10 @@ def test_ci_guard_blocks_email_in_diff(tmp_path):
     r = subprocess.run(["bash", str(CI_GUARD), base], cwd=tmp_path, capture_output=True, text=True)
     assert r.returncode == 1, r.stdout + r.stderr
     assert "email" in r.stderr.lower()
+    # Actions logs persist beyond a branch scrub — the guard must print a REDACTED form,
+    # never the verbatim address (that would mint a second, harder-to-clean copy of the PII).
+    assert _REAL2 not in r.stderr, "verbatim email leaked into CI output"
+    assert "r***@g***" in r.stderr
 
 
 def test_ci_guard_passes_clean_diff(tmp_path):
@@ -357,12 +399,28 @@ def test_ci_guard_passes_clean_diff(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
 
 
-def test_ci_guard_single_commit_falls_back_to_empty_tree(tmp_path):
+_ZEROS = "0" * 40  # what GitHub sends as `before` on branch creation / force-push
+
+
+@pytest.mark.parametrize("args", [[], [_ZEROS]])
+def test_ci_guard_single_commit_falls_back_to_empty_tree(tmp_path, args):
     # no usable base sha (first push of a one-commit repo): scan everything, still catch it.
     for cmd in (["git", "init", "-q"], ["git", "config", "user.email", "t@example.com"],
                 ["git", "config", "user.name", "t"]):
         subprocess.run(cmd, cwd=tmp_path, check=True)
     _commit(tmp_path, "config/profile.yml", "name: someone\n")
-    r = subprocess.run(["bash", str(CI_GUARD)], cwd=tmp_path, capture_output=True, text=True)
+    r = subprocess.run(["bash", str(CI_GUARD), *args], cwd=tmp_path, capture_output=True, text=True)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "personal-data" in r.stderr
+
+
+def test_ci_guard_unusable_base_scans_whole_history_not_just_head(tmp_path):
+    # FAIL-CLOSED pin: with an unusable base and a MULTI-commit history, PII buried one
+    # commit below a clean HEAD must still be caught. (A HEAD~1 fallback scans only the
+    # last commit and certified this exact case as clean.)
+    _seeded_repo(tmp_path)
+    _commit(tmp_path, "config/profile.yml", "name: someone\n")
+    _commit(tmp_path, "docs/clean.md", "nothing personal here\n")
+    r = subprocess.run(["bash", str(CI_GUARD), _ZEROS], cwd=tmp_path, capture_output=True, text=True)
     assert r.returncode == 1, r.stdout + r.stderr
     assert "personal-data" in r.stderr

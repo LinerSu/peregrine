@@ -53,7 +53,11 @@ pii_offending_terms() {
     term="${term#"${term%%[![:space:]]*}"}"
     term="${term%"${term##*[![:space:]]}"}"
     case "$term" in '' | \#*) continue ;; esac
-    [ "${#term}" -ge 4 ] || continue
+    # Minimum length in BYTES, not characters: ${#term} counts characters under a UTF-8
+    # locale, which silently skips 2-3 character CJK names — the documented use case.
+    # Bytes keep the ASCII noise filter (>=4 chars) while a 2-char CJK name (6 bytes)
+    # passes; the count is also locale-independent, unlike ${#term}.
+    [ "$(printf %s "$term" | wc -c)" -ge 4 ] || continue
     # Herestring, NOT `printf | grep -q`: -q exits at the first hit, and the SIGPIPEd
     # printf would turn a MATCH into pipeline status 141 — a silent fail-open.
     if grep -qiF -- "$term" <<< "$text"; then

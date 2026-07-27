@@ -12,9 +12,10 @@
 #
 # Matching is case-insensitive substring, over staged added lines, staged filenames,
 # and commit messages. Lines starting with # and blank lines are skipped, and so are
-# terms shorter than 4 characters (too short = false positives everywhere) — keep
-# each term distinctive. Non-ASCII terms (e.g. a name in Chinese) work too, but have
-# no case-folding, so add each casing/variant you actually use.
+# terms shorter than 4 BYTES — i.e. 1-3 ASCII characters, or a single CJK character
+# (too short = false positives everywhere) — keep each term distinctive. Non-ASCII
+# terms work: a 2-3 character Chinese name is fine (2 chars = 6 bytes), but there is
+# no case-folding for them, so add each variant you actually use.
 Jane Q. Applicant
 jane.applicant@example.com
 555-0100

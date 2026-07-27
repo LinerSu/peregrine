@@ -17,8 +17,16 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # repo root (this script li
 
 # Self-heal the git hooks (PII + crawl-policy guards). A fresh clone that never ran
 # scripts/install-hooks.sh would otherwise commit with NO guard — silently.
-if [ "$(git config core.hooksPath 2>/dev/null || true)" != "hooks" ]; then
-  ./scripts/install-hooks.sh
+# Gated on git actually working here: under `sudo` (dubious-ownership refusal), a
+# tarball download, or a no-git box, dying would break the previously git-free
+# one-command launch — warn loudly and keep going instead.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if [ "$(git config core.hooksPath 2>/dev/null || true)" != "hooks" ]; then
+    ./scripts/install-hooks.sh
+  fi
+else
+  echo "⚠ git unavailable here — PII/crawl-policy commit hooks NOT installed;" >&2
+  echo "  run scripts/install-hooks.sh from a normal checkout before committing." >&2
 fi
 
 echo "▶ Bringing up the Peregrine stack (web + api)…"

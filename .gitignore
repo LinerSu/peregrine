@@ -25,10 +25,13 @@ dist/
 # --- Personal data — NEVER commit (lives only on your machine) ---
 # Your tracked jobs/applications. Demo seeds are shipped as *.example.csv and
 # copied to the live files on first run (api/app/config.py::ensure_dirs).
-data/*.csv
+# **-form so NESTED artifacts (data/backups/index.sqlite, data/exports/jobs.csv)
+# are ignored too — the hook regex blocks them at any depth, and .gitignore must
+# match its reach (pinned by the parity tests).
+data/**/*.csv
 !data/*.example.csv
-data/*.tmp
-data/*.bak
+data/**/*.tmp
+data/**/*.bak
 data/patterns.json
 # Everything under data/jobs/ is derived from your postings/CV — snapshots (.md), evaluations
 # (.json), tailored CVs (.cv.tex / .cv.pdf), cover letters (.cover_letter.md). Block the whole
@@ -36,10 +39,10 @@ data/patterns.json
 data/jobs/*
 !data/jobs/.gitkeep
 # The derived index (and any other db artifact) over your real corpus — match the
-# hook's extension list (sqlite|sqlite3|db), not one filename.
-data/*.sqlite
-data/*.sqlite3
-data/*.db
+# hook's extension list (sqlite|sqlite3|db) and its any-depth reach, not one filename.
+data/**/*.sqlite
+data/**/*.sqlite3
+data/**/*.db
 # Your own cover-letter style samples (read as references; curated samples that
 # ship with the repo live in api/app/cover_letters/ instead). Documented in
 # docs/FILESYSTEM.md (the folder is protected, so no README ships inside it).

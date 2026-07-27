@@ -13,7 +13,10 @@ set -euo pipefail
 
 # ACMR (not ACM): include Renames, so a personal file staged via `git mv x config/profile.yml`
 # (status R) can't slip past the guard. --name-only lists the rename DESTINATION (the new path).
-staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+# quotepath=off: git's default C-quotes non-ASCII paths ("resume/\350\213\217…") — the quoted
+# form starts with a literal `"` so the ^-anchored path regex would NEVER match (fail-open for
+# e.g. a CV named in Chinese). Off = raw UTF-8 bytes, which the regex handles.
+staged="$(git -c core.quotepath=off diff --cached --name-only --diff-filter=ACMR)"
 [ -z "$staged" ] && exit 0
 fail=0
 
@@ -57,7 +60,7 @@ fi
 # Content scan: a real-looking email in a STAGED ADDED line (test fixtures + demo seeds
 # use @example.com; commit-authoring noreply@ lives in the message, not a file). Catches
 # PII pasted into a source/test/fixture file. Safe domains are allow-listed.
-added_lines="$(git diff --cached -U0 --diff-filter=ACMR \
+added_lines="$(git -c core.quotepath=off diff --cached -U0 --diff-filter=ACMR \
   | grep -E '^\+' | grep -vE '^[+]{3} ([ab]/|/dev/null)' || true)"
 mail_hits="$(printf '%s\n' "$added_lines" | pii_offending_emails)"
 if [ -n "$mail_hits" ]; then
