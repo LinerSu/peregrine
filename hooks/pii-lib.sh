@@ -30,11 +30,15 @@ PII_EMAIL_NOREPLY_RE='^(noreply|no-reply)@'
 # layer a silent no-op in `git worktree add` checkouts). Falls back to the relative
 # path when there is no git context (e.g. the commit-msg tests run without a repo).
 _pii_common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-if [ -n "$_pii_common" ]; then
-  PII_TERMS_FILE="${_pii_common%/.git}/config/pii_terms.txt"
-else
-  PII_TERMS_FILE="config/pii_terms.txt"
-fi
+# Trust the output only when it is a single ABSOLUTE path: git < 2.31 doesn't know
+# --path-format and echoes the flag back on stdout with exit 0, which would poison
+# the path and silently disable the whole denylist layer. Junk starts with '-', so
+# anything not starting with '/' falls back to the relative path (hooks run from the
+# toplevel — main-checkout coverage survives; only worktree reach degrades).
+case "$_pii_common" in
+  /*) PII_TERMS_FILE="${_pii_common%/.git}/config/pii_terms.txt" ;;
+  *)  PII_TERMS_FILE="config/pii_terms.txt" ;;
+esac
 
 # stdin: candidate paths (one per line) -> stdout: personal-data paths that must not ship.
 pii_offending_paths() {

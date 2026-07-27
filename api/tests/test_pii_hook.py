@@ -16,6 +16,7 @@ where absent, e.g. the api container has no git).
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -76,7 +77,9 @@ BLOCKED_PATHS = [
     "config/profile.yml",       # parsed CV
     "config/profile.yaml",      # (the ya?ml variant)
     "config/memory.yml",        # agent memory
+    "config/memory.yaml",       # (the ya?ml variant)
     "config/portals.yml",       # scan config
+    "config/portals.yaml",      # (the ya?ml variant)
     "config/cv_source.md",      # raw CV text
     "config/job_source.md",     # pasted posting text
     "config/pii_terms.txt",     # the personal-term denylist ITSELF (concentrated PII)
@@ -232,6 +235,13 @@ def test_blocks_a_personal_file_staged_via_rename(tmp_path):
 def test_allows_a_clean_source_file(tmp_path):
     r = _run(tmp_path, {"web/src/x.ts": "export const x = 1;\n"})
     assert r.returncode == 0, r.stderr
+
+
+def test_email_scan_is_case_insensitive(tmp_path):
+    # dropping the -i flags would fail open on shouty or mixed-case addresses.
+    r = _run(tmp_path, {"docs/note.md": f"CONTACT: VICTIM{_AT}GMAIL.COM\n"})
+    assert r.returncode == 1, r.stderr
+    assert "email" in r.stderr.lower()
 
 
 def test_email_scan_survives_external_diff_driver(tmp_path):
@@ -414,6 +424,19 @@ def test_commit_msg_scissors_marker_alone_marks_editor_flow(tmp_path):
     assert r.returncode == 0, r.stderr
 
 
+def test_commit_msg_editor_flow_scans_below_short_lookalike(tmp_path):
+    # in the editor flow, git only cuts at its REAL 24-dash scissors line; a pasted
+    # short lookalike is a plain comment and the recorded line after it must still be
+    # scanned — the truncation floor has to match the 20-dash detection floor.
+    msg = ("fix: tidy\n\n"
+           "# Please enter the commit message for your changes. Lines starting\n"
+           "# -- >8 --\n"
+           f"see {_REAL}\n")
+    r = _run_msg(tmp_path, msg)
+    assert r.returncode == 1
+    assert "personal data" in r.stderr
+
+
 def test_commit_msg_scans_hash_lines_of_dash_m_messages(tmp_path):
     # `git commit -m` defaults to cleanup=whitespace: '#' lines ARE recorded. Without
     # git's editor-template marker the hook must scan them raw — stripping would fail
@@ -498,10 +521,8 @@ def test_ci_guard_catches_pii_added_then_removed_in_range(tmp_path):
     assert "personal-data" in r.stderr
 
 
-def test_ci_guard_catches_pii_in_merge_conflict_resolution(tmp_path):
-    # `git log -p` skips merge diffs, so PII introduced ONLY in an evil-merge conflict
-    # resolution is invisible to the per-commit scan — the endpoint-diff belt must
-    # catch it (this is the case the belt exists for).
+def _evil_merge_repo(tmp_path: Path) -> str:
+    """History whose ONLY PII is introduced in a merge conflict resolution."""
     base = _seeded_repo(tmp_path)
     default = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=tmp_path,
                              check=True, capture_output=True, text=True).stdout.strip()
@@ -514,9 +535,74 @@ def test_ci_guard_catches_pii_in_merge_conflict_resolution(tmp_path):
     subprocess.run(["git", "add", "docs/x.md"], cwd=tmp_path, check=True)
     subprocess.run(["git", "commit", "-q", "--no-verify", "-m", "fix: merge side"],
                    cwd=tmp_path, check=True)
+    return base
+
+
+def test_ci_guard_catches_pii_in_merge_conflict_resolution(tmp_path):
+    # `git log -p` skips merge diffs, so PII introduced ONLY in an evil-merge conflict
+    # resolution is invisible to the per-commit scan — the endpoint-diff belt must
+    # catch it (this is the case the belt exists for).
+    base = _evil_merge_repo(tmp_path)
     r = subprocess.run(["bash", str(CI_GUARD), base], cwd=tmp_path, capture_output=True, text=True)
     assert r.returncode == 1, r.stdout + r.stderr
     assert "email" in r.stderr.lower()
+
+
+def test_ci_guard_catches_evil_merge_even_without_usable_base(tmp_path):
+    # when base AND baseline are both unusable the belt must fall back to the EMPTY
+    # TREE, not vanish — `git log -p` alone would greenlight the merge resolution.
+    _evil_merge_repo(tmp_path)
+    env = {k: v for k, v in os.environ.items() if k != "PII_GUARD_BASELINE"}
+    r = subprocess.run(["bash", str(CI_GUARD), _ZEROS], cwd=tmp_path,
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "email" in r.stderr.lower()
+
+
+def test_ci_guard_merge_base_normalizes_stale_pr_base(tmp_path):
+    # a PR base sha that is main's ADVANCED tip (not an ancestor of the branch head)
+    # must be normalized via merge-base — otherwise content main scrubbed since the
+    # fork reads as branch ADDITIONS: a guaranteed false-red on any non-rebased PR.
+    for cmd in (["git", "init", "-q"], ["git", "config", "user.email", "t@example.com"],
+                ["git", "config", "user.name", "t"]):
+        subprocess.run(cmd, cwd=tmp_path, check=True)
+    _commit(tmp_path, "docs/x.md", f"ping {_REAL}\n")          # fork point (pre-base history)
+    default = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=tmp_path,
+                             check=True, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "checkout", "-qb", "feat"], cwd=tmp_path, check=True)
+    _commit(tmp_path, "docs/clean.md", "clean\n")
+    subprocess.run(["git", "checkout", "-q", default], cwd=tmp_path, check=True)
+    _commit(tmp_path, "docs/x.md", "scrubbed\n")               # main advances past the fork
+    stale_base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, check=True,
+                                capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "checkout", "-q", "feat"], cwd=tmp_path, check=True)
+    r = subprocess.run(["bash", str(CI_GUARD), stale_base], cwd=tmp_path,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_ci_guard_redaction_never_prints_nonstructural_first_component(tmp_path):
+    # the any-depth branches (.demo/, *.env) can put a USER-NAMED directory first —
+    # only the known structural roots may survive into the Actions log.
+    base = _seeded_repo(tmp_path)
+    _commit(tmp_path, "JaneDoe-workspace/.demo/jobs.csv", "x\n")
+    r = subprocess.run(["bash", str(CI_GUARD), base], cwd=tmp_path, capture_output=True, text=True)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "JaneDoe" not in r.stderr, "user-named first component leaked into CI output"
+
+
+def test_pinned_baseline_sha_resolves():
+    # PII_GUARD_BASELINE in ci.yml must stay resolvable: after any main-history
+    # rewrite it silently stops bounding the fallback (guaranteed-red full scans).
+    ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    m = re.search(r"PII_GUARD_BASELINE:\s*([0-9a-f]{40})", ci)
+    assert m, "PII_GUARD_BASELINE env missing from ci.yml"
+    shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"], cwd=REPO_ROOT,
+                             capture_output=True, text=True).stdout.strip()
+    if shallow == "true":
+        pytest.skip("shallow checkout cannot resolve historic shas")
+    r = subprocess.run(["git", "cat-file", "-e", f"{m.group(1)}^{{commit}}"], cwd=REPO_ROOT)
+    assert r.returncode == 0, "baseline sha no longer resolves — update ci.yml after the history rewrite"
 
 
 def test_ci_guard_baseline_bounds_unusable_base_fallback(tmp_path):
@@ -656,3 +742,45 @@ def test_install_hooks_installs_in_own_checkout(tmp_path):
     hp = subprocess.run(["git", "config", "core.hooksPath"], cwd=tmp_path,
                         capture_output=True, text=True)
     assert hp.stdout.strip() == "hooks"
+
+
+# --- launch-time self-heal (scripts/ensure-hooks.sh, called by start.sh) --------------
+
+ENSURE_HOOKS = REPO_ROOT / "scripts" / "ensure-hooks.sh"
+
+
+def _project_copy(dst: Path) -> None:
+    (dst / "scripts").mkdir(parents=True)
+    shutil.copy(INSTALL_HOOKS, dst / "scripts" / "install-hooks.sh")
+    shutil.copy(ENSURE_HOOKS, dst / "scripts" / "ensure-hooks.sh")
+    shutil.copytree(REPO_ROOT / "hooks", dst / "hooks")
+
+
+def test_ensure_hooks_installs_in_own_fresh_clone(tmp_path):
+    # the fail-open direction: an inverted gate would silently skip installation on a
+    # fresh clone — the exact 'commit with NO guard' scenario the self-heal closes.
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    _project_copy(tmp_path)
+    r = subprocess.run(["bash", "scripts/ensure-hooks.sh"], cwd=tmp_path,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    hp = subprocess.run(["git", "config", "core.hooksPath"], cwd=tmp_path,
+                        capture_output=True, text=True)
+    assert hp.stdout.strip() == "hooks"
+
+
+def test_ensure_hooks_warns_but_never_fails_launch_in_nested_copy(tmp_path):
+    # nested tarball copy: must warn, exit 0 (the launch continues), and leave the
+    # enclosing repo's hook config untouched.
+    for cmd in (["git", "init", "-q"], ["git", "config", "user.email", "t@example.com"],
+                ["git", "config", "user.name", "t"]):
+        subprocess.run(cmd, cwd=tmp_path, check=True)
+    nested = tmp_path / "nested-copy"
+    _project_copy(nested)
+    r = subprocess.run(["bash", "scripts/ensure-hooks.sh"], cwd=nested,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "NOT installed" in r.stderr
+    hp = subprocess.run(["git", "config", "core.hooksPath"], cwd=tmp_path,
+                        capture_output=True, text=True)
+    assert hp.stdout.strip() != "hooks", "enclosing repo's hooksPath was rewritten"

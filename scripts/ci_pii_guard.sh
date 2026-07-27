@@ -38,7 +38,10 @@ if usable "$base"; then
   endpoint_base="$(git merge-base "$base" HEAD 2>/dev/null || echo "$base")"
   range="${endpoint_base}..HEAD"
 else
-  endpoint_base=""
+  # Empty tree as the endpoint belt, NOT "" — `git log -p` skips merge diffs, so
+  # disabling the belt here would greenlight evil-merge conflict resolutions on
+  # exactly the run (post-scrub force-push) most likely to contain them.
+  endpoint_base="$(git hash-object -t tree /dev/null)"
   range="HEAD"
 fi
 echo "scanning commits in ${range}"
@@ -73,10 +76,13 @@ paths="$(changed_paths | sort -u | pii_offending_paths)"
 if [ -n "$paths" ]; then
   echo "✗ ci-pii-guard: personal-data paths in this push (basenames redacted here —" >&2
   echo "  a résumé/CV filename can itself carry a real name, and Actions logs persist):" >&2
-  # keep only the first (repo-structural) component: user-named SUBDIRECTORIES under
-  # resume/ or applications/ can carry a real name just like a basename.
+  # Keep the first component ONLY when it is a known repo-structural root — the
+  # any-depth branches (.demo/, *.env) can put a USER-NAMED directory first, and a
+  # name-bearing subdirectory leaks like a basename would. Everything else collapses
+  # to <redacted> entirely (`t` = skip the collapse when the allowlist rule fired).
   printf '%s\n' "$paths" \
-    | sed -E -e 's|^([^/]+)/.+$|\1/<redacted>|' -e 's|^[^/]+$|<redacted>|' \
+    | sed -E -e 's#^((api/)?(data|resume|config|applications))/.+$#\1/<redacted>#' -e 't' \
+             -e 's#^.+$#<redacted>#' \
     | sort -u | sed 's/^/  /' >&2
   echo "  run the local pre-commit hook (or git log --name-only) for the full paths." >&2
   fail=1

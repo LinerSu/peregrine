@@ -26,7 +26,11 @@ set -euo pipefail
 # scanned raw). Residual: localized NON-verbose editor commits fall to the raw
 # branch — fail-closed (possible false block), never fail-open.
 if grep -q '^# Please enter' "$1" || grep -qE '^# -{20,} >8 -{20,}$' "$1"; then
-  msg_clean="$(sed -e '/^# -\{2,\} >8 -\{2,\}$/,$d' -e '/^#/d' "$1")"
+  # Truncation floor MUST match the detection floor (20 dashes): git only cuts at its
+  # real 24-dash scissors line, so truncating at a pasted short lookalike would skip
+  # recorded lines between the lookalike and the template — a fail-open. A short
+  # lookalike is just a '#' comment: dropped by the /^#/d, its surroundings scanned.
+  msg_clean="$(sed -e '/^# -\{20,\} >8 -\{20,\}$/,$d' -e '/^#/d' "$1")"
 else
   msg_clean="$(cat "$1")"
 fi
