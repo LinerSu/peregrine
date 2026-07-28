@@ -18,6 +18,7 @@ const OPTIONAL_COLS: { key: ColKey; label: string }[] = [
 ];
 const COL_STORAGE = "peregrine.jobcols";
 const SF_MIGRATED = "peregrine.jobcols.sfmigrated"; // one-time: reveal the new Skill-fit column
+const SAVED_STORAGE = "peregrine.savedOnly"; // the ★ Saved lens survives reloads
 
 const STATUSES = ["open", "applied", "interviewing", "offer", "rejected", "closed", "removed"];
 
@@ -73,7 +74,23 @@ export default function JobsTable({
   const [domain, setDomain] = useState("All");
   const [level, setLevel] = useState("All");
   const [advancedOpen, setAdvancedOpen] = useState(false); // role/domain/degree filters, collapsed
-  const [starredOnly, setStarredOnly] = useState(false);
+  // The ★ Saved lens — an overlay that composes with the lifecycle tabs (a starred
+  // job can be open, applied, …), persisted so the shortlist survives reloads. Safe
+  // to restore even with zero starred jobs: the toggle stays visible (amber) to undo.
+  const [starredOnly, setStarredOnly] = useState(() => {
+    try {
+      return localStorage.getItem(SAVED_STORAGE) === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(SAVED_STORAGE, starredOnly ? "1" : "0");
+    } catch {
+      /* best-effort */
+    }
+  }, [starredOnly]);
   const [relevantOnly, setRelevantOnly] = useState(true); // hide off-target (matches your queries)
   const [tab, setTab] = useState<Tab>("all");
   const [grouped, setGrouped] = useState(false);
@@ -166,7 +183,11 @@ export default function JobsTable({
         // so an off-target closed job is never stranded with the toggle hidden. An explicit text
         // search overrides the triage toggle — you asked for these by name, so show them all even
         // if they don't match your configured role queries (the whole point of recall-on-demand).
-        (!relevantOnly || query.trim() !== "" || j.relevant !== false || isDead(j)) &&
+        // A STAR is the same strength of signal: with the Saved lens on, a starred job must
+        // never be relevance-hidden, or the '★ Saved N' label advertises rows the table
+        // can't show (worst on reload: persisted lens + default-on relevance = empty table).
+        (!relevantOnly || query.trim() !== "" || j.relevant !== false || isDead(j) ||
+          (starredOnly && j.starred)) &&
         (!starredOnly || j.starred)
     );
   }, [jobs, query, role, domain, level, relevantOnly, starredOnly]);
@@ -176,6 +197,10 @@ export default function JobsTable({
     () => jobs.filter((j) => j.relevant === false && !isDead(j)).length,
     [jobs]
   );
+  // Starred across the jobs the SERVER returned — i.e. the true shortlist size for the
+  // current search scope (client-side facets don't affect it, but a text query does:
+  // `jobs` is already server-filtered, see the note on the query prop above).
+  const savedCount = useMemo(() => jobs.filter((j) => j.starred).length, [jobs]);
 
   // Tab badge counts in a single pass (avoids O(tabs × rows) per render).
   const tabCounts = useMemo(() => {
@@ -399,12 +424,18 @@ export default function JobsTable({
         )}
         <button
           onClick={() => setStarredOnly((v) => !v)}
-          title="Show starred only"
+          title={
+            starredOnly
+              ? "Showing your saved (starred) jobs only. Click to show all."
+              : "Show only the jobs you starred"
+          }
           className={`px-2 py-1 text-xs rounded-md border ${
             starredOnly ? "border-amber-400 bg-amber-50 text-amber-700" : "border-gray-300 text-gray-500"
           }`}
         >
-          {starredOnly ? "★" : "☆"}
+          {/* Count always shown while the lens is ON — during a text search the server
+              scopes `jobs`, and a silently vanishing number reads as a lost shortlist. */}
+          {starredOnly ? "★" : "☆"} Saved{starredOnly || savedCount > 0 ? ` ${savedCount}` : ""}
         </button>
         <button
           onClick={() => setGrouped((v) => !v)}
