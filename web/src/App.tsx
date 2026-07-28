@@ -319,7 +319,12 @@ export default function App() {
                 </div>
                 <div className="flex-1 min-w-0">
                   {selectedId ? (
-                    <JobDetail jobId={selectedId} onChanged={refresh} mode={mode} />
+                    <JobDetail
+                      jobId={selectedId}
+                      onChanged={refresh}
+                      onDeleted={() => setSelectedId(null)}
+                      mode={mode}
+                    />
                   ) : (
                     <div className="flex items-center justify-center h-full text-gray-400 text-sm px-6 text-center">
                       Select a job to see fit, strengths, weaknesses, and the apply gate.

@@ -18,6 +18,7 @@ from ..schemas import (
     JobIngestInput,
     JobSourceInput,
     PortalsInput,
+    PurgeInput,
     UpskillingInput,
 )
 
@@ -272,7 +273,14 @@ def read_evaluation(job_id: str):
     it for the legitimacy/archetype blocks. 404s on an unknown job."""
     if not store.get_job(job_id):
         raise HTTPException(404, f"job {job_id} not found")
-    return tools.get_evaluation(job_id) or {}
+    ev = tools.get_evaluation(job_id)
+    if not ev:
+        return {}
+    # `stale` = evaluated against a PREVIOUS CV (profile changed since); the UI hides
+    # the scores and points at re-running Evaluate fit. Added only on a non-empty
+    # response so "{} means no evaluation yet" stays true for the polling UI.
+    ev["stale"] = tools.artifact_stale(job_id, ".evaluation.json")
+    return ev
 
 
 @router.put("/{job_id}/upskilling")
@@ -314,10 +322,42 @@ def save_cover_letter(job_id: str, payload: CoverLetterInput):
 @router.get("/{job_id}/cover-letter")
 def read_cover_letter(job_id: str):
     """Read the last saved cover-letter draft ({} if none yet) — used by the UI poll.
-    404s on an unknown job, consistent with GET /{job_id}."""
+    404s on an unknown job, consistent with GET /{job_id}. `stale` means it was
+    drafted against a PREVIOUS CV (the profile changed since) — the UI de-emphasizes
+    it and points at Redraft."""
     if not store.get_job(job_id):
         raise HTTPException(404, f"job {job_id} not found")
-    return tools.get_cover_letter(job_id) or {}
+    cover = tools.get_cover_letter(job_id)
+    if not cover:
+        return {}
+    cover["stale"] = tools.artifact_stale(job_id, ".cover_letter.md")
+    return cover
+
+
+@router.delete("/{job_id}")
+def delete_job(job_id: str):
+    """Hard-delete a mistakenly-added job (row + all its data/jobs/ artifacts).
+
+    Refuses while a linked application exists (shared id): application history must
+    never vanish as a side effect of deleting a posting — delete the application
+    first if that's really the intent."""
+    if not store.get_job(job_id):
+        raise HTTPException(404, f"job {job_id} not found")
+    if store.get_application(job_id):
+        raise HTTPException(
+            409, "a linked application exists — delete it on the Applications tab first"
+        )
+    store.delete_job(job_id)
+    return {"deleted": job_id}
+
+
+@router.post("/purge")
+def purge_closed_jobs(payload: PurgeInput):
+    """One-shot retention purge: delete CLOSED jobs whose posting is older than the
+    cutoff (rows + artifacts). Jobs with a linked application or without a parseable
+    posted_date are skipped — conservative by design. For an automatic version, set
+    filters.retention_days in portals.yml (applied at the end of every scan)."""
+    return store.purge_closed_jobs(payload.older_than_days)
 
 
 @router.post("/{job_id}/cv")

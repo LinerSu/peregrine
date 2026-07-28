@@ -134,6 +134,7 @@ export interface PatternInsights {
 // Structured fit evaluation (v2). Empty object ({}) when a job has none yet.
 export interface Evaluation {
   job_id?: string;
+  stale?: boolean; // evaluated against a PREVIOUS CV — UI hides scores, points at re-run
   fit_score?: number;
   recommendation?: "apply" | "hold" | "skip";
   strengths?: string[];
@@ -289,6 +290,15 @@ export const api = {
     }),
   deleteApplication: (id: string) =>
     http<{ deleted: string }>(`/api/applications/${id}`, { method: "DELETE" }),
+  // Hard-delete a mistakenly-added job (+ its artifacts). The API refuses (409) while
+  // a linked application exists — application history never vanishes as a side effect.
+  deleteJob: (id: string) => http<{ deleted: string }>(`/api/jobs/${id}`, { method: "DELETE" }),
+  // One-shot retention purge of closed jobs older than the cutoff.
+  purgeJobs: (olderThanDays: number) =>
+    http<{ deleted: number; skipped_linked: number; skipped_undated: number }>(
+      "/api/jobs/purge",
+      { method: "POST", body: JSON.stringify({ older_than_days: olderThanDays }) }
+    ),
   // Whether External-mode LLM calls are real or mock placeholders (no key). The UI
   // warns in External mode when mock so results aren't mistaken for real analysis.
   getLlmStatus: () => http<{ mock: boolean; provider: string }>("/api/llm-status"),
@@ -328,7 +338,7 @@ export const api = {
   generateCoverLetter: (id: string) =>
     http<{ job_id: string; content: string }>(`/api/jobs/${id}/cover-letter`, { method: "POST" }),
   getCoverLetter: (id: string) =>
-    http<{ job_id?: string; content?: string }>(`/api/jobs/${id}/cover-letter`),
+    http<{ job_id?: string; content?: string; stale?: boolean }>(`/api/jobs/${id}/cover-letter`),
   // Tailored CV: External generates LaTeX (+ PDF); Internal saves Claude's .tex.
   generateCv: (id: string) =>
     http<{ job_id: string; tex: string; pdf_available: boolean }>(`/api/jobs/${id}/cv`, { method: "POST" }),

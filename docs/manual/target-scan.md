@@ -16,6 +16,11 @@ Filters live in `config/portals.yml` (see *Edit your data directly*) under `filt
 - **`max_age_days`** — only keep postings from the last N days. `0` = no limit; e.g. `60`
   ≈ the last two months. Older postings aren't scanned in, and tracked **open** jobs that age
   past the cutoff are moved to **Closed** automatically (your applied jobs are never touched).
+- **`retention_days`** — `0` = keep closed jobs forever. Set e.g. `180` and, at the end of
+  each scan, **closed** jobs posted more than ~6 months ago are **deleted** — the row and its
+  generated materials (evaluation, cover letter, tailored CV). Jobs linked to an application
+  are never removed. For a one-shot cleanup without waiting for a scan, use
+  **Search → Housekeeping → Purge now**.
 - **`locations`** — only roles matching these locations (empty = any).
 - **`remote_only`** — only remote roles.
 

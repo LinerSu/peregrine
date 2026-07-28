@@ -320,6 +320,73 @@ def upsert_application(app: Application) -> Application:
     return app
 
 
+def delete_job(job_id: str) -> bool:
+    """Hard-remove a job row AND its per-job artifacts under data/jobs/ (snapshot,
+    evaluation, cover letter, tailored CV — the `<id>.*` sidecar family). The caller
+    owns the linked-application guard: application history must never vanish as a
+    side effect of deleting a posting."""
+    jobs = list_jobs()
+    remaining = [j for j in jobs if j.id != job_id]
+    if len(remaining) == len(jobs):
+        return False
+    _write_csv(config.JOBS_CSV, JOB_FIELDS, [j.model_dump() for j in remaining])
+    # Exact-prefix match, not glob(f"{job_id}.*"): ids come from our own rows, but a
+    # name with glob metacharacters must never widen the match — startswith can't.
+    try:
+        for p in config.JOBS_DIR.iterdir():
+            if p.name.startswith(f"{job_id}."):
+                try:
+                    p.unlink()
+                except OSError:
+                    log.warning("delete_job: could not remove artifact %s", p)
+    except OSError:
+        pass
+    # The applications/<id>/ mirror (prepared materials) goes too — otherwise a later
+    # job that REUSES this id (ids are minted per-year sequentially) would silently
+    # inherit the old job's materials. Safe: the caller guarantees no application row
+    # exists for this id.
+    shutil.rmtree(config.APPLICATIONS_DIR / job_id, ignore_errors=True)
+    log.info("delete_job id=%s", job_id)
+    return True
+
+
+def purge_closed_jobs(older_than_days: int, today: "date | None" = None) -> dict[str, int]:
+    """Bulk-delete CLOSED jobs whose posting date is older than the cutoff.
+
+    Deliberately conservative: only status == "closed" (dead) rows qualify; jobs with
+    a linked application are skipped (they are the user's history), and jobs with a
+    missing/unparseable posted_date are skipped rather than guessed at. `today` is
+    injectable for tests."""
+    from datetime import date, timedelta
+
+    zeros = {"deleted": 0, "skipped_linked": 0, "skipped_undated": 0}
+    if older_than_days < 1:
+        # A zero/negative window would flip the cutoff into the future and delete
+        # EVERYTHING closed — refuse here so no caller can ever do that.
+        return zeros
+
+    cutoff = (today or date.today()) - timedelta(days=older_than_days)
+    deleted = skipped_linked = skipped_undated = 0
+    for j in list_jobs():
+        if j.status != "closed":
+            continue
+        try:
+            posted = date.fromisoformat(j.posted_date)
+        except (TypeError, ValueError):
+            skipped_undated += 1
+            continue
+        if posted > cutoff:
+            continue
+        if get_application(j.id):
+            skipped_linked += 1
+            continue
+        delete_job(j.id)
+        deleted += 1
+    log.info("purge_closed_jobs days=%s deleted=%s skipped_linked=%s skipped_undated=%s",
+             older_than_days, deleted, skipped_linked, skipped_undated)
+    return {"deleted": deleted, "skipped_linked": skipped_linked, "skipped_undated": skipped_undated}
+
+
 def delete_application(app_id: str) -> bool:
     apps = list_applications()
     remaining = [a for a in apps if a.id != app_id]

@@ -66,10 +66,12 @@ function PromptLine({
 export default function JobDetail({
   jobId,
   onChanged,
+  onDeleted,
   mode,
 }: {
   jobId: string;
   onChanged: () => void;
+  onDeleted: () => void; // clear the selection — this job no longer exists
   mode: AssistantMode;
 }) {
   const [job, setJob] = useState<Job | null>(null);
@@ -94,6 +96,8 @@ export default function JobDetail({
   const [cvTexCopied, setCvTexCopied] = useState(false);
   const [cvError, setCvError] = useState("");
   const [starBusy, setStarBusy] = useState(false); // in-flight guard for the star PATCH
+  const [coverStale, setCoverStale] = useState(false); // drafted against a previous CV
+  const [showStaleCover, setShowStaleCover] = useState(false);
   const baseline = useRef(""); // job markdown before the run
   const coverBaseline = useRef<string | null>(null); // cover letter before the run
   const cvTexBaseline = useRef<string | null>(null); // tailored CV before the run
@@ -116,6 +120,7 @@ export default function JobDetail({
     setMarkdown(markdown);
     setEvaluation(normEval(ev));
     setCoverLetter(cover?.content ?? null);
+    setCoverStale(!!cover?.stale);
     setCoverTextCopied(false); // new/refreshed content -> reset the Copy button
     setCvTex(cv?.tex ?? null);
     setCvPdf(!!cv?.pdf_available);
@@ -130,6 +135,8 @@ export default function JobDetail({
     setCoverPrompt("");
     setWaitingCover(false);
     setCoverLetter(null);
+    setCoverStale(false); // per-job — must not leak the previous job's stale state
+    setShowStaleCover(false); // nor its "show anyway" bypass
     setCoverError("");
     setCoverPromptCopied(false);
     setCoverTextCopied(false);
@@ -198,6 +205,8 @@ export default function JobDetail({
         // null = not saved yet; a non-null value (even "") that differs is a save.
         if (content != null && content !== coverBaseline.current) {
           setCoverLetter(content);
+          setCoverStale(false); // freshly saved -> current by definition
+          setShowStaleCover(false);
           setCoverTextCopied(false);
           setWaitingCover(false);
         } else if (Date.now() - started > 180_000) {
@@ -281,6 +290,11 @@ export default function JobDetail({
     try {
       const res = await api.generateCoverLetter(jobId);
       setCoverLetter(res.content);
+      // Freshly drafted -> current by definition; without this the new letter stays
+      // hidden behind the stale banner (mode-contract: Internal's poll clears these
+      // on save, External must too).
+      setCoverStale(false);
+      setShowStaleCover(false);
       setCoverTextCopied(false);
     } catch {
       // The cover-letter LLM call is the longest in the app — surface failures.
@@ -341,9 +355,33 @@ export default function JobDetail({
     }
   };
 
+  const deleteThisJob = async () => {
+    if (
+      !window.confirm(
+        `Delete "${job?.position ?? jobId}" and all its generated materials? This cannot be undone.`
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await api.deleteJob(jobId);
+      onChanged();
+      onDeleted();
+    } catch (e) {
+      // Most common reason: a linked application exists (the API refuses with 409).
+      window.alert(e instanceof Error ? e.message : "Couldn't delete this job.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!job) return <div className="p-6 text-gray-400">Loading…</div>;
 
   const applied = job.status === "applied";
+  // Analysis built against a PREVIOUS CV is hidden, not shown as current (fit score,
+  // strengths/weaknesses section, archetype/legitimacy chips) — a banner points at
+  // re-running. Tailored CVs are deliberately untouched (their story is still open).
+  const evalStale = evaluation?.stale === true;
   const postedAgo = relativeTime(job.posted_date);
   const metaLine = [postedAgo && `Posted ${postedAgo}`, job.close_date && `Apply by ${job.close_date}`]
     .filter(Boolean)
@@ -439,6 +477,14 @@ export default function JobDetail({
           >
             {busy ? "Working…" : waitingCvTex ? "Waiting…" : cvTex != null ? "Re-tailor CV" : "Tailor CV"}
           </button>
+          <button
+            onClick={deleteThisJob}
+            disabled={busy}
+            title="Delete this job and its generated materials (refused while a linked application exists)"
+            className="ml-auto px-2.5 py-1.5 text-xs font-medium text-rose-600 border border-rose-200 rounded-md hover:bg-rose-50 disabled:opacity-50"
+          >
+            Delete
+          </button>
         </div>
 
         {/* Internal mode: ONE compact strip for the guided prompts (was three ~90px
@@ -509,7 +555,7 @@ export default function JobDetail({
           <span className={`px-2 py-0.5 text-xs rounded-full ${statusClass(job.status)}`} title="Tracking status">
             {job.status}
           </span>
-          {job.fit_score != null && (
+          {job.fit_score != null && !evalStale && (
             <span className={`px-2 py-0.5 text-xs rounded-full ${fitClass(job.fit_score)}`} title="LLM fit score">
               fit {job.fit_score.toFixed(2)}
             </span>
@@ -567,7 +613,16 @@ export default function JobDetail({
       </div>
 
       <div className="p-4 bg-gray-50">
-        {evaluation &&
+        {/* Analysis from a PREVIOUS CV is hidden, not shown as current (user rule):
+            the banner replaces the fit/strengths/weaknesses until re-run. */}
+        {evalStale && (
+          <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            ⚠ The fit evaluation for this job was made with your <b>previous CV</b> and is
+            hidden. Click <b>Evaluate fit</b> to re-run it against your current profile.
+          </div>
+        )}
+        {!evalStale &&
+          evaluation &&
           (evaluation.archetype ||
             Number.isFinite(evaluation.legitimacy_score) ||
             evaluation.legitimacy_flags?.length) && (
@@ -598,13 +653,23 @@ export default function JobDetail({
             ))}
           </div>
         )}
-        <JobMarkdown md={markdown} />
+        <JobMarkdown md={markdown} hideSections={evalStale ? ["Agent evaluation"] : []} />
 
-        {coverLetter != null && (
+        {coverLetter != null && coverStale && !showStaleCover && (
+          <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+            ⚠ The cover letter for this job was drafted with your <b>previous CV</b> and is
+            hidden. Click <b>Redraft cover letter</b> above — or{" "}
+            <button onClick={() => setShowStaleCover(true)} className="underline font-medium">
+              show the old draft
+            </button>
+            .
+          </div>
+        )}
+        {coverLetter != null && (!coverStale || showStaleCover) && (
           <div className="mt-4 rounded-lg border border-purple-200 bg-white">
             <div className="flex items-center justify-between border-b border-purple-100 px-3 py-2">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-purple-700">
-                Cover letter
+                Cover letter{coverStale ? " — from your previous CV" : ""}
               </h4>
               <button
                 onClick={() =>
