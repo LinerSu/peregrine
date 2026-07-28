@@ -80,6 +80,8 @@ BLOCKED_PATHS = [
     "config/memory.yaml",       # (the ya?ml variant)
     "config/portals.yml",       # scan config
     "config/portals.yaml",      # (the ya?ml variant)
+    "config/companies.yml",     # your company registry — reveals where you apply
+    "config/companies.yaml",    # (the ya?ml variant)
     "config/cv_source.md",      # raw CV text
     "config/job_source.md",     # pasted posting text
     "config/pii_terms.txt",     # the personal-term denylist ITSELF (concentrated PII)
@@ -113,6 +115,7 @@ ALLOWED_PATHS = [
     "applications/.gitkeep",
     ".env.example",
     "config/pii_terms.example.txt",  # the shipped denylist TEMPLATE (placeholder terms only)
+    "config/companies.example.yml",  # the shipped registry TEMPLATE
     # Root-anchored: a same-named dir NESTED under source must NOT be blocked (the app has an
     # Applications page + resume features, so these are realistic future source paths).
     "web/src/applications/List.tsx",

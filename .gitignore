@@ -55,6 +55,9 @@ config/memory.yml
 config/memory.yaml
 config/portals.yml
 config/portals.yaml
+# Your personal company registry (aliases for acquisitions/rebrands you track)
+config/companies.yml
+config/companies.yaml
 config/cv_source.md
 config/job_source.md
 # Your personal-term denylist (name/phone/handles) read by the PII guards — the

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Optional
@@ -64,11 +65,96 @@ def get_job(job_id: str) -> Optional[Job]:
     return next((j for j in list_jobs() if j.id == job_id), None)
 
 
+# Legal-entity suffixes that don't change WHO the employer is. Stripped repeatedly
+# from the end ("Example Co., Ltd." loses both), never below one word.
+_COMPANY_SUFFIXES = frozenset({
+    "incorporated", "inc", "corporation", "corp", "limited", "ltd", "llc", "llp",
+    "plc", "gmbh", "ag", "sa", "srl", "bv", "oy", "ab", "kk", "pte", "pty",
+    "co", "company",
+})
+
+
+def _syntactic_norm(name: str) -> str:
+    """Casefolded, punctuation collapsed to spaces, trailing legal suffixes stripped.
+    Unicode-aware (a CJK company name must not collapse to nothing), and never maps a
+    non-empty name to the empty key — distinct employers must never merge by accident."""
+    s = re.sub(r"[^\w]+", " ", (name or "").casefold()).replace("_", " ")
+    words = s.split()
+    while len(words) > 1 and words[-1] in _COMPANY_SUFFIXES:
+        words.pop()
+    return " ".join(words) or (name or "").casefold().strip()
+
+
+def board_company_key(name: str) -> str:
+    """Key for BOARD-scoped bookkeeping (the scan's listed-snapshot and dead-job
+    pruning): syntactic only, NO alias registry. An alias says two names are the same
+    EMPLOYER — it does not say they share one job BOARD, and pruning one board's jobs
+    against another board's listing silently closes live postings."""
+    return _syntactic_norm(name)
+
+
+# The user's INCREMENTAL company registry (config/companies.yml, gitignored): alias →
+# canonical mappings for relationships no string rule can know (an acquired brand and its
+# parent, a company that rebranded). Grows from what THIS install's user adds as their
+# search runs into them — it is
+# deliberately not a shipped global database. Cached on the file's mtime: norm_company
+# runs inside scan/match loops and must not re-read yaml per call.
+_alias_cache: "tuple[str, float, dict[str, str]] | None" = None  # (path, mtime, mapping)
+
+
+def _company_aliases() -> dict[str, str]:
+    global _alias_cache
+    path = config.CONFIG_DIR / "companies.yml"
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return {}
+    if _alias_cache and _alias_cache[0] == str(path) and _alias_cache[1] == mtime:
+        return _alias_cache[2]
+    out: dict[str, str] = {}
+    try:
+        data = _read_yaml(path)
+    except yaml.YAMLError:
+        # A typo in this OPTIONAL, hand-edited file must degrade to "no aliases" —
+        # norm_company sits inside dedup/matching/scan and must never 500 the app.
+        log.warning("config/companies.yml is invalid YAML — ignoring the alias registry")
+        data = {}
+    for entry in (data.get("companies") or []) if isinstance(data, dict) else []:
+        if not isinstance(entry, dict):
+            continue
+        canonical = _syntactic_norm(str(entry.get("name") or ""))
+        if not canonical:
+            continue
+        aliases = entry.get("aliases")
+        if isinstance(aliases, str):  # a lone string is a common YAML slip — accept it
+            aliases = [aliases]
+        if not isinstance(aliases, list):
+            continue
+        for alias in aliases:
+            a = _syntactic_norm(str(alias))
+            if a and a != canonical:
+                out[a] = canonical
+    _alias_cache = (str(path), mtime, out)  # cached even when broken/empty: no reparse loop
+    return out
+
+
+def norm_company(name: str) -> str:
+    """Canonical company key: "Acme", "Acme Inc." and "ACME, INC" are the same
+    employer — variants must never break dedup, application↔job matching, or scan
+    pruning. Two layers: syntactic normalization (case/punctuation/legal suffixes),
+    then the user's personal alias registry for real-world relationships (see
+    _company_aliases). This is only ever an EQUALITY KEY — display strings are
+    never rewritten (the first-seen spelling stays on the row)."""
+    s = _syntactic_norm(name)
+    return _company_aliases().get(s, s)
+
+
 def find_job_by_key(company: str, company_job_id: str) -> Optional[Job]:
-    """Dedup key = company + company_job_id."""
-    company, company_job_id = company.strip().lower(), company_job_id.strip().lower()
+    """Dedup key = company + company_job_id (company via norm_company, so "Acme"
+    and "Acme Inc." can't create duplicate rows for the same req)."""
+    company, company_job_id = norm_company(company), company_job_id.strip().lower()
     for j in list_jobs():
-        if j.company.strip().lower() == company and j.company_job_id.strip().lower() == company_job_id:
+        if norm_company(j.company) == company and j.company_job_id.strip().lower() == company_job_id:
             return j
     return None
 
@@ -79,16 +165,16 @@ def match_job(
     """Find the tracked job an application corresponds to, against a preloaded list:
     exact company+company_job_id first, else company+position (case-insensitive, with
     location as a tiebreaker when several share the title). Returns None if untracked."""
-    c = (company or "").strip().lower()
+    c = norm_company(company)  # "Acme" must match a job tracked as "Acme Inc."
     cj = (company_job_id or "").strip().lower()
     # Only a real, non-manual key counts (a whitespace/"manual-" key must fall through
     # to the company+position match, not key-match a job with an empty id).
     if cj and not cj.startswith("manual-"):
         for j in jobs:
-            if j.company.strip().lower() == c and j.company_job_id.strip().lower() == cj:
+            if norm_company(j.company) == c and j.company_job_id.strip().lower() == cj:
                 return j
     p = (position or "").strip().lower()
-    matches = [j for j in jobs if j.company.strip().lower() == c and j.position.strip().lower() == p]
+    matches = [j for j in jobs if norm_company(j.company) == c and j.position.strip().lower() == p]
     if len(matches) == 1:
         return matches[0]
     if len(matches) > 1 and (location or "").strip():

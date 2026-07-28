@@ -26,6 +26,20 @@ Filters live in `config/portals.yml` (see *Edit your data directly*) under `filt
 
 You can also set search keywords/locations in the **Targets** tab.
 
+## One company, many names
+
+Spelling variants ("Apple" vs "Apple Inc.") are recognized as the same employer
+automatically, and a posting ingested twice under different names is deduplicated
+by its URL. For relationships no rule can know — acquisitions, rebrands,
+subsidiaries — keep a **personal registry**: copy `config/companies.example.yml`
+to `config/companies.yml` (it stays on your machine) and add entries as your hunt
+runs into them. Nothing is ever merged from guesswork — corporate facts change,
+so only you are trusted here. The registry powers job **dedup and
+application↔job matching** (dead-job pruning deliberately stays per job board:
+two brands of one employer can run separate boards, and one board's listing must
+never close the other's jobs). A wrong spelling on a tracked job? Fix it in
+place — the company field is editable; never delete-and-re-add.
+
 ## Stale & closed jobs
 
 Companies often leave old postings up for months. Two things keep your list current:

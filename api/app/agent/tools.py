@@ -84,9 +84,9 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
     max_age = _safe_int(filters.get("max_age_days"))  # 0 = no posted-date limit (bad value -> off)
 
     if only:  # restrict to the named companies (case-insensitive); ignore non-string entries
-        wanted = {c.strip().lower() for c in only if isinstance(c, str) and c.strip()}
+        wanted = {store.norm_company(c) for c in only if isinstance(c, str) and c.strip()}
         if wanted:  # an all-invalid list falls back to scanning all
-            companies = [c for c in companies if c.get("name", "").strip().lower() in wanted]
+            companies = [c for c in companies if store.norm_company(c.get("name", "")) in wanted]
 
     status.record("scan_start", f"{len(companies)} companies", current_task="Scanning job portals")
 
@@ -97,7 +97,7 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
     # the CSV per posting (find_job_by_key) or rewrite it per new/dead job (upsert_job).
     jobs = store.list_jobs()
     preloaded_ids = {j.id for j in jobs}  # to reconcile hard-deletes that land mid-scan
-    index = {(j.company.strip().lower(), j.company_job_id.strip().lower()): j for j in jobs}
+    index = {(store.norm_company(j.company), j.company_job_id.strip().lower()): j for j in jobs}
     mint = store.id_minter()
     # company (lowercased) -> the set of company_job_ids its board currently lists. Recorded
     # only for a successful, NON-empty fetch, so a failed/empty fetch never prunes anything.
@@ -121,12 +121,13 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
                 digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:10]
                 p.company_job_id = f"{base}-{digest}" if base else digest
         if postings:  # an authoritative snapshot of what this company lists right now
-            listed[company_name.strip().lower()] = {p.company_job_id.strip().lower() for p in postings}
+            listed.setdefault(store.board_company_key(company_name), set()).update(
+                p.company_job_id.strip().lower() for p in postings)
         for p in postings:
             if not _passes_filters(p, filters, targets):
                 filtered += 1
                 continue
-            key = (p.company.strip().lower(), p.company_job_id.strip().lower())
+            key = (store.norm_company(p.company), p.company_job_id.strip().lower())
             if key in index:  # already tracked, or added earlier in this same scan
                 dup += 1
                 continue
@@ -166,7 +167,7 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
     # is recoverable; applied/interviewing/etc. are left untouched (you still applied).
     dead = 0
     for job in jobs:
-        ck = job.company.strip().lower()
+        ck = store.board_company_key(job.company)
         if job.status != "open" or ck not in listed:
             continue
         gone = job.company_job_id.strip().lower() not in listed[ck]
@@ -362,14 +363,14 @@ def _relevance_predicate(targets_only: bool = False):
         set()
         if targets_only
         else {
-            (c.get("name") or "").strip().lower()
+            store.norm_company(c.get("name") or "")
             for c in (portals.get("companies") or [])
             if (c.get("provider") or "").lower() in _QUERY_PROVIDERS
         }
     )
 
     def is_relevant(j: Job) -> bool:
-        return j.company.strip().lower() in query_based_cos or _matches_queries(
+        return store.norm_company(j.company) in query_based_cos or _matches_queries(
             _relevance_text(j.position, j.domains, j.req_skills, j.role_category), queries
         )
 
@@ -790,6 +791,13 @@ def _ingest_from_fields(fields: dict[str, Any]) -> dict[str, Any]:
     # Mix location into the derived id so two same-titled reqs don't collide.
     company_job_id = (fields.get("company_job_id") or "").strip() or _slug(f"{position} {location}")
     existing = store.find_job_by_key(company, company_job_id)
+    if not existing and url.strip():
+        # URL fallback: the same posting ingested twice can carry DIFFERENT keys (a
+        # scan gets the real req id; a manual paste derives a slug when none is in the
+        # text) — but the posting URL is the same document. Exact match only; found in
+        # the wild as a real duplicate pair in live use.
+        u = url.strip()
+        existing = next((j for j in store.list_jobs() if j.url.strip() == u), None)
     if existing:
         job, created = existing, False
     else:
@@ -801,7 +809,11 @@ def _ingest_from_fields(fields: dict[str, Any]) -> dict[str, Any]:
 
     # Structured extras (agent-prompt / careful parses supply these; the scan path
     # sets them from the board API). The prompt promises they survive ingest — so
-    # they must. On a dedup hit, only FILL blanks: never overwrite existing data.
+    # they must, and the rule differs by path:
+    #   * CREATE — the parsed posting is the only source of truth, so it wins outright.
+    #     Blank-only filling would silently drop any field whose SCHEMA DEFAULT isn't
+    #     blank (currency defaults to "USD", so a parsed "CAD" could never land).
+    #   * DEDUP HIT — only FILL blanks: never overwrite data already tracked.
     def _num(v) -> float | None:
         try:
             return float(v) if v not in (None, "") else None
@@ -818,7 +830,7 @@ def _ingest_from_fields(fields: dict[str, Any]) -> dict[str, Any]:
     ):
         if val in ("", None):
             continue
-        if getattr(job, attr) in ("", None):
+        if created or getattr(job, attr) in ("", None):
             setattr(job, attr, val)
             extras_changed = True
     if extras_changed:

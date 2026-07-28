@@ -191,7 +191,10 @@ def get_job(job_id: str):
 
 
 # People you found yourself (never scraped) are editable from the Jobs view too.
-EDITABLE_JOB_FIELDS = {"starred", "role_category", "status"} | CONTACT_FIELDS
+# `company` is editable so a name variant is fixed IN PLACE ("Acme Inc" -> "Acme"):
+# correcting a spelling must never mean delete-and-re-add, which would drop the row's
+# history and any linked application.
+EDITABLE_JOB_FIELDS = {"starred", "role_category", "status", "company"} | CONTACT_FIELDS
 # Statuses that also make sense on an application (so a job→app status sync can't set
 # a pre-application status like "open"/"removed" on a tracked application).
 _APP_STATUSES = {"applied", "interviewing", "offer", "rejected", "closed"}
@@ -214,6 +217,8 @@ def update_job(job_id: str, payload: dict):
     appn = store.get_application(job_id)
     if appn:
         sync = {k: changes[k] for k in CONTACT_FIELDS if k in changes}
+        if "company" in changes:  # a spelling fix must not desync the application row
+            sync["company"] = updated.company
         if "status" in changes and updated.status in _APP_STATUSES and appn.status != updated.status:
             sync["status"] = updated.status
         if sync:
