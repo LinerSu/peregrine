@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import type { AssistantMode } from "../App";
 import JobIngestPanel from "./JobIngestPanel";
+import AgentPromptModal from "./AgentPromptModal";
+import { JOB_AGENT_PROMPT } from "../prompts";
 
 // Job acquisition, separate from the view controls in JobsTable:
 //   Scan  — zero-token fetch from configured ATS sources (config/portals.yml).
@@ -15,6 +17,7 @@ export default function AddJobsBar({
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [showAgentPrompt, setShowAgentPrompt] = useState(false);
   const [busy, setBusy] = useState(false);
   const [scanMsg, setScanMsg] = useState("");
   const [sources, setSources] = useState<{ name: string; provider: string }[]>([]);
@@ -159,6 +162,14 @@ export default function AddJobsBar({
         </button>
         <button
           type="button"
+          onClick={() => setShowAgentPrompt(true)}
+          title="Get a prompt for another AI agent that produces a posting markdown this app can ingest"
+          className="px-2 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+        >
+          🤖 Agent prompt
+        </button>
+        <button
+          type="button"
           onClick={() => setHelpOpen((v) => !v)}
           aria-expanded={helpOpen}
           className="text-xs text-gray-400 hover:text-gray-600 hover:underline"
@@ -201,6 +212,15 @@ export default function AddJobsBar({
         <div className="mt-2 rounded-md border border-gray-200 p-3">
           <JobIngestPanel mode={mode} onIngested={() => onChanged()} />
         </div>
+      )}
+
+      {showAgentPrompt && (
+        <AgentPromptModal
+          title="Prompt an agent to capture a job posting"
+          prompt={JOB_AGENT_PROMPT}
+          hint='Paste the markdown it returns via "Add a job ▾" (paste or .md upload).'
+          onClose={() => setShowAgentPrompt(false)}
+        />
       )}
     </div>
   );

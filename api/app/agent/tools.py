@@ -798,6 +798,31 @@ def _ingest_from_fields(fields: dict[str, Any]) -> dict[str, Any]:
             location=location, url=url, posted_date=posted_date, description=description,
         ))
         created = True
+
+    # Structured extras (agent-prompt / careful parses supply these; the scan path
+    # sets them from the board API). The prompt promises they survive ingest — so
+    # they must. On a dedup hit, only FILL blanks: never overwrite existing data.
+    def _num(v) -> float | None:
+        try:
+            return float(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    extras_changed = False
+    for attr, val in (
+        ("flexibility", (fields.get("flexibility") or "").strip()),
+        ("close_date", (fields.get("close_date") or "").strip()),
+        ("currency", (fields.get("currency") or "").strip()),
+        ("salary_min", _num(fields.get("salary_min"))),
+        ("salary_max", _num(fields.get("salary_max"))),
+    ):
+        if val in ("", None):
+            continue
+        if getattr(job, attr) in ("", None):
+            setattr(job, attr, val)
+            extras_changed = True
+    if extras_changed:
+        store.upsert_job(job)
     seq = store.read_ingest_result().get("seq", 0) + 1
     store.write_ingest_result({"seq": seq, "job_id": job.id, "created": created, "position": position})
     return {"job": job.model_dump(), "created": created}
