@@ -67,11 +67,13 @@ export default function JobDetail({
   jobId,
   onChanged,
   onDeleted,
+  onNavigateProfile,
   mode,
 }: {
   jobId: string;
   onChanged: () => void;
   onDeleted: () => void; // clear the selection — this job no longer exists
+  onNavigateProfile: () => void; // "Update profile" in the qualification-match card
   mode: AssistantMode;
 }) {
   const [job, setJob] = useState<Job | null>(null);
@@ -382,6 +384,8 @@ export default function JobDetail({
   // strengths/weaknesses section, archetype/legitimacy chips) — a banner points at
   // re-running. Tailored CVs are deliberately untouched (their story is still open).
   const evalStale = evaluation?.stale === true;
+  const skillFit = job.skill_fit;
+  const hasSkillFit = !!skillFit && skillFit.have.length + skillFit.missing.length > 0;
   const postedAgo = relativeTime(job.posted_date);
   const metaLine = [postedAgo && `Posted ${postedAgo}`, job.close_date && `Apply by ${job.close_date}`]
     .filter(Boolean)
@@ -562,38 +566,22 @@ export default function JobDetail({
           )}
         </div>
 
-        {/* Structured tags pulled from the posting: domains + required skills.
-            (Role + degree moved up into the glance row.) */}
-        {(job.domains || job.req_skills || job.skill_fit) && (
+        {/* Structured tags pulled from the posting: domains (+ required skills only
+            when there's no skill_fit — with it, the "What they're looking for" card
+            below owns the skills story). Role + degree live in the glance row. */}
+        {(job.domains || (!hasSkillFit && job.req_skills)) && (
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
             {(job.domains || "").split(",").map((d) => d.trim()).filter(Boolean).map((d) => (
               <span key={`d-${d}`} className="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-700" title="Field / domain">
                 {d}
               </span>
             ))}
-            {job.skill_fit && job.skill_fit.have.length + job.skill_fit.missing.length > 0 ? (
-              <>
-                <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600" title="Required skills you have">
-                  Skill match {job.skill_fit.have.length}/{job.skill_fit.have.length + job.skill_fit.missing.length}
-                </span>
-                {job.skill_fit.have.map((s) => (
-                  <span key={`h-${s}`} className="px-2 py-0.5 text-xs rounded-full bg-emerald-100 text-emerald-700" title="Required — you have it">
-                    ✓ {s}
-                  </span>
-                ))}
-                {job.skill_fit.missing.map((s) => (
-                  <span key={`m-${s}`} className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-400" title="Required — not in your profile">
-                    {s}
-                  </span>
-                ))}
-              </>
-            ) : (
+            {!hasSkillFit &&
               (job.req_skills || "").split(",").map((s) => s.trim()).filter(Boolean).map((s) => (
                 <span key={`s-${s}`} className="px-2 py-0.5 text-xs rounded-full bg-emerald-50 text-emerald-700" title="Required skill">
                   {s}
                 </span>
-              ))
-            )}
+              ))}
           </div>
         )}
 
@@ -613,6 +601,42 @@ export default function JobDetail({
       </div>
 
       <div className="p-4 bg-gray-50">
+        {/* Qualification match — the cheap no-LLM signal, front and center (reference
+            layout's "What they're looking for"). Always current: recomputed from the
+            live profile on every request, so it needs no staleness handling. */}
+        {hasSkillFit && skillFit && (
+          <div className="mb-4 rounded-lg border border-gray-200 bg-white p-4">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">
+              What they're looking for
+            </h4>
+            <p className="text-sm font-medium text-gray-800">
+              {skillFit.missing.length === 0
+                ? `You match all ${skillFit.have.length} required skill${skillFit.have.length === 1 ? "" : "s"}. Nice!`
+                : skillFit.have.length === 0
+                ? `None of the ${skillFit.missing.length} required skills are in your profile yet`
+                : `You match ${skillFit.have.length} of ${skillFit.have.length + skillFit.missing.length} required skills`}
+            </p>
+            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+              {skillFit.have.map((s) => (
+                <span key={`h-${s}`} className="px-2 py-0.5 text-xs rounded-full bg-emerald-100 text-emerald-700" title="Required — in your profile">
+                  ✓ {s}
+                </span>
+              ))}
+              {skillFit.missing.map((s) => (
+                <span key={`m-${s}`} className="px-2 py-0.5 text-xs rounded-full border border-gray-300 text-gray-500 bg-white" title="Required — not in your profile">
+                  ✗ {s}
+                </span>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-gray-500">
+              Matching is based on your profile.{" "}
+              <button onClick={onNavigateProfile} className="text-indigo-600 hover:underline">
+                Update profile
+              </button>
+            </p>
+          </div>
+        )}
+
         {/* Analysis from a PREVIOUS CV is hidden, not shown as current (user rule):
             the banner replaces the fit/strengths/weaknesses until re-run. */}
         {evalStale && (
