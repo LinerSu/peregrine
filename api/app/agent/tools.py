@@ -644,6 +644,13 @@ def save_cover_letter(job_id: str, content: str) -> dict[str, Any]:
     return {"job_id": job_id, "content": content}
 
 
+def profile_ready() -> bool:
+    """Has the user actually set up a profile (name, skills, or sections)? Gates
+    auto-evaluation on ingest: scoring against an empty profile is noise."""
+    p = store.read_profile()
+    return bool(p.get("name") or p.get("skills") or p.get("sections"))
+
+
 def cv_parsed_stamp() -> float | None:
     """Epoch seconds of the last CV parse (either mode), stamped into the profile by
     the two CV-intake paths ONLY. None before any parse (or on a bad value)."""

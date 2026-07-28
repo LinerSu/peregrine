@@ -207,16 +207,18 @@ export const api = {
   docs: () => http<{ sections: DocSection[] }>("/api/docs"),
   doc: (slug: string) => http<DocMeta & { markdown: string }>(`/api/docs/${encodeURIComponent(slug)}`),
   // Add a job from content you provide (no scraping). URL fetch, or paste/upload.
-  ingestUrl: (url: string) =>
-    http<{ job?: Job; created?: boolean }>("/api/jobs/ingest", { method: "POST", body: JSON.stringify({ url }) }),
+  // autoEvaluate=false in Internal mode: fetching the posting is deterministic, but
+  // scoring it isn't — Internal users score locally, so the API must not spend tokens.
+  ingestUrl: (url: string, autoEvaluate = true) =>
+    http<{ job?: Job; created?: boolean; auto_evaluating?: boolean }>("/api/jobs/ingest", { method: "POST", body: JSON.stringify({ url, auto_evaluate: autoEvaluate }) }),
   ingestJobDoc: (text: string) =>
-    http<{ job?: Job; created?: boolean }>("/api/jobs/ingest-doc", { method: "POST", body: JSON.stringify({ text }) }),
+    http<{ job?: Job; created?: boolean; auto_evaluating?: boolean }>("/api/jobs/ingest-doc", { method: "POST", body: JSON.stringify({ text }) }),
   uploadJobDoc: async (file: File) => {
     const fd = new FormData();
     fd.append("file", file);
     const res = await fetch(`${BASE}/api/jobs/ingest-doc/upload`, { method: "POST", body: fd });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    return res.json() as Promise<{ job?: Job; created?: boolean }>;
+    return res.json() as Promise<{ job?: Job; created?: boolean; auto_evaluating?: boolean }>;
   },
   // Internal mode: stash the raw posting (paste or file) for local Claude to parse.
   saveJobSource: (text: string) =>
