@@ -4,6 +4,8 @@ import type { AssistantMode } from "../App";
 import { salaryRange, statusClass } from "../format";
 import JobIngestPanel from "./JobIngestPanel";
 import ContactsEditor from "./ContactsEditor";
+import AgentPromptModal from "./AgentPromptModal";
+import { APPLICATION_AGENT_PROMPT } from "../prompts";
 
 const STATUSES = ["applied", "interviewing", "offer", "rejected", "closed"];
 
@@ -38,6 +40,7 @@ export default function ApplicationsTable({
   const [addingPostingFor, setAddingPostingFor] = useState<string | null>(null); // orphan id
   const [linkErr, setLinkErr] = useState<string | null>(null);
   const [addingFromPosting, setAddingFromPosting] = useState(false); // add an app from a posting doc
+  const [showAgentPrompt, setShowAgentPrompt] = useState(false);
   const [fromPostingErr, setFromPostingErr] = useState<string | null>(null);
 
   const patch = async (id: string, change: Partial<Application>) => {
@@ -124,6 +127,13 @@ export default function ApplicationsTable({
           className="px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 rounded-md hover:bg-indigo-100"
         >
           {addingFromPosting ? "Cancel" : "+ From posting"}
+        </button>
+        <button
+          onClick={() => setShowAgentPrompt(true)}
+          title="Get a prompt for another AI agent that writes up an application you submitted, in this app's fields"
+          className="px-2 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+        >
+          🤖 Agent prompt
         </button>
       </div>
 
@@ -324,6 +334,15 @@ export default function ApplicationsTable({
           </table>
         )}
       </div>
+
+      {showAgentPrompt && (
+        <AgentPromptModal
+          title="Prompt an agent to write up a submitted application"
+          prompt={APPLICATION_AGENT_PROMPT}
+          hint='If its output includes the Posting section, use "+ From posting" with that text, then fill the tracker fields; otherwise "+ Add" maps one-to-one.'
+          onClose={() => setShowAgentPrompt(false)}
+        />
+      )}
     </div>
   );
 }
