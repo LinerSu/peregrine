@@ -80,6 +80,15 @@ def test_prompts_carry_the_never_invent_rule():
         assert "never invent" in _block(name).lower(), f"{name} lost the never-invent rule"
 
 
+def test_prompts_require_a_markdown_file_output():
+    # The deliverable is an uploadable FILE (the .md uploader is the cleanest ingest
+    # path), with a bare code block as the no-file-capability fallback.
+    for name in ("JOB_AGENT_PROMPT", "APPLICATION_AGENT_PROMPT"):
+        block = _block(name).lower()
+        assert "markdown file" in block, f"{name} lost the file-output rule"
+        assert ".md" in block, f"{name} lost the filename convention"
+
+
 def test_prompt_shaped_fields_round_trip_through_ingest(tmp_path, monkeypatch):
     # The REAL guarantee: a fields payload in the prompt's shape, pushed through the
     # actual store-only ingest, lands on the Job row with nothing discarded.

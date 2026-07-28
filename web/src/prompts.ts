@@ -32,7 +32,10 @@ Rules — follow strictly:
    field, leave it blank after the colon. No guessed salaries, no guessed dates.
 2. Dates in ISO YYYY-MM-DD. Salaries as plain numbers (300000, not "300k").
 3. flexibility only if the posting explicitly states it.
-4. Output ONLY the markdown document — no commentary before or after.
+4. ALWAYS return the result as a MARKDOWN FILE named
+   <company>-<position>.md (lowercase, hyphens — e.g. acme-ml-engineer.md), so I
+   can upload it directly. If you cannot create files, output the document inside
+   one \`\`\`markdown code block and NOTHING else — no commentary before or after.
 `;
 
 export const APPLICATION_AGENT_PROMPT = `You are helping me record a job application I have ALREADY SUBMITTED, for my
@@ -61,5 +64,7 @@ version I sent, promised response window, follow-up plan>
 
 Rules — follow strictly: never invent values (blank if unknown); ISO dates;
 status from the exact vocabulary above; people only if I actually have them —
-never scrape or guess contacts. Output ONLY the markdown.
+never scrape or guess contacts. ALWAYS return the result as a MARKDOWN FILE named
+application-<company>-<position>.md (lowercase, hyphens); if you cannot create
+files, output the document inside one \`\`\`markdown code block and NOTHING else.
 `;
