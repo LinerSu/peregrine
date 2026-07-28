@@ -114,7 +114,20 @@ the local API** so the web page reflects it exactly like External (API) mode.
      -H 'content-type: application/json' \
      -d '{"company":"...","position":"...","location":"...","url":"...","posted_date":"...","close_date":"...","flexibility":"...","salary_min":0,"salary_max":0,"currency":"...","description":"..."}'
    ```
-4. Tell the user it's added — the Jobs tab will show it (then they can evaluate it, etc.).
+4. **Auto-evaluate**: if the user's profile is set up (`config/profile.yml` has a
+   name/skills/sections) and the save CREATED a new job (response `"created": true`),
+   immediately continue with the "evaluate fit" flow for the new job id — the user
+   expects an ingested job to arrive scored. Skip when the profile is empty, when the
+   job deduped onto an existing one, or when the user asked to just add it.
+5. Tell the user it's added (and evaluated, if step 4 ran) — the Jobs tab will show it.
+
+## "evaluate all jobs missing a fit score"
+
+1. `curl -s http://localhost:8000/api/jobs` — collect ids where `fit_score` is null
+   and `status` is `open` (the backfill rule: new capabilities apply to
+   already-tracked jobs too, not only future ingests).
+2. For each id, run the "evaluate fit for <id>" flow above and PUT the result.
+3. Tell the user how many jobs were evaluated and their scores.
 
 ## "analyze my patterns"
 

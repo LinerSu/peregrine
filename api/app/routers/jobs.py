@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from .. import data_store as store
+from ..agent.llm import active_provider_is_mock
 from ..agent import tools
 from ..extract import extract_text
 from ..agent import providers
@@ -110,26 +111,72 @@ def scan(payload: dict | None = None):
 
 
 @router.post("/ingest")
-def ingest(payload: dict):
+def ingest(payload: dict, background: BackgroundTasks):
     """Ingest a single posting from a pasted URL (e.g. amazon.jobs)."""
     result = tools.ingest_job_url(payload.get("url", ""))
     if "error" in result:
         raise HTTPException(422, result["error"])
+    # URL ingest itself is deterministic, so the web calls it in BOTH modes. Auto-eval
+    # is not — an Internal-mode caller sends auto_evaluate:false so the API never spends
+    # API tokens on their behalf; local Claude scores it instead (mode contract).
+    return _schedule_auto_eval(background, result, payload.get("auto_evaluate", True))
+
+
+def _schedule_auto_eval(background: BackgroundTasks, result: dict, enabled: bool = True) -> dict:
+    """After an EXTERNAL-path ingest creates a job, evaluate fit automatically — in
+    the background so the paste-to-added feel stays instant; the UI's normal
+    refresh/poll picks the score up when it lands.
+
+    Guards: only NEWLY created jobs (a dedup hit keeps its existing evaluation);
+    only when a real profile exists (scoring an empty profile is noise); never when the
+    active provider is effectively mock — a keyless anthropic/openai config falls back
+    to the deterministic {fit 0.5, "(mock)"} stub, and placeholder scores must not be
+    written silently. The Internal store-only path (/ingest-doc/save) is deliberately
+    NOT wired here — the API can't run Internal-mode LLM work; the local-Claude skill
+    chains the evaluation itself (mode contract)."""
+    if (
+        enabled
+        and result.get("created")
+        and tools.profile_ready()
+        and not active_provider_is_mock()
+    ):
+        background.add_task(tools.evaluate_fit, result["job"]["id"])
+        result["auto_evaluating"] = True
     return result
+
+
+@router.post("/evaluate-missing")
+def evaluate_missing(background: BackgroundTasks):
+    """Backfill: evaluate every OPEN job with no fit score yet — a new capability
+    applies to data already tracked, not only to future ingests. Same
+    guards as auto-evaluate on ingest (real profile; never an effectively-mock provider,
+    keyless anthropic/openai included — it would mass-write 0.5 placeholders), and
+    evaluations run in the background — the UI's refresh picks scores up as they
+    land. Internal-mode users say "evaluate all jobs missing a fit score" in the
+    terminal instead — this endpoint is the External-mode path (mode contract)."""
+    if not tools.profile_ready():
+        return {"scheduled": 0, "reason": "profile not set up"}
+    if active_provider_is_mock():
+        return {"scheduled": 0,
+                "reason": "mock provider — placeholder scores are never written automatically"}
+    pending = [j.id for j in store.list_jobs() if j.fit_score is None and j.status == "open"]
+    for jid in pending:
+        background.add_task(tools.evaluate_fit, jid)
+    return {"scheduled": len(pending)}
 
 
 # --- Add a job from content the user provides (no scraping) — both modes. --------
 @router.post("/ingest-doc")
-def ingest_doc(payload: JobSourceInput):
+def ingest_doc(payload: JobSourceInput, background: BackgroundTasks):
     """External: parse a pasted job posting into a tracked job with the LLM."""
     result = tools.ingest_job_doc(payload.text)
     if "error" in result:
         raise HTTPException(422, result["error"])
-    return result
+    return _schedule_auto_eval(background, result)
 
 
 @router.post("/ingest-doc/upload")
-async def ingest_doc_upload(file: UploadFile = File(...)):
+async def ingest_doc_upload(background: BackgroundTasks, file: UploadFile = File(...)):
     """External: extract text from an uploaded posting (PDF/.txt/.md) and parse it."""
     try:
         text = extract_text(file.filename or "", await file.read())
@@ -140,7 +187,7 @@ async def ingest_doc_upload(file: UploadFile = File(...)):
     result = tools.ingest_job_doc(text)
     if "error" in result:
         raise HTTPException(422, result["error"])
-    return result
+    return _schedule_auto_eval(background, result)
 
 
 @router.post("/ingest-doc/save")

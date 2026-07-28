@@ -77,9 +77,20 @@ export default function JobIngestPanel({
     setBusy(true);
     setMsg("");
     try {
-      const r = await api.ingestUrl(url.trim());
+      const internal = mode === "internal";
+      const r = await api.ingestUrl(url.trim(), !internal);
       setUrl("");
-      setMsg(r.created ? `Added: ${r.job?.position ?? "job"}.` : "Already tracked.");
+      setMsg(
+        r.created
+          ? `Added: ${r.job?.position ?? "job"}.${r.auto_evaluating ? " Evaluating fit in the background…" : ""}`
+          : "Already tracked."
+      );
+      // Internal parity for "an ingested job arrives scored": the API didn't score it,
+      // so hand the user the line that makes local Claude do it.
+      if (internal && r.created && r.job?.id) {
+        setPrompt(`evaluate fit for ${r.job.id}`);
+        setCopied(false);
+      }
       if (r.job?.id) onIngested(r.job.id, !!r.created, r.job.position ?? "");
     } catch (e) {
       // Show the API's actual reason when it's meaningful (e.g. a crawl-policy block like
@@ -117,7 +128,11 @@ export default function JobIngestPanel({
     try {
       const r = await api.ingestJobDoc(text);
       setText("");
-      setMsg(r.created ? `Added: ${r.job?.position ?? "job"}.` : "Already tracked.");
+      setMsg(
+        r.created
+          ? `Added: ${r.job?.position ?? "job"}.${r.auto_evaluating ? " Evaluating fit in the background…" : ""}`
+          : "Already tracked."
+      );
       if (r.job?.id) onIngested(r.job.id, !!r.created, r.job.position ?? "");
     } catch {
       setMsg("Couldn't parse a job from that text — paste more of the posting.");
@@ -146,7 +161,11 @@ export default function JobIngestPanel({
     setMsg("");
     try {
       const r = await api.uploadJobDoc(file);
-      setMsg(r.created ? `Added: ${r.job?.position ?? "job"}.` : "Already tracked.");
+      setMsg(
+        r.created
+          ? `Added: ${r.job?.position ?? "job"}.${r.auto_evaluating ? " Evaluating fit in the background…" : ""}`
+          : "Already tracked."
+      );
       if (r.job?.id) onIngested(r.job.id, !!r.created, r.job.position ?? "");
     } catch {
       setMsg("Couldn't read / parse that file.");
