@@ -40,6 +40,32 @@ def test_ingest_coerces_none_optional_fields(tmp_store):
     assert r["job"]["location"] == ""
 
 
+def test_created_job_keeps_parsed_extras_over_schema_defaults(tmp_store):
+    from app.agent import tools
+
+    # A fresh row must take the posting's own values outright. Filling only BLANKS would
+    # drop any field whose schema default isn't blank — currency defaults to "USD", so a
+    # parsed "CAD" would be silently overwritten by the default.
+    r = tools.save_ingested_job({"company": "Acme", "position": "Eng", "currency": "CAD",
+                                 "salary_min": 90000, "flexibility": "remote"})
+    assert r["created"] is True
+    job = store.get_job(r["job"]["id"])
+    assert job.currency == "CAD" and job.salary_min == 90000 and job.flexibility == "remote"
+
+
+def test_dedup_hit_fills_blanks_but_never_overwrites(tmp_store):
+    from app.agent import tools
+
+    tools.save_ingested_job({"company": "Acme", "position": "Eng", "currency": "CAD"})
+    # Re-ingesting the same posting adds what was missing and leaves what was there.
+    r = tools.save_ingested_job({"company": "Acme", "position": "Eng", "currency": "USD",
+                                 "flexibility": "hybrid"})
+    assert r["created"] is False
+    job = store.get_job(r["job"]["id"])
+    assert job.currency == "CAD"       # tracked value wins on a dedup hit
+    assert job.flexibility == "hybrid"  # blank field filled
+
+
 def test_save_ingested_job_requires_company_and_position(tmp_store):
     from app.agent import tools
 

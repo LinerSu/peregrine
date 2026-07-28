@@ -1,0 +1,24 @@
+# Your PERSONAL company registry — copy to config/companies.yml (gitignored) and
+# grow it as your hunt progresses. This is not a global database: add only the
+# companies YOU track, when a name relationship matters to you. Corporate facts
+# change (acquisitions get unwound, brands spin back out), so nothing ships
+# pre-filled and nothing is merged from guesswork — entries are yours alone.
+#
+# What it does: teaches the app that different names are the SAME employer, for
+# relationships no string rule can know — acquisitions, rebrands, subsidiaries.
+# (Pure spelling variants like "Apple" vs "Apple Inc." are already handled
+# automatically; don't list those.)
+#
+# Used for job dedup on ingest/scan and matching an application to its tracked
+# job. Dead-job pruning deliberately stays per job BOARD — an alias must never
+# let one board's listing close another board's live jobs. Display names are
+# never rewritten — the spelling a job arrived with stays on its row.
+companies:
+  # Fictional examples — replace with your own:
+  - name: Initech               # the canonical employer
+    aliases:
+      - Initech Labs            # postings may appear under a brand it acquired
+      - Vandelay Analytics
+  - name: Globex
+    aliases:
+      - Globex Research
