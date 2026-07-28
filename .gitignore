@@ -13,6 +13,8 @@ node_modules/
 dist/
 .vite/
 *.local
+# tsc -b incremental artifact — machine-generated, embeds absolute local paths
+*.tsbuildinfo
 
 # --- Env / secrets ---
 .env

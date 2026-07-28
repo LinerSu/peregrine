@@ -183,7 +183,11 @@ export default function JobsTable({
         // so an off-target closed job is never stranded with the toggle hidden. An explicit text
         // search overrides the triage toggle — you asked for these by name, so show them all even
         // if they don't match your configured role queries (the whole point of recall-on-demand).
-        (!relevantOnly || query.trim() !== "" || j.relevant !== false || isDead(j)) &&
+        // A STAR is the same strength of signal: with the Saved lens on, a starred job must
+        // never be relevance-hidden, or the '★ Saved N' label advertises rows the table
+        // can't show (worst on reload: persisted lens + default-on relevance = empty table).
+        (!relevantOnly || query.trim() !== "" || j.relevant !== false || isDead(j) ||
+          (starredOnly && j.starred)) &&
         (!starredOnly || j.starred)
     );
   }, [jobs, query, role, domain, level, relevantOnly, starredOnly]);
@@ -193,8 +197,9 @@ export default function JobsTable({
     () => jobs.filter((j) => j.relevant === false && !isDead(j)).length,
     [jobs]
   );
-  // Starred across ALL jobs (not the filtered view) — the Saved label shows the true
-  // shortlist size regardless of the active tab/filters.
+  // Starred across the jobs the SERVER returned — i.e. the true shortlist size for the
+  // current search scope (client-side facets don't affect it, but a text query does:
+  // `jobs` is already server-filtered, see the note on the query prop above).
   const savedCount = useMemo(() => jobs.filter((j) => j.starred).length, [jobs]);
 
   // Tab badge counts in a single pass (avoids O(tabs × rows) per render).
@@ -428,7 +433,9 @@ export default function JobsTable({
             starredOnly ? "border-amber-400 bg-amber-50 text-amber-700" : "border-gray-300 text-gray-500"
           }`}
         >
-          {starredOnly ? "★" : "☆"} Saved{savedCount > 0 ? ` ${savedCount}` : ""}
+          {/* Count always shown while the lens is ON — during a text search the server
+              scopes `jobs`, and a silently vanishing number reads as a lost shortlist. */}
+          {starredOnly ? "★" : "☆"} Saved{starredOnly || savedCount > 0 ? ` ${savedCount}` : ""}
         </button>
         <button
           onClick={() => setGrouped((v) => !v)}
