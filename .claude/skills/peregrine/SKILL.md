@@ -104,13 +104,15 @@ the local API** so the web page reflects it exactly like External (API) mode.
 
 1. Read the raw posting the user pasted/uploaded at `config/job_source.md`.
 2. Parse it into fields — `company`, `position`, `company_job_id` (\"\" if none),
-   `location`, `url`, `posted_date` (YYYY-MM-DD or \"\"), `description` (clean plain
-   text). Use ONLY what's in the posting; never invent.
+   `location`, `url`, `posted_date` (YYYY-MM-DD or \"\"), `close_date` (deadline,
+   YYYY-MM-DD or \"\"), `flexibility` (remote|hybrid|onsite ONLY if stated),
+   `salary_min`/`salary_max` (plain numbers) + `currency` (e.g. USD),
+   `description` (clean plain text). Use ONLY what's in the posting; never invent.
 3. Create the tracked job (store-only — this is what adds it to the Jobs tab):
    ```bash
    curl -s -X POST http://localhost:8000/api/jobs/ingest-doc/save \
      -H 'content-type: application/json' \
-     -d '{"company":"...","position":"...","location":"...","url":"...","posted_date":"...","description":"..."}'
+     -d '{"company":"...","position":"...","location":"...","url":"...","posted_date":"...","close_date":"...","flexibility":"...","salary_min":0,"salary_max":0,"currency":"...","description":"..."}'
    ```
 4. Tell the user it's added — the Jobs tab will show it (then they can evaluate it, etc.).
 

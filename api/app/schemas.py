@@ -214,11 +214,30 @@ class JobIngestInput(BaseModel):
     url: Optional[str] = ""
     posted_date: Optional[str] = ""
     description: Optional[str] = ""
+    # Structured extras the agent-prompt / a careful parse can supply — every one is
+    # a real Job column; ingest must not silently discard what the prompt collects.
+    flexibility: Optional[str] = ""
+    close_date: Optional[str] = ""
+    currency: Optional[str] = ""
+    salary_min: Optional[float] = None
+    salary_max: Optional[float] = None
 
-    @field_validator("company_job_id", "location", "url", "posted_date", "description")
+    @field_validator("company_job_id", "location", "url", "posted_date", "description",
+                     "flexibility", "close_date", "currency")
     @classmethod
     def _coerce_none(cls, v: Optional[str]) -> str:
         return v or ""
+
+    @field_validator("salary_min", "salary_max", mode="before")
+    @classmethod
+    def _coerce_salary(cls, v):
+        # Models emit "" / "300000" / null — accept all, store a float or None.
+        if v in (None, ""):
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
 
 
 class CompanyInput(BaseModel):

@@ -239,6 +239,9 @@ def job_parser(text: str) -> dict[str, Any]:
             "content": "Job posting (pasted or extracted from a PDF):\n```\n" + text[:12000] + "\n```\n\n"
             "Return ONLY a JSON object with keys: company, position, company_job_id "
             "(string, \"\" if none), location, url, posted_date (YYYY-MM-DD or \"\"), "
+            "close_date (YYYY-MM-DD application deadline or \"\"), flexibility "
+            "(remote|hybrid|onsite, ONLY if stated, else \"\"), salary_min, salary_max "
+            "(plain numbers or \"\"), currency (code like USD or \"\"), "
             "description (a clean plain-text version of the posting).",
         },
     ]

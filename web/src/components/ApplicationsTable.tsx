@@ -255,7 +255,18 @@ export default function ApplicationsTable({
                       ))}
                     </select>
                   </td>
-                  <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{a.applied_date || "—"}</td>
+                  <td className="px-3 py-2">
+                    {/* Editable: '+ From posting' stamps TODAY via mark_applied, but the
+                        real submission may be older (e.g. agent-recorded) — and
+                        applied_date feeds the outcomes/response-window analytics. */}
+                    <input
+                      type="date"
+                      value={a.applied_date || ""}
+                      disabled={savingId === a.id}
+                      onChange={(e) => patch(a.id, { applied_date: e.target.value })}
+                      className={inp}
+                    />
+                  </td>
                   <td className="px-3 py-2">
                     <input
                       type="date"
@@ -339,7 +350,7 @@ export default function ApplicationsTable({
         <AgentPromptModal
           title="Prompt an agent to write up a submitted application"
           prompt={APPLICATION_AGENT_PROMPT}
-          hint='If its output includes the Posting section, use "+ From posting" with that text, then fill the tracker fields; otherwise "+ Add" maps one-to-one.'
+          hint='If its output includes the Posting section, use "+ From posting" with that text, then edit the row: set the real Applied date (it defaults to today), interview date, people, and notes. Otherwise use "+ Add" for the basics and edit the rest inline.'
           onClose={() => setShowAgentPrompt(false)}
         />
       )}
