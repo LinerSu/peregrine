@@ -18,6 +18,7 @@ const OPTIONAL_COLS: { key: ColKey; label: string }[] = [
 ];
 const COL_STORAGE = "peregrine.jobcols";
 const SF_MIGRATED = "peregrine.jobcols.sfmigrated"; // one-time: reveal the new Skill-fit column
+const SAVED_STORAGE = "peregrine.savedOnly"; // the ★ Saved lens survives reloads
 
 const STATUSES = ["open", "applied", "interviewing", "offer", "rejected", "closed", "removed"];
 
@@ -73,7 +74,23 @@ export default function JobsTable({
   const [domain, setDomain] = useState("All");
   const [level, setLevel] = useState("All");
   const [advancedOpen, setAdvancedOpen] = useState(false); // role/domain/degree filters, collapsed
-  const [starredOnly, setStarredOnly] = useState(false);
+  // The ★ Saved lens — an overlay that composes with the lifecycle tabs (a starred
+  // job can be open, applied, …), persisted so the shortlist survives reloads. Safe
+  // to restore even with zero starred jobs: the toggle stays visible (amber) to undo.
+  const [starredOnly, setStarredOnly] = useState(() => {
+    try {
+      return localStorage.getItem(SAVED_STORAGE) === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(SAVED_STORAGE, starredOnly ? "1" : "0");
+    } catch {
+      /* best-effort */
+    }
+  }, [starredOnly]);
   const [relevantOnly, setRelevantOnly] = useState(true); // hide off-target (matches your queries)
   const [tab, setTab] = useState<Tab>("all");
   const [grouped, setGrouped] = useState(false);
@@ -176,6 +193,9 @@ export default function JobsTable({
     () => jobs.filter((j) => j.relevant === false && !isDead(j)).length,
     [jobs]
   );
+  // Starred across ALL jobs (not the filtered view) — the Saved label shows the true
+  // shortlist size regardless of the active tab/filters.
+  const savedCount = useMemo(() => jobs.filter((j) => j.starred).length, [jobs]);
 
   // Tab badge counts in a single pass (avoids O(tabs × rows) per render).
   const tabCounts = useMemo(() => {
@@ -399,12 +419,16 @@ export default function JobsTable({
         )}
         <button
           onClick={() => setStarredOnly((v) => !v)}
-          title="Show starred only"
+          title={
+            starredOnly
+              ? "Showing your saved (starred) jobs only. Click to show all."
+              : "Show only the jobs you starred"
+          }
           className={`px-2 py-1 text-xs rounded-md border ${
             starredOnly ? "border-amber-400 bg-amber-50 text-amber-700" : "border-gray-300 text-gray-500"
           }`}
         >
-          {starredOnly ? "★" : "☆"}
+          {starredOnly ? "★" : "☆"} Saved{savedCount > 0 ? ` ${savedCount}` : ""}
         </button>
         <button
           onClick={() => setGrouped((v) => !v)}
