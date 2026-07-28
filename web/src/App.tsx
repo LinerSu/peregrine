@@ -323,6 +323,7 @@ export default function App() {
                       jobId={selectedId}
                       onChanged={refresh}
                       onDeleted={() => setSelectedId(null)}
+                      onNavigateProfile={() => setTab("profile")}
                       mode={mode}
                     />
                   ) : (
