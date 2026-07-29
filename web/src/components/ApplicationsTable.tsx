@@ -1,8 +1,9 @@
 import { Fragment, useMemo, useState } from "react";
-import { api, type Application } from "../api";
+import { api, type Application, type Job } from "../api";
 import type { AssistantMode } from "../App";
 import { salaryRange, statusClass } from "../format";
 import JobIngestPanel from "./JobIngestPanel";
+import JobPicker from "./JobPicker";
 import ContactsEditor from "./ContactsEditor";
 import AgentPromptModal from "./AgentPromptModal";
 import { APPLICATION_AGENT_PROMPT } from "../prompts";
@@ -19,6 +20,8 @@ const SORTABLE: { key: SortKey; label: string }[] = [
 ];
 
 const blankForm = { company: "", position: "", status: "applied", applied_date: "", location: "", url: "" };
+// What a PICKED job doesn't already know: the job supplies company/position/url/location.
+const blankPicked = { status: "applied", applied_date: "", notes: "" };
 
 // Applications tracker: shows what you applied to and lets you update each one's
 // status and details inline. Manual add (for jobs applied to elsewhere), remove,
@@ -37,6 +40,9 @@ export default function ApplicationsTable({
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "applied_date", dir: "desc" });
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(blankForm);
+  const [picked, setPicked] = useState<Job | null>(null);   // chosen from the tracked jobs
+  const [pickedForm, setPickedForm] = useState(blankPicked);
+  const [manual, setManual] = useState(false);              // "not in my list" escape hatch
   const [addingPostingFor, setAddingPostingFor] = useState<string | null>(null); // orphan id
   const [linkErr, setLinkErr] = useState<string | null>(null);
   const [addingFromPosting, setAddingFromPosting] = useState(false); // add an app from a posting doc
@@ -64,11 +70,26 @@ export default function ApplicationsTable({
     }
   };
 
+  const closeAdd = () => {
+    setAdding(false);
+    setPicked(null);
+    setPickedForm(blankPicked);
+    setManual(false);
+    setForm(blankForm);
+  };
+
   const save = async () => {
     if (!form.company.trim() || !form.position.trim()) return;
     await api.createApplication(form);
-    setForm(blankForm);
-    setAdding(false);
+    closeAdd();
+    onChanged();
+  };
+
+  // Linked by id: the posting was chosen, so nothing about it has to be matched.
+  const savePicked = async () => {
+    if (!picked) return;
+    await api.createApplication({ job_id: picked.id, ...pickedForm });
+    closeAdd();
     onChanged();
   };
 
@@ -108,7 +129,8 @@ export default function ApplicationsTable({
         />
         <button
           onClick={() => {
-            setAdding((v) => !v);
+            if (adding) closeAdd();
+            else setAdding(true);
             setAddingFromPosting(false);
             setAddingPostingFor(null); // all three add UIs are mutually exclusive
           }}
@@ -146,24 +168,96 @@ export default function ApplicationsTable({
       )}
 
       {adding && (
-        <div className="flex flex-wrap items-center gap-2 p-3 bg-indigo-50 border-b border-gray-200">
-          <input className={inp} placeholder="Company *" value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} />
-          <input className={inp} placeholder="Position *" value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} />
-          <select className={inp} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-          <input className={inp} type="date" value={form.applied_date} onChange={(e) => setForm({ ...form, applied_date: e.target.value })} />
-          <input className={inp} placeholder="Location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
-          <input className={`${inp} w-48`} placeholder="Posting URL" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />
-          <button
-            onClick={save}
-            disabled={!form.company.trim() || !form.position.trim()}
-            className="px-3 py-1 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
-          >
-            Save
-          </button>
+        <div className="p-3 space-y-2 bg-indigo-50 border-b border-gray-200">
+          {picked ? (
+            /* A tracked job was chosen — only the application's own facts are left to fill in. */
+            <>
+              <div className="flex items-baseline gap-2">
+                <span className="text-sm font-medium text-gray-900 truncate">{picked.position}</span>
+                <span className="text-xs text-gray-500 truncate">— {picked.company}</span>
+                <span className="text-[11px] font-mono text-gray-400">{picked.id}</span>
+                <button onClick={() => setPicked(null)} className="ml-auto text-xs text-indigo-700 hover:underline">
+                  change job
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="text-xs text-gray-600">Applied</label>
+                <input
+                  className={inp}
+                  type="date"
+                  value={pickedForm.applied_date}
+                  onChange={(e) => setPickedForm({ ...pickedForm, applied_date: e.target.value })}
+                />
+                <select
+                  className={inp}
+                  value={pickedForm.status}
+                  onChange={(e) => setPickedForm({ ...pickedForm, status: e.target.value })}
+                >
+                  {STATUSES.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <input
+                  className={`${inp} flex-1 min-w-[12rem]`}
+                  placeholder="Notes — referral, confirmation number, which CV you sent…"
+                  value={pickedForm.notes}
+                  onChange={(e) => setPickedForm({ ...pickedForm, notes: e.target.value })}
+                />
+                <button
+                  onClick={savePicked}
+                  className="px-3 py-1 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+                >
+                  Save
+                </button>
+              </div>
+              <p className="text-[11px] text-gray-500">
+                Company, position, location and the posting link come from the tracked job — this application is
+                linked to it by id, and the job moves to <b>{pickedForm.status}</b>. Blank date = today.
+              </p>
+            </>
+          ) : manual ? (
+            /* Applied somewhere never tracked: describe it. It still links itself later,
+               when the posting is added (the job adopts a matching application). */
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <input className={inp} placeholder="Company *" value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} />
+                <input className={inp} placeholder="Position *" value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} />
+                <select className={inp} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                  {STATUSES.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <input className={inp} type="date" value={form.applied_date} onChange={(e) => setForm({ ...form, applied_date: e.target.value })} />
+                <input className={inp} placeholder="Location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
+                <input className={`${inp} w-48`} placeholder="Posting URL" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />
+                <button
+                  onClick={save}
+                  disabled={!form.company.trim() || !form.position.trim()}
+                  className="px-3 py-1 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  Save
+                </button>
+              </div>
+              <button onClick={() => setManual(false)} className="text-xs text-indigo-700 hover:underline">
+                ← pick from my tracked jobs instead
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-gray-600">Which job did you apply to?</p>
+              <JobPicker
+                onPick={setPicked}
+                emptyHint={
+                  <button onClick={() => setManual(true)} className="text-indigo-700 hover:underline">
+                    Enter it manually
+                  </button>
+                }
+              />
+              <button onClick={() => setManual(true)} className="text-xs text-indigo-700 hover:underline">
+                Not in my list — enter it manually
+              </button>
+            </>
+          )}
         </div>
       )}
 

@@ -352,3 +352,46 @@ def test_scan_adopts_a_hand_recorded_application(tmp_store, monkeypatch):
     apps = client.get("/api/applications").json()["applications"]
     assert [a["id"] for a in apps] == [job.id] and apps[0]["applied_date"] == "2026-07-02"
 
+
+def test_create_by_job_id_beats_an_ambiguous_title(tmp_store):
+    """The picker's whole point: two postings can share a company AND a title, which is
+    exactly when matching gives up. Choosing the row says which one, unambiguously."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    for jid, loc in (("2026-001", "Beaverton, OR"), ("2026-002", "Seattle, WA")):
+        store.upsert_job(Job(id=jid, company="Acme", company_job_id=f"R{jid[-1]}",
+                             position="Engineer", location=loc, status="open"))
+    # Matching alone can't choose (same company + title, no location given).
+    assert store.find_job_for_posting("Acme", "Engineer") is None
+
+    r = TestClient(app).post("/api/applications", json={"job_id": "2026-002",
+                                                        "applied_date": "2026-07-05"})
+    assert r.status_code == 200 and r.json()["job_tracked"] is True
+    assert r.json()["application"]["id"] == "2026-002"
+    assert r.json()["application"]["location"] == "Seattle, WA"   # posting fields carried
+    assert store.get_job("2026-002").status == "applied"
+    assert store.get_job("2026-001").status == "open"             # the other one untouched
+
+
+def test_create_by_job_id_honours_the_chosen_status(tmp_store):
+    # Logging something already in flight must not silently become "applied".
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1", position="Engineer"))
+    r = TestClient(app).post("/api/applications", json={"job_id": "2026-001", "status": "interviewing"})
+    assert r.json()["application"]["status"] == "interviewing"
+    assert store.get_job("2026-001").status == "interviewing"     # job and app move together
+
+
+def test_create_by_unknown_job_id_is_404(tmp_store):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    assert TestClient(app).post("/api/applications", json={"job_id": "nope"}).status_code == 404
+    assert store.list_applications() == []
+

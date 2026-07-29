@@ -278,7 +278,8 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
-  createApplication: (payload: Partial<Application>) =>
+  // job_id: you picked a tracked posting, so the app is linked by id (no matching).
+  createApplication: (payload: Partial<Application> & { job_id?: string }) =>
     http<{ application: Application; job_tracked: boolean }>("/api/applications", {
       method: "POST",
       body: JSON.stringify(payload),

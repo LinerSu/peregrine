@@ -9,7 +9,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from .. import data_store as store
 from ..agent import tools
 from ..extract import extract_text
-from ..schemas import CONTACT_FIELDS, Application, CvSourceInput, ProfileInput
+from ..schemas import APPLICATION_STATUSES, CONTACT_FIELDS, Application, CvSourceInput, ProfileInput
 from ..skills import normalize_category
 
 router = APIRouter(prefix="/api", tags=["applications"])
@@ -34,18 +34,29 @@ def list_applications():
 
 @router.post("/applications")
 def create_application(payload: dict):
-    """Manually track an application (e.g. one you applied to outside Peregrine).
+    """Track an application.
 
-    If it matches a tracked job (company+position), link it (adopt the job's
-    company_job_id, mark the job applied). Otherwise it's an orphan — the response's
-    `job_tracked: false` lets the UI nudge the user to add the posting."""
-    company, position = (payload.get("company") or "").strip(), (payload.get("position") or "").strip()
-    job = (
-        store.find_job_for_posting(company, position, payload.get("company_job_id", ""),
-                                   payload.get("location", ""), payload.get("url", ""))
-        if company and position
-        else None
-    )
+    Preferred: pass `job_id` — you picked the posting from your tracked jobs, so it is
+    linked by id and nothing has to be matched (two postings can share a company AND a
+    title, so matching is a guess this path avoids entirely).
+
+    Otherwise the payload describes a job applied to outside Peregrine: if it matches a
+    tracked posting (URL, then requisition key, then company+position) it is linked;
+    if not it is an orphan, and the response's `job_tracked: false` lets the UI nudge the
+    user to add the posting."""
+    job_id = (payload.get("job_id") or "").strip()
+    if job_id:
+        job = store.get_job(job_id)
+        if not job:
+            raise HTTPException(404, f"job {job_id!r} not found")
+    else:
+        company, position = (payload.get("company") or "").strip(), (payload.get("position") or "").strip()
+        job = (
+            store.find_job_for_posting(company, position, payload.get("company_job_id", ""),
+                                       payload.get("location", ""), payload.get("url", ""))
+            if company and position
+            else None
+        )
 
     if job:
         # Unify with the Apply flow: take the FULL job fields (url/salary/posted_date/…),
@@ -54,7 +65,11 @@ def create_application(payload: dict):
         # (we don't let the create payload set status independently — that would desync
         # app vs job, or downgrade an actioned job). Use PATCH to change status later.
         if job.status in ("open", "closed", "removed"):
-            job.status = "applied"
+            # An un-actioned job takes the status you chose ("interviewing" when you're
+            # logging something already in flight), defaulting to "applied". Job and app
+            # move together — the app still MIRRORS the job below, so they can't desync.
+            wanted = (payload.get("status") or "").strip()
+            job.status = wanted if wanted in APPLICATION_STATUSES else "applied"
             store.upsert_job(job)
         existing = store.get_application(job.id)
         data = job.model_dump()  # carries the job's (post-promotion) status
