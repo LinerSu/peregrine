@@ -66,6 +66,19 @@ pii_offending_emails() {
     | sort -u || true
 }
 
+# Provider API keys and private keys. Push protection would catch these on a PUBLIC
+# repo, but it can't help a private one or a commit that never reaches GitHub, and a
+# leaked key is worse than a leaked name: it spends money. Patterns are prefix-anchored
+# on the issuer's own format, so a placeholder like "sk-ant-..." or "YOUR_KEY_HERE"
+# doesn't trip them.
+PII_SECRET_RE='sk-ant-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{32,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+
+# stdin: text -> stdout: the matched secret-looking strings, TRUNCATED. Never print a
+# whole key back at the user: the terminal scrollback and any CI log would then hold it.
+pii_offending_secrets() {
+  grep -Eoh "$PII_SECRET_RE" | cut -c1-12 | sed 's/$/…(redacted)/' | sort -u || true
+}
+
 # stdin: text -> stdout: denylist terms found in it (case-insensitive, fixed-string).
 # No-op when $PII_TERMS_FILE doesn't exist. Comment (#) / blank lines are skipped, as
 # are terms under 4 chars — short terms false-positive everywhere; the example file
