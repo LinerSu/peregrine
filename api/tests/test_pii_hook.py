@@ -52,6 +52,9 @@ _TERMS = "# comment lines are skipped\nJane Petrova\njanepetrova\nab\n王小明\
 # silently) — plus the README-prefix collision and the api/ test-mount copies. Shared by the
 # hook tests AND the .gitignore-parity tests below.
 BLOCKED_PATHS = [
+    "logs/agent.log",          # the keeper is exempt; the logs themselves never are
+    "api/logs/.gitkeep",       # exemption is ROOT-anchored — nested copies stay blocked
+    "api/.demo/.gitkeep",
     "data/jobs.csv",            # tracked jobs
     "data/applications.csv",    # tracked applications
     "data/jobs.csv.tmp",        # atomic-write temp (data_store.py) — same PII as the .csv
@@ -113,6 +116,8 @@ ALLOWED_PATHS = [
     "resume/README.md",        # the exact re-included README
     "applications/README.md",
     "applications/.gitkeep",
+    "logs/.gitkeep",           # tracked so docker doesn't create logs/ as root (fresh-clone boot)
+    ".demo/.gitkeep",          # same, for the demo-persona mount
     ".env.example",
     "config/pii_terms.example.txt",  # the shipped denylist TEMPLATE (placeholder terms only)
     "config/companies.example.yml",  # the shipped registry TEMPLATE

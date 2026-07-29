@@ -72,7 +72,13 @@ applications/*
 !applications/.gitkeep
 
 # --- Logs / runtime status ---
-logs/
+# Contents ignored at every level, but the ROOT directory itself is tracked (via
+# .gitkeep): docker bind-mounts it, and a directory Docker has to create is owned by
+# root — which the non-root API container then can't write to, so it dies on boot.
+# Excluding contents rather than the directory is what makes the negation legal: git
+# can't re-include a file whose parent directory is excluded.
+**/logs/*
+!logs/.gitkeep
 *.log
 # The runtime status page (agent-written, carries real activity incl. chat
 # excerpts). Lives at logs/STATUS.md now; the root path is the legacy location.
@@ -103,4 +109,5 @@ Thumbs.db
 externals/
 
 # Generated demo/test datasets (PEREGRINE_DATASET=<persona>); seeded from code.
-.demo/
+**/.demo/*
+!.demo/.gitkeep
