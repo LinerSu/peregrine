@@ -1,7 +1,7 @@
 # AGENTS.md — Peregrine
 
 Canonical instructions for any AI coding agent (Claude Code, Gemini, etc.) and
-for the in-app agent. A fresh session should read this file + `STATUS.md` +
+for the in-app agent. A fresh session should read this file + `logs/STATUS.md` +
 `logs/agent.log` to resume with full context.
 
 ## What this project is
@@ -94,7 +94,7 @@ checks also run at commit time via tracked hooks in `hooks/` (enabled with
 ## Continuity protocol (for a fresh window)
 1. Read this **Current status & roadmap** section (durable handoff).
 2. Check repository memory (`/memories/repo/`) and `/memories/session/` if present.
-3. `STATUS.md` shows the *runtime* current task/activity — it is auto-generated
+3. `logs/STATUS.md` shows the *runtime* current task/activity — it is auto-generated
    and overwritten by the app, so treat it as a live log, not the plan.
 4. Skim `logs/agent.log` for the latest run.
 5. Continue the top unchecked item in the roadmap below.

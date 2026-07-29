@@ -4,6 +4,20 @@
 
 <h1 align="center">Peregrine</h1>
 
+<p align="center">
+  <a href="https://github.com/LinerSu/peregrine/actions/workflows/ci.yml"><img src="https://github.com/LinerSu/peregrine/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-yellow" alt="License: MIT" /></a>
+  <img src="https://img.shields.io/badge/local--first-your%20data%20stays%20home-4c1" alt="Local-first" />
+  <img src="https://img.shields.io/badge/scraping-opt--in%20ATS%20feeds%20only-0aa" alt="Opt-in ATS feeds only" />
+</p>
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12" />
+  <img src="https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black" alt="React 18" />
+  <img src="https://img.shields.io/badge/Docker-compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose" />
+  <img src="https://img.shields.io/badge/built%20with-Claude%20Code-D97757" alt="Built with Claude Code" />
+</p>
+
 A personal, local-first **AI job-search assistant** — the fastest hunter for your next role. Give it your CV; it scans
 job portals, scores fit, prepares your materials, and gates the **Apply** button
 behind a strengths / weaknesses / materials review. Your data stays on your
@@ -12,6 +26,49 @@ machine.
 > 📖 **Using the app?** The full **User Manual** is built into the web UI at **`/docs`**
 > (or click **Docs** in the top bar) — getting started, then a guide per goal (find jobs,
 > check fit, CV help, apply, track). **This README is the developer / architecture reference.**
+
+## Scope, limits & disclaimer
+
+Peregrine is built to be a **good web citizen**, not a scraper that bulldozes
+other companies' sites.
+
+**What it does**
+- Reads jobs only from **public, opt-in ATS feeds for companies you explicitly list** —
+  Greenhouse, Ashby, Lever, Recruitee, SmartRecruiters, Workable — each by the company's own
+  slug. **No platform-wide search or crawl.** Plus single postings you *paste* from
+  amazon.jobs / jobs.apple.com.
+- Scores fit against your CV, prepares materials, and tracks your applications.
+- Keeps your data on your machine.
+
+**What it won't do**
+- It **won't scrape sites whose Terms forbid it or that block bots** — LinkedIn, Indeed,
+  Glassdoor, Meta are refused with a reason. Paste the job text instead.
+- It **won't bypass** logins, paywalls, CAPTCHAs or bot-detection, won't send credentials,
+  and won't impersonate a browser. Every board fetch goes through one gate
+  ([`crawl_policy.py`](api/app/agent/crawl_policy.py)) that enforces a **block-list → host
+  allow-list → robots.txt → per-host rate limit → honest, self-identifying User-Agent**.
+- It **won't submit applications for you** — you always click Apply after the review gate —
+  and won't invent skills or experience you don't have.
+
+**Privacy.** Your profile, CV, jobs, and applications stay on your machine. The only network
+traffic is (a) the public ATS feeds above during a scan, and (b) your configured LLM
+provider (`anthropic`/`openai`/`ollama`, or none in `mock` mode). Nothing else is sent
+anywhere; nothing is phoned home.
+
+**Compliance.** As shipped, Peregrine fetches only public, opt-in ATS job feeds that permit
+automated access and refuses everything else — it does not scrape sites that prohibit it,
+bypass authentication or anti-bot measures, or impersonate a browser. The full model,
+per-provider endpoints, and the rules for extending it safely are documented in
+**[docs/SCANNING.md](docs/SCANNING.md)** (and enforced + tested in
+[`crawl_policy.py`](api/app/agent/crawl_policy.py) /
+[`test_crawl_policy.py`](api/tests/test_crawl_policy.py)).
+
+**Disclaimer.** You remain responsible for complying with each site's Terms of Service in
+your jurisdiction. If a board isn't supported, paste the job description in rather than
+asking Peregrine to break through a site's protections. Fit scores and upskilling
+suggestions are AI-generated guidance, not guarantees.
+
+---
 
 ## Quick start
 
@@ -129,7 +186,8 @@ Dedup key = `company` + `company_job_id`.
 filesystem) is mapped in **[docs/FILESYSTEM.md](docs/FILESYSTEM.md)**.
 
 For agent/architecture details and the continuity protocol (so a fresh AI
-session can resume), see [AGENTS.md](AGENTS.md) and [STATUS.md](STATUS.md).
+session can resume), see [AGENTS.md](AGENTS.md). Runtime status is written to `logs/STATUS.md` at
+run time (gitignored — it's generated, and it's scoped to whichever dataset is active).
 
 ## Demo / test datasets
 
@@ -182,72 +240,3 @@ cp config/pii_terms.example.txt config/pii_terms.txt   # then add your real stri
 
 The terms file is gitignored *and* hook-blocked — it never leaves your machine.
 CI re-runs the generic (path + email) checks on every push as a backstop.
-
-## Scope, limits & disclaimer
-
-Peregrine is built to be a **good web citizen**, not a scraper that bulldozes
-other companies' sites.
-
-**What it does**
-- Reads jobs only from **public, opt-in ATS feeds for companies you explicitly list** —
-  Greenhouse, Ashby, Lever, Recruitee, SmartRecruiters, Workable — each by the company's own
-  slug. **No platform-wide search or crawl.** Plus single postings you *paste* from
-  amazon.jobs / jobs.apple.com.
-- Scores fit against your CV, prepares materials, and tracks your applications.
-- Keeps your data on your machine.
-
-**What it won't do**
-- It **won't scrape sites whose Terms forbid it or that block bots** — LinkedIn, Indeed,
-  Glassdoor, Meta are refused with a reason. Paste the job text instead.
-- It **won't bypass** logins, paywalls, CAPTCHAs or bot-detection, won't send credentials,
-  and won't impersonate a browser. Every board fetch goes through one gate
-  ([`crawl_policy.py`](api/app/agent/crawl_policy.py)) that enforces a **block-list → host
-  allow-list → robots.txt → per-host rate limit → honest, self-identifying User-Agent**.
-- It **won't submit applications for you** — you always click Apply after the review gate —
-  and won't invent skills or experience you don't have.
-
-**Privacy.** Your profile, CV, jobs, and applications stay on your machine. The only network
-traffic is (a) the public ATS feeds above during a scan, and (b) your configured LLM
-provider (`anthropic`/`openai`/`ollama`, or none in `mock` mode). Nothing else is sent
-anywhere; nothing is phoned home.
-
-**Compliance.** As shipped, Peregrine fetches only public, opt-in ATS job feeds that permit
-automated access and refuses everything else — it does not scrape sites that prohibit it,
-bypass authentication or anti-bot measures, or impersonate a browser. The full model,
-per-provider endpoints, and the rules for extending it safely are documented in
-**[docs/SCANNING.md](docs/SCANNING.md)** (and enforced + tested in
-[`crawl_policy.py`](api/app/agent/crawl_policy.py) /
-[`test_crawl_policy.py`](api/tests/test_crawl_policy.py)).
-
-**Disclaimer.** You remain responsible for complying with each site's Terms of Service in
-your jurisdiction. If a board isn't supported, paste the job description in rather than
-asking Peregrine to break through a site's protections. Fit scores and upskilling
-suggestions are AI-generated guidance, not guarantees.
-
----
-
-## Vision (original notes)
-
-applications folder track each application you applied
-each application includes position, company, date, website, location, flexibility, status, salary range, interview date, contacts, and notes.
-
-if application you provide cover letter, or special resume version, we store under applications.
-
-resume stores either pdf or latex version of your resume. cv / resume depends on your preference. but we current just focs on industrial jobs
-
-scraper extract job information from job posting website, try to track your interested jobs. each job includes position, company, open date, close date, website, location, flexibility, salary range, and status. E.g. is still opening or already closed (like cannot apply anymore, post removed, etc.) we keep a snapshot just in case it disappears in the future.
-
-Each job shows what the job will do, basic qualification, and preferred qualification. any restrictions on the job, like citizenship, sponsorship, etc. The salary includes base salary, bonus, stock (if shown) and some may depends on location.
-
-scripts may help you organize your job search, searching online to extract job information or generate some metrics for your filtering.
-
-templates include some templates for writing cover letters, emails, and other communication with recruiters or hiring managers.
-
-upskilling show based on your current skills, what you miss for the job you want, and try give you some advice on how to upskill yourself (may not be accurate, but just for insights).
-
-E.g. if they require some skill your resume / any external information (website, linkedin, etc.) shows you do not have, we will flag it give you some advice on how to upskill yourself. Or try to let you know what they are looking for.
-
-The then front-ends like a web page will show your all the information for application.
-
-Give a search function to search for the job you want. and useful links to external resources, like resume templates, interview preparation, etc.
-
