@@ -311,8 +311,14 @@ def merge_scan_results(minted: list[Job], closed_ids: set[str]) -> set[str]:
             if j is not None and j.status == "open":
                 j.status = "closed"
         for j in minted:
-            if j.id not in by_id:  # a row this scan created; nothing else can have touched it
-                current.append(j)
+            if j.id in by_id:
+                # Shouldn't happen: ids are reserved when handed out (_allocate_id), so a
+                # concurrent ingest can't take one this scan minted. Keep the guard for a
+                # hand-edited CSV — but say so, rather than dropping a posting silently.
+                log.warning("scan merge: minted id %s already present, dropping the scan's row", j.id)
+                continue
+            current.append(j)
+            by_id[j.id] = j
         _write_csv(config.JOBS_CSV, JOB_FIELDS, [j.model_dump() for j in current])
         return {j.id for j in current}
 
@@ -328,25 +334,45 @@ def _max_id_num(year: int) -> int:
     return max(nums) if nums else 0
 
 
+# Highest id number handed out THIS PROCESS, keyed by (store path, year). The CSV alone
+# can't answer "what's free": a scan mints ids in memory and writes them minutes later, so
+# an ingest reading the CSV meanwhile would hand out the same id — two rows, one id, and
+# whichever wrote second clobbered the other's snapshot. Reserving here makes an id taken
+# the moment it is handed out, written or not. Keyed by path so a test's temp store never
+# inherits another's counter; never lowered by deletions, so a deleted id is not reused
+# (its artifacts may still exist). A second API process on one data directory would need a
+# file lock — not a configuration we ship.
+_allocated: dict[tuple[str, int], int] = {}
+
+
+def _allocate_id(year: int) -> str:
+    with _STORE_LOCK:
+        key = (str(config.JOBS_CSV), year)
+        n = _allocated.get(key)
+        if n is None:  # first id for this store: seed from what's on disk
+            n = _max_id_num(year)
+        n += 1
+        _allocated[key] = n
+        return f"{year}-{n:03d}"
+
+
 def id_minter() -> "Iterator[str]":
-    """Yield successive unique ids (year-NNN), seeded once from the current jobs+applications.
-    Lets a batch (scan) mint many ids without re-reading the CSV per id. Ids stay unique
-    across both stores (a manually-added application can't later collide with a scanned job)."""
+    """Yield successive unique ids (year-NNN). Lets a batch (scan) mint many ids up front;
+    each one is RESERVED as it is yielded, so a concurrent ingest can't be handed the same
+    id while the scan is still on the network. Unique across jobs + applications."""
     from datetime import date
 
-    year = date.today().year
-    n = _max_id_num(year)
     while True:
-        n += 1
-        yield f"{year}-{n:03d}"
+        yield _allocate_id(date.today().year)
 
 
 def next_id() -> str:
-    """Next surrogate id like 2026-001, unique across BOTH jobs and applications
-    (so a manually-added application can't later collide with a scanned job)."""
+    """Next surrogate id like 2026-001, unique across BOTH jobs and applications (so a
+    manually-added application can't later collide with a scanned job) and reserved on the
+    spot, so it can't collide with ids a running scan has minted but not yet written."""
     from datetime import date
 
-    return f"{date.today().year}-{_max_id_num(date.today().year) + 1:03d}"
+    return _allocate_id(date.today().year)
 
 
 def next_job_id() -> str:
