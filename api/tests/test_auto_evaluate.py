@@ -21,6 +21,7 @@ from app import data_store as store
 from app.agent import llm
 from app.agent import tools
 from app.main import app
+from app.routers import jobs as jobs_router
 
 
 @pytest.fixture
@@ -142,7 +143,8 @@ def test_backfill_schedules_only_open_jobs_missing_scores(env):
     _job("2026-003", status="closed")      # dead -> skipped
     _job("2026-004")                       # open, missing -> scheduled
     r = TestClient(app).post("/api/jobs/evaluate-missing")
-    assert r.status_code == 200 and r.json() == {"scheduled": 2}
+    assert r.status_code == 200
+    assert r.json() == {"scheduled": 2, "remaining": 0, "capped": False}
     assert sorted(env.calls) == ["2026-001", "2026-004"]
 
 
@@ -159,3 +161,48 @@ def test_backfill_guards(env, provider, key, ready):
     assert r.status_code == 200 and r.json()["scheduled"] == 0
     assert "reason" in r.json()
     assert env.calls == []
+
+
+def test_backfill_is_capped_and_reports_what_is_left(env):
+    """Each evaluation is a metered request, so one click must not fan out unbounded."""
+    _profile(True)
+    env.set_provider("anthropic")
+    n = jobs_router._BACKFILL_CAP + 5
+    for i in range(n):
+        _job(f"2026-{i:03d}")
+
+    r = TestClient(app).post("/api/jobs/evaluate-missing").json()
+    assert r == {"scheduled": jobs_router._BACKFILL_CAP, "remaining": 5, "capped": True}
+    assert len(env.calls) == jobs_router._BACKFILL_CAP
+
+
+def test_backfill_skips_jobs_already_being_evaluated(env, monkeypatch):
+    # A second click (or a click racing the auto-eval on ingest) must not pay twice for
+    # the same job. The claim is released in a finally, so a crash can't strand a job.
+    _profile(True)
+    env.set_provider("anthropic")
+    _job("2026-001")
+    _job("2026-002")
+    monkeypatch.setattr(jobs_router, "_evaluating", {"2026-001"})
+
+    r = TestClient(app).post("/api/jobs/evaluate-missing").json()
+    assert r["scheduled"] == 1 and r["remaining"] == 1
+    assert env.calls == ["2026-002"]
+    assert "2026-002" not in jobs_router._evaluating  # claim released after the run
+
+
+def test_a_failing_evaluation_releases_its_claim(env, monkeypatch):
+    _profile(True)
+    env.set_provider("anthropic")
+    _job("2026-001")
+
+    def boom(job_id):
+        raise RuntimeError("provider exploded")
+
+    monkeypatch.setattr(tools, "evaluate_fit", boom)
+    try:
+        TestClient(app).post("/api/jobs/evaluate-missing")
+    except RuntimeError:
+        pass  # TestClient surfaces the background task's error; the claim must still clear
+    assert "2026-001" not in jobs_router._evaluating
+

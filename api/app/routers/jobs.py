@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import threading
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -123,6 +124,36 @@ def ingest(payload: dict, background: BackgroundTasks):
     return _schedule_auto_eval(background, result, payload.get("auto_evaluate", True))
 
 
+# One backfill call schedules at most this many evaluations. Each one is a metered LLM
+# request, so an unbounded fan-out is a bill, not just load; a bounded chunk is also
+# repeatable — the response says how many are left, and you click again.
+_BACKFILL_CAP = 25
+
+# Job ids with an evaluation in flight IN THIS PROCESS. Two clicks, or a click racing the
+# auto-eval on ingest, would otherwise pay twice for the same job.
+_evaluating: set[str] = set()
+_evaluating_lock = threading.Lock()
+
+
+def _claim(job_id: str) -> bool:
+    """Reserve a job for evaluation; False if one is already running for it."""
+    with _evaluating_lock:
+        if job_id in _evaluating:
+            return False
+        _evaluating.add(job_id)
+        return True
+
+
+def _evaluate_claimed(job_id: str) -> None:
+    """Run the evaluation and release the claim, even if it raises — a crashed run must
+    not leave a job permanently unevaluable."""
+    try:
+        tools.evaluate_fit(job_id)
+    finally:
+        with _evaluating_lock:
+            _evaluating.discard(job_id)
+
+
 def _schedule_auto_eval(background: BackgroundTasks, result: dict, enabled: bool = True) -> dict:
     """After an EXTERNAL-path ingest creates a job, evaluate fit automatically — in
     the background so the paste-to-added feel stays instant; the UI's normal
@@ -141,8 +172,9 @@ def _schedule_auto_eval(background: BackgroundTasks, result: dict, enabled: bool
         and tools.profile_ready()
         and not active_provider_is_mock()
     ):
-        background.add_task(tools.evaluate_fit, result["job"]["id"])
-        result["auto_evaluating"] = True
+        if _claim(result["job"]["id"]):
+            background.add_task(_evaluate_claimed, result["job"]["id"])
+            result["auto_evaluating"] = True
     return result
 
 
@@ -154,16 +186,28 @@ def evaluate_missing(background: BackgroundTasks):
     keyless anthropic/openai included — it would mass-write 0.5 placeholders), and
     evaluations run in the background — the UI's refresh picks scores up as they
     land. Internal-mode users say "evaluate all jobs missing a fit score" in the
-    terminal instead — this endpoint is the External-mode path (mode contract)."""
+    terminal instead — this endpoint is the External-mode path (mode contract).
+
+    Bounded on purpose: at most _BACKFILL_CAP per call, skipping anything already in
+    flight, with `remaining` telling the caller what a second call would pick up. Each
+    evaluation is a metered request, so "one click, N jobs, unbounded N" is a bill."""
     if not tools.profile_ready():
         return {"scheduled": 0, "reason": "profile not set up"}
     if active_provider_is_mock():
         return {"scheduled": 0,
                 "reason": "mock provider — placeholder scores are never written automatically"}
     pending = [j.id for j in store.list_jobs() if j.fit_score is None and j.status == "open"]
+    scheduled = []
     for jid in pending:
-        background.add_task(tools.evaluate_fit, jid)
-    return {"scheduled": len(pending)}
+        if len(scheduled) >= _BACKFILL_CAP:
+            break
+        if _claim(jid):  # already running (double click, or the ingest auto-eval) -> skip
+            scheduled.append(jid)
+            background.add_task(_evaluate_claimed, jid)
+    # `remaining` is what a second call would pick up: everything unscored that this call
+    # didn't take, whether it was capped out or already in flight.
+    return {"scheduled": len(scheduled), "remaining": max(0, len(pending) - len(scheduled)),
+            "capped": len(pending) > _BACKFILL_CAP}
 
 
 # --- Add a job from content the user provides (no scraping) — both modes. --------
