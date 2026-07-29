@@ -171,9 +171,14 @@ def match_job(
     several share the title). Returns None if untracked."""
     u = (url or "").strip()
     if u:
-        for j in jobs:
-            if j.url.strip() == u:
-                return j
+        # Only when it's UNAMBIGUOUS. The same posting really can be tracked twice under
+        # one link (a board listing it in two cities, an ingest that beat the URL dedup),
+        # and picking the first row would be guessing by CSV order — the same thing the
+        # company+position branch below refuses to do. Fall through instead: the
+        # requisition key may still separate them.
+        hits = [j for j in jobs if j.url.strip() == u]
+        if len(hits) == 1:
+            return hits[0]
     c = norm_company(company)  # "Acme" must match a job tracked as "Acme Inc."
     cj = (company_job_id or "").strip().lower()
     # Only a real, non-manual key counts (a whitespace/"manual-" key must fall through

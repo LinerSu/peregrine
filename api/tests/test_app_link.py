@@ -395,3 +395,16 @@ def test_create_by_unknown_job_id_is_404(tmp_store):
     assert TestClient(app).post("/api/applications", json={"job_id": "nope"}).status_code == 404
     assert store.list_applications() == []
 
+
+def test_url_match_refuses_to_guess_between_duplicate_rows():
+    # The same posting tracked twice under one link (listed in two cities) must not be
+    # resolved by row order — fall through to the requisition key, which does separate them.
+    jobs = [
+        Job(id="1", company="Acme", company_job_id="R1", position="Engineer",
+            location="NYC", url="https://example.com/jobs/r-1"),
+        Job(id="2", company="Acme", company_job_id="R2", position="Engineer",
+            location="SF", url="https://example.com/jobs/r-1"),
+    ]
+    assert store.match_job(jobs, "Acme", "Engineer", "", "", "https://example.com/jobs/r-1") is None
+    assert store.match_job(jobs, "Acme", "Engineer", "R2", "", "https://example.com/jobs/r-1").id == "2"
+
