@@ -223,31 +223,3 @@ per-provider endpoints, and the rules for extending it safely are documented in
 your jurisdiction. If a board isn't supported, paste the job description in rather than
 asking Peregrine to break through a site's protections. Fit scores and upskilling
 suggestions are AI-generated guidance, not guarantees.
-
----
-
-## Vision (original notes)
-
-applications folder track each application you applied
-each application includes position, company, date, website, location, flexibility, status, salary range, interview date, contacts, and notes.
-
-if application you provide cover letter, or special resume version, we store under applications.
-
-resume stores either pdf or latex version of your resume. cv / resume depends on your preference. but we current just focs on industrial jobs
-
-scraper extract job information from job posting website, try to track your interested jobs. each job includes position, company, open date, close date, website, location, flexibility, salary range, and status. E.g. is still opening or already closed (like cannot apply anymore, post removed, etc.) we keep a snapshot just in case it disappears in the future.
-
-Each job shows what the job will do, basic qualification, and preferred qualification. any restrictions on the job, like citizenship, sponsorship, etc. The salary includes base salary, bonus, stock (if shown) and some may depends on location.
-
-scripts may help you organize your job search, searching online to extract job information or generate some metrics for your filtering.
-
-templates include some templates for writing cover letters, emails, and other communication with recruiters or hiring managers.
-
-upskilling show based on your current skills, what you miss for the job you want, and try give you some advice on how to upskill yourself (may not be accurate, but just for insights).
-
-E.g. if they require some skill your resume / any external information (website, linkedin, etc.) shows you do not have, we will flag it give you some advice on how to upskill yourself. Or try to let you know what they are looking for.
-
-The then front-ends like a web page will show your all the information for application.
-
-Give a search function to search for the job you want. and useful links to external resources, like resume templates, interview preparation, etc.
-
