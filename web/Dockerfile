@@ -11,8 +11,9 @@ ENV VITE_API_BASE=$VITE_API_BASE
 ARG VITE_TERMINAL_URL=""
 ENV VITE_TERMINAL_URL=$VITE_TERMINAL_URL
 
-COPY package.json ./
-RUN npm install
+# The lockfile ships, so the image installs the exact tree CI and contributors do.
+COPY package.json package-lock.json ./
+RUN npm ci
 COPY . .
 RUN npm run build
 
