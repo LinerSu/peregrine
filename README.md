@@ -4,6 +4,20 @@
 
 <h1 align="center">Peregrine</h1>
 
+<p align="center">
+  <a href="https://github.com/LinerSu/peregrine/actions/workflows/ci.yml"><img src="https://github.com/LinerSu/peregrine/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-yellow" alt="License: MIT" /></a>
+  <img src="https://img.shields.io/badge/local--first-your%20data%20stays%20home-4c1" alt="Local-first" />
+  <img src="https://img.shields.io/badge/scraping-opt--in%20ATS%20feeds%20only-0aa" alt="Opt-in ATS feeds only" />
+</p>
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12" />
+  <img src="https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black" alt="React 18" />
+  <img src="https://img.shields.io/badge/Docker-compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose" />
+  <img src="https://img.shields.io/badge/built%20with-Claude%20Code-D97757" alt="Built with Claude Code" />
+</p>
+
 A personal, local-first **AI job-search assistant** — the fastest hunter for your next role. Give it your CV; it scans
 job portals, scores fit, prepares your materials, and gates the **Apply** button
 behind a strengths / weaknesses / materials review. Your data stays on your
