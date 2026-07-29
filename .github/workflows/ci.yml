@@ -68,7 +68,10 @@ jobs:
           node-version: "20"
       - name: Install dependencies
         working-directory: web
-        run: npm install
+        # `ci`, not `install`: it installs exactly the locked tree and fails if the
+        # lockfile and package.json disagree, so CI can't quietly build something a
+        # contributor's machine won't reproduce.
+        run: npm ci
       - name: Build (tsc + vite)
         working-directory: web
         run: npm run build
