@@ -5,6 +5,7 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from . import status
 from .config import ensure_dirs, get_settings
@@ -17,19 +18,51 @@ log = get_logger(__name__)
 
 app = FastAPI(title="Peregrine API", version="0.1.0")
 
+WEB_ORIGINS = [
+    o.strip()
+    for o in os.environ.get(
+        "PEREGRINE_WEB_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+    ).split(",")
+    if o.strip()
+]
+
+# Methods that change something. GET/HEAD/OPTIONS are readable cross-origin only with
+# CORS approval, so the browser already protects those; these are the ones that ACT.
+_MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+@app.middleware("http")
+async def block_cross_origin_writes(request, call_next):
+    """Reject state-changing requests that a page on another origin fired at us.
+
+    CORS is not this control. A cross-origin POST with a simple content type is sent by
+    the browser BEFORE any CORS check — the check only decides whether the attacker may
+    READ the response. So any page you have open can silently trigger our mutating
+    endpoints, several of which spend API tokens (evaluate, backfill, ingest) or delete
+    data. Since the API binds to loopback, "some page in your browser" is the whole
+    threat model, and it is exactly what the Origin header identifies.
+
+    Requests with NO Origin (curl, the Internal-mode skill, server-side callers) pass:
+    a browser always sets it on cross-origin writes, so absence means not-a-browser.
+    """
+    origin = request.headers.get("origin")
+    if request.method in _MUTATING and origin and origin not in WEB_ORIGINS:
+        log.warning("blocked cross-origin %s %s from %r", request.method, request.url.path, origin)
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "cross-origin write blocked — set PEREGRINE_WEB_ORIGINS "
+                               "if you serve the UI from another origin"},
+        )
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     # Pinned to the local web UI, not "*": the API now has destructive endpoints
     # (DELETE /jobs/{id}, POST /jobs/purge), and a wildcard would let any web page
     # you visit fire drive-by requests at them. Override via PEREGRINE_WEB_ORIGINS
     # (comma-separated) if you serve the UI elsewhere.
-    allow_origins=[
-        o.strip()
-        for o in os.environ.get(
-            "PEREGRINE_WEB_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
-        ).split(",")
-        if o.strip()
-    ],
+    allow_origins=WEB_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )

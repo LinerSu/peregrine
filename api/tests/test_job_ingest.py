@@ -141,3 +141,56 @@ def test_ingest_endpoints(tmp_store):
         json={"company": "Beta", "position": "Dev", "company_job_id": None, "location": None},
     )
     assert rn.status_code == 200 and rn.json()["created"] is True
+
+
+def test_scan_does_not_revert_what_changed_while_it_ran(tmp_store, monkeypatch):
+    """A scan reads the jobs list, then spends real time on the network. Writing that
+    stale copy back is how a background fit evaluation silently disappears."""
+    from app.agent import providers, tools
+    from app.schemas import Job
+
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="r1", position="Eng"))
+    monkeypatch.setattr(store, "read_portals", lambda: {
+        "companies": [{"provider": "x", "name": "Acme"}], "filters": {}, "snapshot": False})
+    monkeypatch.setattr(store, "read_targets", lambda: {})
+
+    def fetch(*a, **k):
+        # Stand-ins for what really happens mid-scan: a background evaluation lands, and
+        # a job is ingested from another tab.
+        j = store.get_job("2026-001")
+        j.fit_score = 0.9
+        store.upsert_job(j)
+        store.upsert_job(Job(id="2026-009", company="Other", company_job_id="x9",
+                             position="Ingested mid-scan"))
+        return [providers.RawPosting(company="Acme", company_job_id="r1", position="Eng"),
+                providers.RawPosting(company="Acme", company_job_id="r2", position="New")]
+
+    monkeypatch.setattr(providers, "fetch", fetch)
+    assert tools.scan_jobs()["new"] == 1
+
+    assert store.get_job("2026-001").fit_score == 0.9        # evaluation survives
+    assert store.get_job("2026-009") is not None             # concurrent ingest survives
+    assert any(j.company_job_id == "r2" for j in store.list_jobs())  # the scan's row landed
+
+
+def test_scan_does_not_close_a_job_you_actioned_while_it_ran(tmp_store, monkeypatch):
+    # The board going quiet is weaker evidence than you clicking "I applied" — and the
+    # scan's copy still says "open", so only a merge that re-reads can tell.
+    from app.agent import providers, tools
+    from app.schemas import Job
+
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="r1", position="Eng"))
+    monkeypatch.setattr(store, "read_portals", lambda: {
+        "companies": [{"provider": "x", "name": "Acme"}], "filters": {}, "snapshot": False})
+    monkeypatch.setattr(store, "read_targets", lambda: {})
+
+    def fetch(*a, **k):
+        j = store.get_job("2026-001")
+        j.status = "applied"
+        store.upsert_job(j)
+        return [providers.RawPosting(company="Acme", company_job_id="r2", position="Other")]
+
+    monkeypatch.setattr(providers, "fetch", fetch)
+    tools.scan_jobs()
+    assert store.get_job("2026-001").status == "applied"     # not reverted to closed
+

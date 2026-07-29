@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import json
+import threading
 import re
 import shutil
 from pathlib import Path
@@ -33,6 +34,14 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
         return []
     with path.open(newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
+
+
+# Serializes read-modify-write on the CSVs. Every mutation is read-all, change, write-all,
+# so two of them interleaving loses one side's change entirely — and mutations now happen
+# off the request path (background evaluations, scans), not just one at a time. Scoped to
+# this process, which is the whole story for a single-worker local app; a multi-worker
+# deployment would need a file lock as well.
+_STORE_LOCK = threading.RLock()
 
 
 def _write_csv(path: Path, fields: list[str], rows: list[dict[str, Any]]) -> None:
@@ -256,22 +265,56 @@ def find_job_for_posting(
 
 
 def upsert_job(job: Job) -> Job:
-    jobs = list_jobs()
-    for i, j in enumerate(jobs):
-        if j.id == job.id:
-            jobs[i] = job
-            break
-    else:
-        jobs.append(job)
-    _write_csv(config.JOBS_CSV, JOB_FIELDS, [j.model_dump() for j in jobs])
+    with _STORE_LOCK:  # read-modify-write: a concurrent one would lose this change
+        jobs = list_jobs()
+        for i, j in enumerate(jobs):
+            if j.id == job.id:
+                jobs[i] = job
+                break
+        else:
+            jobs.append(job)
+        _write_csv(config.JOBS_CSV, JOB_FIELDS, [j.model_dump() for j in jobs])
     log.info("upsert_job id=%s company=%s", job.id, job.company)
     return job
 
 
 def write_jobs(jobs: list[Job]) -> None:
-    """Persist the whole jobs list in one write. For batch callers (e.g. a scan) that
-    mutate many rows and want to avoid the per-row read+rewrite of upsert_job."""
-    _write_csv(config.JOBS_CSV, JOB_FIELDS, [j.model_dump() for j in jobs])
+    """Persist the whole jobs list in one write. For batch callers that mutate many rows
+    and want to avoid the per-row read+rewrite of upsert_job.
+
+    Callers holding a list they read a while ago should use merge_scan_results instead —
+    this one overwrites, including anything that changed since they read."""
+    with _STORE_LOCK:
+        _write_csv(config.JOBS_CSV, JOB_FIELDS, [j.model_dump() for j in jobs])
+
+
+def merge_scan_results(minted: list[Job], closed_ids: set[str]) -> set[str]:
+    """Apply a scan's outcome onto the CURRENT rows instead of overwriting them.
+
+    A scan reads the jobs list, then spends seconds to minutes on the network. Writing its
+    stale copy back reverts everything that changed meanwhile — a background fit
+    evaluation (now routine, since ingest auto-evaluates), a star, a status set by hand, a
+    job ingested in another tab. Whole rows could vanish that way, not just fields.
+
+    So only what the scan actually DECIDED is applied: the postings it minted, and the
+    ones it found dead. Everything else is whatever the store says now. Returns the
+    resulting id set, so snapshot pruning also works from post-merge reality rather than
+    from the scan's stale view.
+    """
+    with _STORE_LOCK:
+        current = list_jobs()
+        by_id = {j.id: j for j in current}
+        for jid in closed_ids:
+            j = by_id.get(jid)
+            # Only an OPEN row goes closed: if you applied to it while the scan ran, that
+            # decision is newer than the board's silence and outranks it.
+            if j is not None and j.status == "open":
+                j.status = "closed"
+        for j in minted:
+            if j.id not in by_id:  # a row this scan created; nothing else can have touched it
+                current.append(j)
+        _write_csv(config.JOBS_CSV, JOB_FIELDS, [j.model_dump() for j in current])
+        return {j.id for j in current}
 
 
 def _max_id_num(year: int) -> int:
@@ -459,14 +502,15 @@ def get_application(app_id: str) -> Optional[Application]:
 
 
 def upsert_application(app: Application) -> Application:
-    apps = list_applications()
-    for i, a in enumerate(apps):
-        if a.id == app.id:
-            apps[i] = app
-            break
-    else:
-        apps.append(app)
-    _write_csv(config.APPLICATIONS_CSV, APPLICATION_FIELDS, [a.model_dump() for a in apps])
+    with _STORE_LOCK:
+        apps = list_applications()
+        for i, a in enumerate(apps):
+            if a.id == app.id:
+                apps[i] = app
+                break
+        else:
+            apps.append(app)
+        _write_csv(config.APPLICATIONS_CSV, APPLICATION_FIELDS, [a.model_dump() for a in apps])
     log.info("upsert_application id=%s", app.id)
     return app
 
@@ -476,11 +520,12 @@ def delete_job(job_id: str) -> bool:
     evaluation, cover letter, tailored CV — the `<id>.*` sidecar family). The caller
     owns the linked-application guard: application history must never vanish as a
     side effect of deleting a posting."""
-    jobs = list_jobs()
-    remaining = [j for j in jobs if j.id != job_id]
-    if len(remaining) == len(jobs):
-        return False
-    _write_csv(config.JOBS_CSV, JOB_FIELDS, [j.model_dump() for j in remaining])
+    with _STORE_LOCK:
+        jobs = list_jobs()
+        remaining = [j for j in jobs if j.id != job_id]
+        if len(remaining) == len(jobs):
+            return False
+        _write_csv(config.JOBS_CSV, JOB_FIELDS, [j.model_dump() for j in remaining])
     # Exact-prefix match, not glob(f"{job_id}.*"): ids come from our own rows, but a
     # name with glob metacharacters must never widen the match — startswith can't.
     try:
@@ -539,11 +584,12 @@ def purge_closed_jobs(older_than_days: int, today: "date | None" = None) -> dict
 
 
 def delete_application(app_id: str) -> bool:
-    apps = list_applications()
-    remaining = [a for a in apps if a.id != app_id]
-    if len(remaining) == len(apps):
-        return False
-    _write_csv(config.APPLICATIONS_CSV, APPLICATION_FIELDS, [a.model_dump() for a in remaining])
+    with _STORE_LOCK:
+        apps = list_applications()
+        remaining = [a for a in apps if a.id != app_id]
+        if len(remaining) == len(apps):
+            return False
+        _write_csv(config.APPLICATIONS_CSV, APPLICATION_FIELDS, [a.model_dump() for a in remaining])
     log.info("delete_application id=%s", app_id)
     return True
 

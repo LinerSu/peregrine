@@ -9,10 +9,6 @@ Conventions: **Cost** = spends API tokens. **Data** = can corrupt or lose stored
 
 ## Correctness / data
 
-- **Data · A scan can clobber a fit score written by a background evaluation.**
-  Both do read-modify-write on `jobs.csv` with no locking, so a scan that starts before a
-  background `evaluate_fit` finishes writes back the pre-evaluation row. Widened by
-  auto-evaluate-on-ingest, which made background writes routine rather than rare.
 - **Data · `profile_ready()` raises on a malformed `profile.yml`**, and it runs *after* the
   job row was already created — so a hand-edited profile turns an ingest into a 500 with a
   half-finished result.
@@ -23,12 +19,6 @@ Conventions: **Cost** = spends API tokens. **Data** = can corrupt or lose stored
 
 ## Cost / safety
 
-- **Cost · `POST /api/jobs/evaluate-missing` has no cap and no in-flight dedup.** Every call
-  schedules one LLM evaluation per unscored open job; calling it twice doubles the spend on
-  the same jobs. Needs a per-run cap and a guard against overlapping runs.
-- **Cost · That endpoint is also reachable by a cross-site form POST** (a simple request, so
-  the browser sends it without a preflight). Loopback-only binding limits exposure, but a
-  page open in the same browser could trigger the fan-out. Wants a same-origin check.
 - **Safety · The Internal skill chains evaluation straight onto freshly ingested posting
   text** with no prompt-injection guard. Posting text is untrusted input and it now reaches
   the model automatically rather than on an explicit user action.

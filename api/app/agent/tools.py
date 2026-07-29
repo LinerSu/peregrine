@@ -166,6 +166,7 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
     # "closed" -- kept (not deleted) so a linked application isn't orphaned and a false positive
     # is recoverable; applied/interviewing/etc. are left untouched (you still applied).
     dead = 0
+    closed_ids: set[str] = set()  # what THIS scan decided is dead — the only status it owns
     for job in jobs:
         ck = store.board_company_key(job.company)
         if job.status != "open" or ck not in listed:
@@ -173,14 +174,20 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
         gone = job.company_job_id.strip().lower() not in listed[ck]
         if gone or _too_old(job.posted_date, max_age):
             job.status = "closed"
+            closed_ids.add(job.id)
             dead += 1
 
-    if new or dead:  # one write for the whole batch (no per-row rewrite)
-        # A job hard-deleted (DELETE /jobs/{id} or a purge) while this scan ran must
-        # not be resurrected by our preloaded copy; rows this scan minted itself
-        # (absent from the preload) are always kept.
-        current_ids = {j.id for j in store.list_jobs()}
-        store.write_jobs([j for j in jobs if j.id in current_ids or j.id not in preloaded_ids])
+    # MERGE, don't overwrite. This scan read the jobs list before spending seconds or
+    # minutes on the network; writing that stale copy back would revert anything that
+    # changed meanwhile — a background fit evaluation (routine now that ingest
+    # auto-evaluates), a star, a status set by hand, a job added in another tab — and
+    # would resurrect rows deleted in the interim. Only what this scan decided is
+    # applied: the rows it minted, and the postings it found dead.
+    live_ids = {j.id for j in jobs}
+    if new or dead:
+        live_ids = store.merge_scan_results(
+            minted=[j for j in jobs if j.id not in preloaded_ids], closed_ids=closed_ids
+        )
 
     if new:
         # A posting the scan just found may already have an application recorded by hand
@@ -192,7 +199,9 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
                 if job.id not in preloaded_ids:
                     store.adopt_orphan_application(job)
 
-    pruned = _prune_orphan_snapshots({j.id for j in jobs})
+    # Prune from post-merge reality, not from this scan's view: a job ingested while we
+    # scanned isn't in our list, and pruning against that list would delete its snapshot.
+    pruned = _prune_orphan_snapshots(live_ids)
 
     # Retention: with filters.retention_days set, closed jobs whose posting is older
     # than the window are REMOVED (rows + artifacts) at the end of each scan — aging
