@@ -172,7 +172,8 @@ Dedup key = `company` + `company_job_id`.
 filesystem) is mapped in **[docs/FILESYSTEM.md](docs/FILESYSTEM.md)**.
 
 For agent/architecture details and the continuity protocol (so a fresh AI
-session can resume), see [AGENTS.md](AGENTS.md) and [STATUS.md](STATUS.md).
+session can resume), see [AGENTS.md](AGENTS.md). Runtime status is written to `logs/STATUS.md` at
+run time (gitignored — it's generated, and it's scoped to whichever dataset is active).
 
 ## Demo / test datasets
 
