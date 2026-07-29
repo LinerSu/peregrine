@@ -27,9 +27,27 @@ preferred qualifications, restrictions (work authorization / citizenship /
 clearance), compensation notes. Keep the ORIGINAL wording — my tracker derives
 skill and degree tags from this text. Strip site navigation and boilerplate.>
 
+Finding the dates — boards often don't print them in the visible page, so dig
+before giving up on posted_date (it drives staleness and "posted N days ago"):
+1. Structured data in the page SOURCE: a \`<script type="application/ld+json">\`
+   JobPosting block carries "datePosted", and usually "validThrough" for the
+   deadline. This is the most reliable source and it's present on most boards.
+2. The ATS API behind the board, when the posting is on one — Greenhouse
+   (\`boards-api.greenhouse.io/v1/boards/<org>/jobs/<id>\` → first_published /
+   updated_at), Lever (createdAt, epoch ms), Ashby (publishedAt), Workday
+   (postedOn), amazon.jobs (posted_date on the job JSON).
+3. \`<meta>\` tags and \`<time datetime="…">\` elements in the page.
+4. Visible relative text — "Posted 3 days ago", "Reposted last week". Convert it
+   against TODAY's date, and note in the Posting section that the date was derived
+   from a relative label so I know it's approximate.
+Same hunt for close_date (application deadline): "validThrough", an explicit
+"apply by" line, or a stated closing date.
+
 Rules — follow strictly:
 1. NEVER invent, infer, or estimate a value. If the posting does not state a
    field, leave it blank after the colon. No guessed salaries, no guessed dates.
+   A wrong date is worse than a blank one — blank means "unknown", wrong means my
+   tracker ages the job out or nags me about a deadline that doesn't exist.
 2. Dates in ISO YYYY-MM-DD. Salaries as plain numbers (300000, not "300k").
 3. flexibility only if the posting explicitly states it.
 4. ALWAYS return the result as a MARKDOWN FILE named
@@ -51,6 +69,7 @@ personal tracker. Produce ONE markdown document in exactly this shape:
 - **interview_date:** <YYYY-MM-DD, only if scheduled>
 - **location:** <as posted>
 - **salary:** <min>–<max> <currency code, as posted>
+- **posted_date:** <YYYY-MM-DD the posting went up>
 - **url:** <link to the posting>
 - **people:** <name — role — profile link; separate multiple with ";" — recruiters
   or hiring managers I ACTUALLY have; never scraped or guessed>
@@ -61,6 +80,11 @@ version I sent, promised response window, follow-up plan>
 
 ## Posting (include if you have it)
 <the full posting text — this lets my tracker link the application to a job>
+
+For posted_date, dig the same way you would for a job posting: the page's
+\`ld+json\` JobPosting block ("datePosted"), the ATS API behind the board, a
+\`<time>\` element, or a relative "posted N days ago" label converted against
+today's date. Blank if the posting genuinely doesn't say.
 
 Rules — follow strictly: never invent values (blank if unknown); ISO dates;
 status from the exact vocabulary above; people only if I actually have them —

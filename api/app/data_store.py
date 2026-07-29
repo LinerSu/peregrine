@@ -160,11 +160,20 @@ def find_job_by_key(company: str, company_job_id: str) -> Optional[Job]:
 
 
 def match_job(
-    jobs: list[Job], company: str, position: str, company_job_id: str = "", location: str = ""
+    jobs: list[Job], company: str, position: str, company_job_id: str = "",
+    location: str = "", url: str = ""
 ) -> Optional[Job]:
-    """Find the tracked job an application corresponds to, against a preloaded list:
-    exact company+company_job_id first, else company+position (case-insensitive, with
-    location as a tiebreaker when several share the title). Returns None if untracked."""
+    """Find the tracked job an application corresponds to, against a preloaded list.
+
+    In precedence order: the posting URL (two rows pointing at the same link ARE the
+    same posting, whatever the company/title spellings say), then company+requisition
+    id, then company+position (case-insensitive, with location as a tiebreaker when
+    several share the title). Returns None if untracked."""
+    u = (url or "").strip()
+    if u:
+        for j in jobs:
+            if j.url.strip() == u:
+                return j
     c = norm_company(company)  # "Acme" must match a job tracked as "Acme Inc."
     cj = (company_job_id or "").strip().lower()
     # Only a real, non-manual key counts (a whitespace/"manual-" key must fall through
@@ -185,9 +194,60 @@ def match_job(
     return None  # no match, or ambiguous — don't guess by CSV row order
 
 
-def find_job_for_posting(company: str, position: str, company_job_id: str = "", location: str = "") -> Optional[Job]:
+def link_application_to_job(orphan: Application, job: Job) -> Application:
+    """Re-key an application onto the job it belongs to: the job is promoted to the
+    application's lifecycle status, the application takes the job's id and posting fields
+    (url/salary/posted_date/fit…) while keeping its own tracker fields, and the superseded
+    row is dropped. Never downgrades a job already in progress — the application mirrors
+    the job then. Deterministic (no LLM), so both modes behave identically."""
+    from datetime import date
+
+    if job.status in ("open", "closed", "removed") and orphan.status:
+        job.status = orphan.status
+        upsert_job(job)
+    data = job.model_dump()
+    data["id"] = job.id
+    for f in ("applied_date", "interview_date", "contacts", "notes", "people"):
+        if getattr(orphan, f, ""):
+            data[f] = getattr(orphan, f)
+    if not data.get("applied_date"):
+        data["applied_date"] = date.today().isoformat()
+    linked = Application(**data)
+    upsert_application(linked)
+    if orphan.id != job.id:
+        delete_application(orphan.id)
+    return linked
+
+
+def adopt_orphan_application(job: Job) -> Optional[Application]:
+    """Link an application recorded BEFORE its posting was tracked to the job that just
+    arrived.
+
+    Applying first and adding the posting afterwards is the normal order of events, but it
+    leaves an ORPHAN: an application row with its own id and a "manual-" key, connected to
+    nothing. The Jobs list then keeps offering "prepare to apply" for a job already applied
+    to, and the two rows drift apart. So a newly created posting adopts a single
+    unambiguous orphan.
+
+    Deliberately conservative: several orphans matching one posting means don't guess.
+    """
+    candidates = [
+        a for a in list_applications()
+        if a.id != job.id
+        and match_job([job], a.company, a.position, a.company_job_id, a.location, a.url) is not None
+    ]
+    if len(candidates) != 1:
+        return None
+    linked = link_application_to_job(candidates[0], job)
+    log.info("adopted orphan application %s onto job %s", candidates[0].id, job.id)
+    return linked
+
+
+def find_job_for_posting(
+    company: str, position: str, company_job_id: str = "", location: str = "", url: str = ""
+) -> Optional[Job]:
     """match_job against all tracked jobs (one read)."""
-    return match_job(list_jobs(), company, position, company_job_id, location)
+    return match_job(list_jobs(), company, position, company_job_id, location, url)
 
 
 def upsert_job(job: Job) -> Job:

@@ -268,3 +268,87 @@ def test_contacts_sync_between_job_and_application(tmp_store):
     p2 = '[{"name": "Bob M", "role": "hiring manager", "link": ""}]'
     client.patch("/api/applications/2026-010", json={"people": p2})
     assert store.get_job("2026-010").people == p2
+
+def test_ingesting_a_posting_adopts_a_hand_recorded_application(tmp_store):
+    """Applying first and tracking the posting after is the normal order — the job must
+    not land "open" with a prepare-to-apply button for a job already applied to."""
+    from fastapi.testclient import TestClient
+
+    from app.agent import tools
+    from app.main import app
+
+    client = TestClient(app)
+    created = client.post("/api/applications", json={
+        "company": "Acme", "position": "Engineer", "applied_date": "2026-07-01",
+        "url": "https://example.com/jobs/r-1", "notes": "referred by a friend",
+    }).json()
+    assert created["job_tracked"] is False  # orphan: no posting tracked yet
+
+    saved = tools.save_ingested_job({"company": "Acme", "position": "Engineer",
+                                     "url": "https://example.com/jobs/r-1",
+                                     "description": "build things"})
+    job_id = saved["job"]["id"]
+
+    apps = client.get("/api/applications").json()["applications"]
+    assert [a["id"] for a in apps] == [job_id]          # re-keyed onto the job, orphan gone
+    assert apps[0]["applied_date"] == "2026-07-01"      # tracker fields survive
+    assert apps[0]["notes"] == "referred by a friend"
+    assert store.get_job(job_id).status == "applied"    # job no longer offers "apply"
+
+
+def test_adoption_matches_on_url_even_when_the_title_differs(tmp_store):
+    # The same posting can be recorded under a shortened title; the link is the identity.
+    from fastapi.testclient import TestClient
+
+    from app.agent import tools
+    from app.main import app
+
+    client = TestClient(app)
+    client.post("/api/applications", json={
+        "company": "Acme", "position": "Engineer 3", "url": "https://example.com/jobs/r-9",
+    })
+    saved = tools.save_ingested_job({"company": "Acme", "position": "Engineer 3 (C++/Rust)",
+                                     "url": "https://example.com/jobs/r-9", "description": "x"})
+    apps = client.get("/api/applications").json()["applications"]
+    assert [a["id"] for a in apps] == [saved["job"]["id"]]
+
+
+def test_adoption_refuses_to_guess_between_two_candidates(tmp_store):
+    from fastapi.testclient import TestClient
+
+    from app.agent import tools
+    from app.main import app
+
+    client = TestClient(app)
+    for i in (1, 2):
+        client.post("/api/applications", json={"company": "Acme", "position": "Engineer",
+                                               "applied_date": f"2026-07-0{i}"})
+    saved = tools.save_ingested_job({"company": "Acme", "position": "Engineer", "description": "x"})
+    apps = client.get("/api/applications").json()["applications"]
+    assert len(apps) == 2                                    # both left alone
+    assert store.get_job(saved["job"]["id"]).status == "open"  # nothing guessed
+
+
+def test_scan_adopts_a_hand_recorded_application(tmp_store, monkeypatch):
+    """The other real order: applied on the company's own site, and a later scan is what
+    brings the posting in. Same guarantee as ingest — the row must not read "open"."""
+    from fastapi.testclient import TestClient
+
+    from app.agent import providers, tools
+    from app.main import app
+
+    client = TestClient(app)
+    client.post("/api/applications", json={"company": "Acme", "position": "Engineer",
+                                           "applied_date": "2026-07-02"})
+    monkeypatch.setattr(store, "read_portals", lambda: {
+        "companies": [{"provider": "x", "name": "Acme"}], "filters": {}, "snapshot": False})
+    monkeypatch.setattr(store, "read_targets", lambda: {})
+    monkeypatch.setattr(providers, "fetch", lambda *a, **k: [
+        providers.RawPosting(company="Acme", company_job_id="r1", position="Engineer")])
+
+    assert tools.scan_jobs()["new"] == 1
+    job = store.list_jobs()[0]
+    assert job.status == "applied"
+    apps = client.get("/api/applications").json()["applications"]
+    assert [a["id"] for a in apps] == [job.id] and apps[0]["applied_date"] == "2026-07-02"
+

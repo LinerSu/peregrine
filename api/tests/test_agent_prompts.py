@@ -26,7 +26,8 @@ pytestmark = pytest.mark.skipif(
 JOB_PROMPT_FIELDS = ["company", "position", "company_job_id", "location", "flexibility",
                      "salary_min", "salary_max", "currency", "posted_date", "close_date", "url"]
 APPLICATION_PROMPT_FIELDS = ["company", "position", "company_job_id", "applied_date",
-                             "status", "interview_date", "location", "salary", "url", "people"]
+                             "status", "interview_date", "location", "salary", "posted_date",
+                             "url", "people"]
 
 # Job fields an external agent can NOT meaningfully supply: ours (derived/internal).
 JOB_INTERNAL_FIELDS = {"id", "status", "fit_score", "detail_md", "role_category", "level",

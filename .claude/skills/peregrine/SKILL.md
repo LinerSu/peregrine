@@ -108,6 +108,13 @@ the local API** so the web page reflects it exactly like External (API) mode.
    YYYY-MM-DD or \"\"), `flexibility` (remote|hybrid|onsite ONLY if stated),
    `salary_min`/`salary_max` (plain numbers) + `currency` (e.g. USD),
    `description` (clean plain text). Use ONLY what's in the posting; never invent.
+   **Dates are usually hidden** — pasted text rarely carries them. If the user gave a
+   URL (or one appears in the text) and it's allowed by `crawl_policy`, look for the
+   page's `ld+json` JobPosting block (`datePosted` / `validThrough`), the ATS API behind
+   the board (Greenhouse `first_published`, Lever `createdAt`, Ashby `publishedAt`,
+   Workday `postedOn`), a `<time datetime>` element, or a relative \"posted N days ago\"
+   label converted against today's date. Leave the field blank rather than guess — a
+   wrong posted_date ages the job out of the list.
 3. Create the tracked job (store-only — this is what adds it to the Jobs tab):
    ```bash
    curl -s -X POST http://localhost:8000/api/jobs/ingest-doc/save \

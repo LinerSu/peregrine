@@ -27,7 +27,7 @@ def list_applications():
         # job_tracked = a tracked posting MATCHES this app (drives the "no posting"
         # badge). For apps created via Apply/auto-link it's also formally linked by id;
         # for an older orphan it may be matchable-but-not-yet-linked — both hide the badge.
-        tracked = store.match_job(jobs, a.company, a.position, a.company_job_id, a.location) is not None
+        tracked = store.match_job(jobs, a.company, a.position, a.company_job_id, a.location, a.url) is not None
         out.append({**a.model_dump(), "job_tracked": tracked})
     return {"count": len(out), "applications": out}
 
@@ -41,7 +41,8 @@ def create_application(payload: dict):
     `job_tracked: false` lets the UI nudge the user to add the posting."""
     company, position = (payload.get("company") or "").strip(), (payload.get("position") or "").strip()
     job = (
-        store.find_job_for_posting(company, position, payload.get("company_job_id", ""), payload.get("location", ""))
+        store.find_job_for_posting(company, position, payload.get("company_job_id", ""),
+                                   payload.get("location", ""), payload.get("url", ""))
         if company and position
         else None
     )
@@ -91,32 +92,19 @@ def link_application(app_id: str, payload: dict):
 
     Deterministic (no LLM) — identical in both modes; the LLM part is the ingest that
     created the job (already mode-aware via the increment-5 flow)."""
-    orphan = store.get_application(app_id)
-    if not orphan:
-        raise HTTPException(404, f"application {app_id} not found")
     job = store.get_job((payload.get("job_id") or "").strip())
     if not job:
         raise HTTPException(404, f"job {payload.get('job_id', '')!r} not found")
-    # Promote an un-actioned job (open/closed/removed) to the orphan's lifecycle status;
-    # never downgrade a job already in progress — it stays, and the app mirrors it (like
-    # the Apply/auto-link flow). The common case is a fresh ingest (status "open").
-    if job.status in ("open", "closed", "removed") and orphan.status:
-        job.status = orphan.status
-        store.upsert_job(job)
-    data = job.model_dump()  # app mirrors the job's resulting status + carries its fields
-    data["id"] = job.id
-    for f in ("applied_date", "interview_date", "contacts", "notes"):
-        if getattr(orphan, f, ""):
-            data[f] = getattr(orphan, f)
-    if not data.get("applied_date"):
-        data["applied_date"] = date.today().isoformat()
-    linked = Application(**data)
-    store.upsert_application(linked)
-    # Drop the now-superseded orphan row. next_id() shares one counter across jobs +
-    # applications, so an orphan's id is never a real job id; store.delete_application
-    # (which doesn't touch jobs at all) therefore can't affect the job we just linked.
-    if app_id != job.id:
-        store.delete_application(app_id)
+    orphan = store.get_application(app_id)
+    if not orphan:
+        # Idempotent: creating the posting may have adopted this orphan already (see
+        # store.adopt_orphan_application), which re-keys it to the job's id and drops the
+        # old row. A client still holding the orphan id must get success, not a 404.
+        already = store.get_application(job.id)
+        if already:
+            return {"application": already.model_dump(), "job_tracked": True}
+        raise HTTPException(404, f"application {app_id} not found")
+    linked = store.link_application_to_job(orphan, job)
     return {"application": linked.model_dump(), "job_tracked": True}
 
 
