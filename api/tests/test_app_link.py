@@ -268,3 +268,162 @@ def test_contacts_sync_between_job_and_application(tmp_store):
     p2 = '[{"name": "Bob M", "role": "hiring manager", "link": ""}]'
     client.patch("/api/applications/2026-010", json={"people": p2})
     assert store.get_job("2026-010").people == p2
+
+def test_ingesting_a_posting_adopts_a_hand_recorded_application(tmp_store):
+    """Applying first and tracking the posting after is the normal order — the job must
+    not land "open" with a prepare-to-apply button for a job already applied to."""
+    from fastapi.testclient import TestClient
+
+    from app.agent import tools
+    from app.main import app
+
+    client = TestClient(app)
+    created = client.post("/api/applications", json={
+        "company": "Acme", "position": "Engineer", "applied_date": "2026-07-01",
+        "url": "https://example.com/jobs/r-1", "notes": "referred by a friend",
+    }).json()
+    assert created["job_tracked"] is False  # orphan: no posting tracked yet
+
+    saved = tools.save_ingested_job({"company": "Acme", "position": "Engineer",
+                                     "url": "https://example.com/jobs/r-1",
+                                     "description": "build things"})
+    job_id = saved["job"]["id"]
+
+    apps = client.get("/api/applications").json()["applications"]
+    assert [a["id"] for a in apps] == [job_id]          # re-keyed onto the job, orphan gone
+    assert apps[0]["applied_date"] == "2026-07-01"      # tracker fields survive
+    assert apps[0]["notes"] == "referred by a friend"
+    assert store.get_job(job_id).status == "applied"    # job no longer offers "apply"
+
+
+def test_adoption_matches_on_url_even_when_the_title_differs(tmp_store):
+    # The same posting can be recorded under a shortened title; the link is the identity.
+    from fastapi.testclient import TestClient
+
+    from app.agent import tools
+    from app.main import app
+
+    client = TestClient(app)
+    client.post("/api/applications", json={
+        "company": "Acme", "position": "Engineer 3", "url": "https://example.com/jobs/r-9",
+    })
+    saved = tools.save_ingested_job({"company": "Acme", "position": "Engineer 3 (C++/Rust)",
+                                     "url": "https://example.com/jobs/r-9", "description": "x"})
+    apps = client.get("/api/applications").json()["applications"]
+    assert [a["id"] for a in apps] == [saved["job"]["id"]]
+
+
+def test_adoption_refuses_to_guess_between_two_candidates(tmp_store):
+    from fastapi.testclient import TestClient
+
+    from app.agent import tools
+    from app.main import app
+
+    client = TestClient(app)
+    for i in (1, 2):
+        client.post("/api/applications", json={"company": "Acme", "position": "Engineer",
+                                               "applied_date": f"2026-07-0{i}"})
+    saved = tools.save_ingested_job({"company": "Acme", "position": "Engineer", "description": "x"})
+    apps = client.get("/api/applications").json()["applications"]
+    assert len(apps) == 2                                    # both left alone
+    assert store.get_job(saved["job"]["id"]).status == "open"  # nothing guessed
+
+
+def test_scan_adopts_a_hand_recorded_application(tmp_store, monkeypatch):
+    """The other real order: applied on the company's own site, and a later scan is what
+    brings the posting in. Same guarantee as ingest — the row must not read "open"."""
+    from fastapi.testclient import TestClient
+
+    from app.agent import providers, tools
+    from app.main import app
+
+    client = TestClient(app)
+    client.post("/api/applications", json={"company": "Acme", "position": "Engineer",
+                                           "applied_date": "2026-07-02"})
+    monkeypatch.setattr(store, "read_portals", lambda: {
+        "companies": [{"provider": "x", "name": "Acme"}], "filters": {}, "snapshot": False})
+    monkeypatch.setattr(store, "read_targets", lambda: {})
+    monkeypatch.setattr(providers, "fetch", lambda *a, **k: [
+        providers.RawPosting(company="Acme", company_job_id="r1", position="Engineer")])
+
+    assert tools.scan_jobs()["new"] == 1
+    job = store.list_jobs()[0]
+    assert job.status == "applied"
+    apps = client.get("/api/applications").json()["applications"]
+    assert [a["id"] for a in apps] == [job.id] and apps[0]["applied_date"] == "2026-07-02"
+
+
+def test_create_by_job_id_beats_an_ambiguous_title(tmp_store):
+    """The picker's whole point: two postings can share a company AND a title, which is
+    exactly when matching gives up. Choosing the row says which one, unambiguously."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    for jid, loc in (("2026-001", "Beaverton, OR"), ("2026-002", "Seattle, WA")):
+        store.upsert_job(Job(id=jid, company="Acme", company_job_id=f"R{jid[-1]}",
+                             position="Engineer", location=loc, status="open"))
+    # Matching alone can't choose (same company + title, no location given).
+    assert store.find_job_for_posting("Acme", "Engineer") is None
+
+    r = TestClient(app).post("/api/applications", json={"job_id": "2026-002",
+                                                        "applied_date": "2026-07-05"})
+    assert r.status_code == 200 and r.json()["job_tracked"] is True
+    assert r.json()["application"]["id"] == "2026-002"
+    assert r.json()["application"]["location"] == "Seattle, WA"   # posting fields carried
+    assert store.get_job("2026-002").status == "applied"
+    assert store.get_job("2026-001").status == "open"             # the other one untouched
+
+
+def test_create_by_job_id_honours_the_chosen_status(tmp_store):
+    # Logging something already in flight must not silently become "applied".
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1", position="Engineer"))
+    r = TestClient(app).post("/api/applications", json={"job_id": "2026-001", "status": "interviewing"})
+    assert r.json()["application"]["status"] == "interviewing"
+    assert store.get_job("2026-001").status == "interviewing"     # job and app move together
+
+
+def test_create_by_unknown_job_id_is_404(tmp_store):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    assert TestClient(app).post("/api/applications", json={"job_id": "nope"}).status_code == 404
+    assert store.list_applications() == []
+
+
+def test_url_match_refuses_to_guess_between_duplicate_rows():
+    # The same posting tracked twice under one link (listed in two cities) must not be
+    # resolved by row order — fall through to the requisition key, which does separate them.
+    jobs = [
+        Job(id="1", company="Acme", company_job_id="R1", position="Engineer",
+            location="NYC", url="https://example.com/jobs/r-1"),
+        Job(id="2", company="Acme", company_job_id="R2", position="Engineer",
+            location="SF", url="https://example.com/jobs/r-1"),
+    ]
+    assert store.match_job(jobs, "Acme", "Engineer", "", "", "https://example.com/jobs/r-1") is None
+    assert store.match_job(jobs, "Acme", "Engineer", "R2", "", "https://example.com/jobs/r-1").id == "2"
+
+
+def test_job_detail_answers_have_i_applied_by_identity(tmp_store, monkeypatch):
+    """The job's status word can't answer it: "closed" is a dead posting when nothing is
+    linked and a closed APPLICATION when something is. The detail payload says which."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    monkeypatch.setattr(config, "PROFILE_YML", tmp_store / "profile.yml")
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1", position="Engineer"))
+    client = TestClient(app)
+    assert client.get("/api/jobs/2026-001").json()["application_status"] == ""
+
+    client.post("/api/applications", json={"job_id": "2026-001"})
+    assert client.get("/api/jobs/2026-001").json()["application_status"] == "applied"
+
+    client.patch("/api/applications/2026-001", json={"status": "closed"})
+    assert client.get("/api/jobs/2026-001").json()["application_status"] == "closed"
+

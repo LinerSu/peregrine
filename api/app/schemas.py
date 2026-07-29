@@ -6,6 +6,9 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 JobStatus = Literal["open", "closed", "removed", "applied", "interviewing", "rejected", "offer"]
+# Lifecycle statuses that make sense once you have applied — shared by the routers so a
+# job and its application can never be promoted into different vocabularies.
+APPLICATION_STATUSES = {"applied", "interviewing", "offer", "rejected", "closed"}
 
 
 class Job(BaseModel):

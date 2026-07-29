@@ -182,6 +182,16 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
         current_ids = {j.id for j in store.list_jobs()}
         store.write_jobs([j for j in jobs if j.id in current_ids or j.id not in preloaded_ids])
 
+    if new:
+        # A posting the scan just found may already have an application recorded by hand
+        # (applied on the company's own site, tracked the posting later). Link them, so the
+        # row doesn't sit "open" offering "prepare to apply" for a job already applied to.
+        tracked_ids = {j.id for j in jobs}
+        if any(a.id not in tracked_ids for a in store.list_applications()):
+            for job in jobs:
+                if job.id not in preloaded_ids:
+                    store.adopt_orphan_application(job)
+
     pruned = _prune_orphan_snapshots({j.id for j in jobs})
 
     # Retention: with filters.retention_days set, closed jobs whose posting is older
@@ -1064,10 +1074,13 @@ def list_jobs(query: str = "") -> dict[str, Any]:
 
 # --------------------------------------------------------------------------- #
 def _persist_posting(p: providers.RawPosting) -> Job:
-    """Write a RawPosting to the store (CSV row + snapshot md), returning the Job."""
+    """Write a RawPosting to the store (CSV row + snapshot md), returning the Job.
+
+    A new posting also adopts an application recorded for it by hand (applied first,
+    tracked the posting after) — see store.adopt_orphan_application."""
     jid = store.next_job_id()
     detail_path = store.write_job_md(jid, _job_md(jid, p))
-    return store.upsert_job(
+    job = store.upsert_job(
         Job(
             id=jid,
             company=p.company,
@@ -1081,6 +1094,8 @@ def _persist_posting(p: providers.RawPosting) -> Job:
             **_job_tag_kwargs(p),
         )
     )
+    store.adopt_orphan_application(job)
+    return store.get_job(job.id) or job
 
 
 @registry.register(

@@ -12,6 +12,7 @@ from ..agent import tools
 from ..extract import extract_text
 from ..agent import providers
 from ..schemas import (
+    APPLICATION_STATUSES,
     CONTACT_FIELDS,
     CoverLetterInput,
     CvTexInput,
@@ -234,7 +235,13 @@ def get_job(job_id: str):
         raise HTTPException(404, f"job {job_id} not found")
     d = job.model_dump()
     d["skill_fit"] = tools._skill_fit(job.req_skills, tools._user_skills())  # for the detail panel
-    return {"job": d, "markdown": store.read_job_md(job_id)}
+    # Whether an application EXISTS for this posting (it shares the job's id when linked),
+    # and where it stands. "Have I applied?" must not be inferred from the job's status
+    # string: "closed" means a dead posting when nothing is linked, but a closed
+    # application when something is — opposite answers from one word.
+    linked = store.get_application(job_id)
+    return {"job": d, "markdown": store.read_job_md(job_id),
+            "application_status": linked.status if linked else ""}
 
 
 # People you found yourself (never scraped) are editable from the Jobs view too.
@@ -244,7 +251,7 @@ def get_job(job_id: str):
 EDITABLE_JOB_FIELDS = {"starred", "role_category", "status", "company"} | CONTACT_FIELDS
 # Statuses that also make sense on an application (so a job→app status sync can't set
 # a pre-application status like "open"/"removed" on a tracked application).
-_APP_STATUSES = {"applied", "interviewing", "offer", "rejected", "closed"}
+
 
 
 @router.patch("/{job_id}")
@@ -266,7 +273,7 @@ def update_job(job_id: str, payload: dict):
         sync = {k: changes[k] for k in CONTACT_FIELDS if k in changes}
         if "company" in changes:  # a spelling fix must not desync the application row
             sync["company"] = updated.company
-        if "status" in changes and updated.status in _APP_STATUSES and appn.status != updated.status:
+        if "status" in changes and updated.status in APPLICATION_STATUSES and appn.status != updated.status:
             sync["status"] = updated.status
         if sync:
             store.upsert_application(appn.model_copy(update=sync))

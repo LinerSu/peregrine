@@ -78,6 +78,7 @@ export default function JobDetail({
 }) {
   const [job, setJob] = useState<Job | null>(null);
   const [markdown, setMarkdown] = useState("");
+  const [appStatus, setAppStatus] = useState("");  // linked application's status ("" = none)
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [busy, setBusy] = useState(false);
   const [applyUrl, setApplyUrl] = useState<string | null>(null);
@@ -111,7 +112,7 @@ export default function JobDetail({
   // Fetch job + evaluation in parallel. `isLive` lets the mount effect drop a
   // stale response if jobId changed while the requests were in flight.
   const load = async (isLive: () => boolean = () => true) => {
-    const [{ job, markdown }, ev, cover, cv] = await Promise.all([
+    const [{ job, markdown, application_status }, ev, cover, cv] = await Promise.all([
       api.getJob(jobId),
       api.getEvaluation(jobId).catch(() => null),
       api.getCoverLetter(jobId).catch(() => null),
@@ -119,6 +120,7 @@ export default function JobDetail({
     ]);
     if (!isLive()) return;
     setJob(job);
+    setAppStatus(application_status ?? "");
     setMarkdown(markdown);
     setEvaluation(normEval(ev));
     setCoverLetter(cover?.content ?? null);
@@ -379,7 +381,12 @@ export default function JobDetail({
 
   if (!job) return <div className="p-6 text-gray-400">Loading…</div>;
 
-  const applied = job.status === "applied";
+  // "Have I applied?" is answered by whether an application is LINKED to this posting —
+  // not by the job's status word, which is ambiguous: "closed" is a dead posting when
+  // nothing is linked and a closed application when something is. The status list is the
+  // fallback for a job whose status was set by hand without a tracker row, and it covers
+  // every post-application status: "interviewing" contradicted "Prepare to apply" too.
+  const applied = !!appStatus || ["applied", "interviewing", "offer", "rejected"].includes(job.status);
   // Analysis built against a PREVIOUS CV is hidden, not shown as current (fit score,
   // strengths/weaknesses section, archetype/legitimacy chips) — a banner points at
   // re-running. Tailored CVs are deliberately untouched (their story is still open).
@@ -421,7 +428,15 @@ export default function JobDetail({
     // viewports, and the old fixed footer reserved ~52px for a mostly-empty hint.
     <div className="h-full overflow-auto">
       <div className="p-4 bg-white border-b border-gray-200">
-        <h2 className="text-lg font-semibold">{job.position}</h2>
+        <div className="flex items-baseline gap-2">
+          <h2 className="flex-1 text-lg font-semibold">{job.position}</h2>
+          {/* The job id: what the terminal commands take ("evaluate fit for 2026-001") and
+              what tells two same-title postings apart in the application picker. It was
+              addressable everywhere except on screen. */}
+          <span title="Job id — use it in Claude-terminal commands" className="text-xs font-mono text-gray-400">
+            {job.id}
+          </span>
+        </div>
         <p className="text-sm text-gray-500">
           {[job.company, job.location || null].filter(Boolean).join(" · ")}
         </p>
@@ -460,13 +475,15 @@ export default function JobDetail({
           >
             {busy ? "Working…" : waitingEval ? "Waiting…" : "Evaluate fit"}
           </button>
-          <button
-            onClick={prepare}
-            disabled={busy}
-            className="px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-100 rounded-md hover:bg-indigo-200 disabled:opacity-50"
-          >
-            Prepare to apply
-          </button>
+          {!applied && (
+            <button
+              onClick={prepare}
+              disabled={busy}
+              className="px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-100 rounded-md hover:bg-indigo-200 disabled:opacity-50"
+            >
+              Prepare to apply
+            </button>
+          )}
           <button
             onClick={draftCoverLetter}
             disabled={busy || waitingCover}
