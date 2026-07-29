@@ -233,7 +233,10 @@ export const api = {
   // Marker the Internal-mode add-job poll watches (bumps on every ingest, even dedup).
   getIngestResult: () =>
     http<{ seq: number; job_id?: string; created?: boolean; position?: string }>("/api/jobs/ingest-result"),
-  getJob: (id: string) => http<{ job: Job; markdown: string }>(`/api/jobs/${id}`),
+  // application_status: "" when no application is linked to this posting (see JobDetail —
+  // "have I applied?" is answered by identity, not by the job's status word).
+  getJob: (id: string) =>
+    http<{ job: Job; markdown: string; application_status?: string }>(`/api/jobs/${id}`),
   updateJob: (id: string, patch: Partial<Job>) =>
     http<{ job: Job }>(`/api/jobs/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   evaluate: (id: string) => http<Record<string, unknown>>(`/api/jobs/${id}/evaluate`, { method: "POST" }),

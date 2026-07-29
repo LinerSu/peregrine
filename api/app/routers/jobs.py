@@ -235,7 +235,13 @@ def get_job(job_id: str):
         raise HTTPException(404, f"job {job_id} not found")
     d = job.model_dump()
     d["skill_fit"] = tools._skill_fit(job.req_skills, tools._user_skills())  # for the detail panel
-    return {"job": d, "markdown": store.read_job_md(job_id)}
+    # Whether an application EXISTS for this posting (it shares the job's id when linked),
+    # and where it stands. "Have I applied?" must not be inferred from the job's status
+    # string: "closed" means a dead posting when nothing is linked, but a closed
+    # application when something is — opposite answers from one word.
+    linked = store.get_application(job_id)
+    return {"job": d, "markdown": store.read_job_md(job_id),
+            "application_status": linked.status if linked else ""}
 
 
 # People you found yourself (never scraped) are editable from the Jobs view too.

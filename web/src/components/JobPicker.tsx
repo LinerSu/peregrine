@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type Job } from "../api";
+import { api, type Application, type Job } from "../api";
 import { relativeTime, statusClass } from "../format";
 
 // Pick a tracked job instead of describing one. Recording an application for a job the
@@ -12,9 +12,11 @@ import { relativeTime, statusClass } from "../format";
 // the job id, which the rest of the UI otherwise never shows.
 export default function JobPicker({
   onPick,
+  applications,
   emptyHint,
 }: {
   onPick: (job: Job) => void;
+  applications: Application[];   // what's already tracked — an application shares its job's id
   emptyHint?: React.ReactNode;
 }) {
   const [jobs, setJobs] = useState<Job[] | null>(null);
@@ -29,10 +31,15 @@ export default function JobPicker({
     searchRef.current?.focus();
   }, []);
 
-  // Already-applied jobs stay VISIBLE (so you can see the one you're looking for is
-  // already tracked) but aren't selectable — a second application for the same posting
-  // would just be a duplicate row.
-  const applied = (j: Job) => ["applied", "interviewing", "offer", "rejected"].includes(j.status);
+  // Jobs you already track an application for stay VISIBLE (so you can see the one you're
+  // looking for is handled) but aren't selectable — picking one would overwrite that
+  // application's own status and dates. Keyed on the application EXISTING, not on the
+  // job's status word: "closed" means a dead posting you never applied to as often as it
+  // means a closed application, and only one of those should be off-limits.
+  const tracked = useMemo(
+    () => new Map(applications.map((a) => [a.id, a.status])),
+    [applications]
+  );
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -40,8 +47,8 @@ export default function JobPicker({
       !q || [j.position, j.company, j.location, j.id].some((v) => (v || "").toLowerCase().includes(q));
     const hits = (jobs || []).filter(matches);
     // Selectable first — the ones you can act on shouldn't sit below the ones you can't.
-    return [...hits].sort((a, b) => Number(applied(a)) - Number(applied(b)));
-  }, [jobs, query]);
+    return [...hits].sort((a, b) => Number(tracked.has(a.id)) - Number(tracked.has(b.id)));
+  }, [jobs, query, tracked]);
 
   return (
     <div className="space-y-2">
@@ -63,7 +70,7 @@ export default function JobPicker({
       ) : (
         <ul className="max-h-64 overflow-y-auto rounded-md border border-gray-200 bg-white divide-y divide-gray-100">
           {rows.map((j) => {
-            const done = applied(j);
+            const done = tracked.get(j.id);
             const meta = [
               j.company,
               j.location,
@@ -74,9 +81,9 @@ export default function JobPicker({
               <li key={j.id}>
                 <button
                   type="button"
-                  disabled={done}
+                  disabled={!!done}
                   onClick={() => onPick(j)}
-                  title={done ? "Already tracked as an application" : `Record an application for ${j.id}`}
+                  title={done ? `Already tracked as an application (${done})` : `Record an application for ${j.id}`}
                   className={`w-full px-3 py-2 text-left ${
                     done ? "opacity-60 cursor-not-allowed" : "hover:bg-indigo-50"
                   }`}
@@ -84,8 +91,8 @@ export default function JobPicker({
                   <div className="flex items-baseline gap-2">
                     <span className="flex-1 text-sm font-medium text-gray-900 truncate">{j.position}</span>
                     {done && (
-                      <span className={`px-1.5 py-0.5 text-[10px] rounded-full ${statusClass(j.status)}`}>
-                        {j.status}
+                      <span className={`px-1.5 py-0.5 text-[10px] rounded-full ${statusClass(done)}`}>
+                        {done}
                       </span>
                     )}
                     <span className="text-[11px] font-mono text-gray-400">{j.id}</span>

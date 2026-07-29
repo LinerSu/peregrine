@@ -408,3 +408,22 @@ def test_url_match_refuses_to_guess_between_duplicate_rows():
     assert store.match_job(jobs, "Acme", "Engineer", "", "", "https://example.com/jobs/r-1") is None
     assert store.match_job(jobs, "Acme", "Engineer", "R2", "", "https://example.com/jobs/r-1").id == "2"
 
+
+def test_job_detail_answers_have_i_applied_by_identity(tmp_store, monkeypatch):
+    """The job's status word can't answer it: "closed" is a dead posting when nothing is
+    linked and a closed APPLICATION when something is. The detail payload says which."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    monkeypatch.setattr(config, "PROFILE_YML", tmp_store / "profile.yml")
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1", position="Engineer"))
+    client = TestClient(app)
+    assert client.get("/api/jobs/2026-001").json()["application_status"] == ""
+
+    client.post("/api/applications", json={"job_id": "2026-001"})
+    assert client.get("/api/jobs/2026-001").json()["application_status"] == "applied"
+
+    client.patch("/api/applications/2026-001", json={"status": "closed"})
+    assert client.get("/api/jobs/2026-001").json()["application_status"] == "closed"
+

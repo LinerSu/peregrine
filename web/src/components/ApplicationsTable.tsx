@@ -247,6 +247,7 @@ export default function ApplicationsTable({
               <p className="text-xs text-gray-600">Which job did you apply to?</p>
               <JobPicker
                 onPick={setPicked}
+                applications={applications}
                 emptyHint={
                   <button onClick={() => setManual(true)} className="text-indigo-700 hover:underline">
                     Enter it manually

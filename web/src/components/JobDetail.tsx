@@ -78,6 +78,7 @@ export default function JobDetail({
 }) {
   const [job, setJob] = useState<Job | null>(null);
   const [markdown, setMarkdown] = useState("");
+  const [appStatus, setAppStatus] = useState("");  // linked application's status ("" = none)
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [busy, setBusy] = useState(false);
   const [applyUrl, setApplyUrl] = useState<string | null>(null);
@@ -111,7 +112,7 @@ export default function JobDetail({
   // Fetch job + evaluation in parallel. `isLive` lets the mount effect drop a
   // stale response if jobId changed while the requests were in flight.
   const load = async (isLive: () => boolean = () => true) => {
-    const [{ job, markdown }, ev, cover, cv] = await Promise.all([
+    const [{ job, markdown, application_status }, ev, cover, cv] = await Promise.all([
       api.getJob(jobId),
       api.getEvaluation(jobId).catch(() => null),
       api.getCoverLetter(jobId).catch(() => null),
@@ -119,6 +120,7 @@ export default function JobDetail({
     ]);
     if (!isLive()) return;
     setJob(job);
+    setAppStatus(application_status ?? "");
     setMarkdown(markdown);
     setEvaluation(normEval(ev));
     setCoverLetter(cover?.content ?? null);
@@ -379,10 +381,12 @@ export default function JobDetail({
 
   if (!job) return <div className="p-6 text-gray-400">Loading…</div>;
 
-  // Every post-application lifecycle status, not just "applied": once you've applied, the
-  // pre-apply affordances must not reappear. A status chip reading "applied" next to a
-  // "Prepare to apply" button is the app contradicting itself.
-  const applied = ["applied", "interviewing", "offer", "rejected"].includes(job.status);
+  // "Have I applied?" is answered by whether an application is LINKED to this posting —
+  // not by the job's status word, which is ambiguous: "closed" is a dead posting when
+  // nothing is linked and a closed application when something is. The status list is the
+  // fallback for a job whose status was set by hand without a tracker row, and it covers
+  // every post-application status: "interviewing" contradicted "Prepare to apply" too.
+  const applied = !!appStatus || ["applied", "interviewing", "offer", "rejected"].includes(job.status);
   // Analysis built against a PREVIOUS CV is hidden, not shown as current (fit score,
   // strengths/weaknesses section, archetype/legitimacy chips) — a banner points at
   // re-running. Tailored CVs are deliberately untouched (their story is still open).
