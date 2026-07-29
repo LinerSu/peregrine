@@ -183,11 +183,15 @@ def scan_jobs(only: list[str] | None = None) -> dict[str, Any]:
     # auto-evaluates), a star, a status set by hand, a job added in another tab — and
     # would resurrect rows deleted in the interim. Only what this scan decided is
     # applied: the rows it minted, and the postings it found dead.
-    live_ids = {j.id for j in jobs}
     if new or dead:
         live_ids = store.merge_scan_results(
             minted=[j for j in jobs if j.id not in preloaded_ids], closed_ids=closed_ids
         )
+    else:
+        # Nothing to write, but the staleness is the same: our list predates anything
+        # ingested while we scanned, and pruning against it would delete that job's
+        # snapshot as an orphan. Re-read instead.
+        live_ids = {j.id for j in store.list_jobs()}
 
     if new:
         # A posting the scan just found may already have an application recorded by hand

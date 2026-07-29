@@ -194,3 +194,29 @@ def test_scan_does_not_close_a_job_you_actioned_while_it_ran(tmp_store, monkeypa
     tools.scan_jobs()
     assert store.get_job("2026-001").status == "applied"     # not reverted to closed
 
+
+def test_a_scan_that_changes_nothing_still_prunes_from_fresh_state(tmp_store, monkeypatch):
+    # The no-op path had the same staleness bug: with nothing new and nothing dead there
+    # is no merge to re-read through, so a job ingested mid-scan looked like an orphan and
+    # lost its snapshot.
+    from app.agent import providers, tools
+    from app.schemas import Job
+
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="r1", position="Eng"))
+    monkeypatch.setattr(store, "read_portals", lambda: {
+        "companies": [{"provider": "x", "name": "Acme"}], "filters": {}, "snapshot": True})
+    monkeypatch.setattr(store, "read_targets", lambda: {})
+
+    ingested = {}
+
+    def fetch(*a, **k):
+        ingested["id"] = tools.save_ingested_job(
+            {"company": "Other", "position": "Ingested mid-scan", "description": "text"}
+        )["job"]["id"]
+        return [providers.RawPosting(company="Acme", company_job_id="r1", position="Eng")]
+
+    monkeypatch.setattr(providers, "fetch", fetch)
+    r = tools.scan_jobs()
+    assert r["new"] == 0 and r["dead"] == 0          # the no-op path
+    assert (config.JOBS_DIR / f"{ingested['id']}.md").exists()  # snapshot survived
+
