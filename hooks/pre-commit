@@ -88,4 +88,13 @@ if [ -n "$term_hits" ]; then
   fail=1
 fi
 
+# 5) Provider keys ---------------------------------------------------------
+secret_hits="$(printf '%s\n' "$added_lines" | pii_offending_secrets)"
+if [ -n "$secret_hits" ]; then
+  echo "✗ pre-commit: what looks like an API key or private key is in a staged change:" >&2
+  printf '    %s\n' "$secret_hits" >&2
+  echo "  move it to .env (gitignored) and ROTATE it — assume anything committed is burned." >&2
+  fail=1
+fi
+
 [ "$fail" -eq 0 ] || { echo "  (fix the above, or bypass once with: git commit --no-verify)" >&2; exit 1; }

@@ -15,7 +15,10 @@ PII_PATH_RE='^(api/)?data/.*\.(csv|tmp|bak|sqlite|sqlite3|db)$|^(api/)?data/jobs
 # The example-csv exemption is anchored to WHERE shipped seeds live (direct children
 # of data/) — an any-depth `.example.csv$` exemption would let the hook allow nested
 # files that .gitignore's root-only `!data/*.example.csv` re-include still ignores.
-PII_PATH_EXEMPT_RE='^data/[^/]*\.example\.csv$|^(api/)?data/jobs/\.gitkeep$|^(api/)?resume/README\.md$|^(api/)?applications/(README\.md|\.gitkeep)$|\.env\.example$'
+PII_PATH_EXEMPT_RE='^data/[^/]*\.example\.csv$|^(api/)?data/jobs/\.gitkeep$|^(api/)?resume/README\.md$|^(api/)?applications/(README\.md|\.gitkeep)$|^logs/\.gitkeep$|^\.demo/\.gitkeep$|\.env\.example$'
+# logs/ and .demo/ keepers are ROOT-anchored on purpose: those two directories are
+# tracked (empty) so docker doesn't create them as root and break a fresh clone, while
+# their contents — and any nested api/logs/, api/.demo/ — stay blocked.
 
 # A real-looking email address (test fixtures + demo seeds use @example.com; the
 # reserved RFC-2606 .example TLD and commit-authoring noreply@ are allow-listed).
@@ -61,6 +64,19 @@ pii_offending_emails() {
     | grep -viE "$PII_EMAIL_ALLOW_RE" \
     | grep -viE "$PII_EMAIL_NOREPLY_RE" \
     | sort -u || true
+}
+
+# Provider API keys and private keys. Push protection would catch these on a PUBLIC
+# repo, but it can't help a private one or a commit that never reaches GitHub, and a
+# leaked key is worse than a leaked name: it spends money. Patterns are prefix-anchored
+# on the issuer's own format, so a placeholder like "sk-ant-..." or "YOUR_KEY_HERE"
+# doesn't trip them.
+PII_SECRET_RE='sk-ant-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{32,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+
+# stdin: text -> stdout: the matched secret-looking strings, TRUNCATED. Never print a
+# whole key back at the user: the terminal scrollback and any CI log would then hold it.
+pii_offending_secrets() {
+  grep -Eoh "$PII_SECRET_RE" | cut -c1-12 | sed 's/$/…(redacted)/' | sort -u || true
 }
 
 # stdin: text -> stdout: denylist terms found in it (case-insensitive, fixed-string).

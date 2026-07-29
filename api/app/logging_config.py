@@ -30,16 +30,24 @@ def setup_logging() -> None:
     stream = logging.StreamHandler()
     stream.setFormatter(fmt)
 
-    file_handler = RotatingFileHandler(
-        LOGS_DIR / "agent.log", maxBytes=2_000_000, backupCount=5, encoding="utf-8"
-    )
-    file_handler.setFormatter(fmt)
-
     root = logging.getLogger()
     root.setLevel(level)
     root.handlers.clear()
     root.addHandler(stream)
-    root.addHandler(file_handler)
+
+    # File logging is a convenience, never a reason to fail to boot. The log directory is
+    # a bind mount, so it can be read-only, owned by another uid, or blocked by SELinux —
+    # none of which should turn "I can't write agent.log" into "the API won't start".
+    try:
+        file_handler = RotatingFileHandler(
+            LOGS_DIR / "agent.log", maxBytes=2_000_000, backupCount=5, encoding="utf-8"
+        )
+    except OSError as exc:
+        root.warning("file logging disabled (%s: %s) — logging to stdout only",
+                     type(exc).__name__, exc)
+    else:
+        file_handler.setFormatter(fmt)
+        root.addHandler(file_handler)
 
     _CONFIGURED = True
 

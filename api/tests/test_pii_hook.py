@@ -52,6 +52,9 @@ _TERMS = "# comment lines are skipped\nJane Petrova\njanepetrova\nab\n王小明\
 # silently) — plus the README-prefix collision and the api/ test-mount copies. Shared by the
 # hook tests AND the .gitignore-parity tests below.
 BLOCKED_PATHS = [
+    "logs/agent.log",          # the keeper is exempt; the logs themselves never are
+    "api/logs/.gitkeep",       # exemption is ROOT-anchored — nested copies stay blocked
+    "api/.demo/.gitkeep",
     "data/jobs.csv",            # tracked jobs
     "data/applications.csv",    # tracked applications
     "data/jobs.csv.tmp",        # atomic-write temp (data_store.py) — same PII as the .csv
@@ -113,6 +116,8 @@ ALLOWED_PATHS = [
     "resume/README.md",        # the exact re-included README
     "applications/README.md",
     "applications/.gitkeep",
+    "logs/.gitkeep",           # tracked so docker doesn't create logs/ as root (fresh-clone boot)
+    ".demo/.gitkeep",          # same, for the demo-persona mount
     ".env.example",
     "config/pii_terms.example.txt",  # the shipped denylist TEMPLATE (placeholder terms only)
     "config/companies.example.yml",  # the shipped registry TEMPLATE
@@ -812,3 +817,47 @@ def test_ci_guard_blocks_email_in_committed_filename(tmp_path):
     assert r.returncode == 1, r.stdout + r.stderr
     assert "email" in r.stderr.lower()
     assert _REAL2 not in r.stderr, "verbatim email leaked into CI output"
+
+
+# --- provider keys ------------------------------------------------------------------
+# Push protection covers this on a public repo, but not on a private one and not before
+# the commit exists. A leaked key is worse than a leaked name: it spends money.
+
+SECRET_LINES = [
+    "ANTHROPIC_API_KEY=sk-ant-api03-" + "A" * 32,
+    "openai = 'sk-" + "B" * 40 + "'",
+    "aws_access_key_id = " + "AKIA" + "IOSFODNN7EXAMPLE",  # split: the hook scans THIS file too
+    "token: ghp_" + "C" * 36,
+    "slack = xoxb-" + "1" * 20,
+    "-----BEGIN " + "RSA PRIVATE KEY-----",
+]
+
+PLACEHOLDER_LINES = [
+    "ANTHROPIC_API_KEY=",                 # the shape .env.example ships
+    "ANTHROPIC_API_KEY=YOUR_KEY_HERE",
+    'key = "sk-ant-..."',                 # docs illustrating the format
+    "# set OPENAI_API_KEY in .env",
+]
+
+
+@pytest.mark.parametrize("line", SECRET_LINES)
+def test_blocks_provider_keys(tmp_path, line):
+    r = _run(tmp_path, {"api/app/settings.py": f"KEY = \"{line}\"\n"})
+    assert r.returncode == 1, f"{line[:16]}… should be blocked\n{r.stderr}"
+    assert "API key" in r.stderr
+
+
+@pytest.mark.parametrize("line", PLACEHOLDER_LINES)
+def test_allows_key_placeholders(tmp_path, line):
+    r = _run(tmp_path, {"docs/config.md": line + "\n"})
+    assert r.returncode == 0, f"{line} should pass\n{r.stderr}"
+
+
+def test_reported_keys_are_truncated(tmp_path):
+    # The report itself must not become the leak: terminal scrollback and CI logs keep it.
+    secret = "sk-ant-api03-" + "Z" * 40
+    r = _run(tmp_path, {"api/app/settings.py": f"KEY = \"{secret}\"\n"})
+    assert r.returncode == 1
+    assert secret not in r.stderr
+    assert "(redacted)" in r.stderr
+
