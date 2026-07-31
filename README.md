@@ -27,6 +27,10 @@ machine.
 > (or click **Docs** in the top bar) — getting started, then a guide per goal (find jobs,
 > check fit, CV help, apply, track). **This README is the developer / architecture reference.**
 
+<p align="center">
+  <img src="docs/img/hero-raw.png" alt="Peregrine — Jobs view with a scored posting, its evaluation, and the apply gate" width="900" />
+</p>
+
 ## Scope, limits & disclaimer
 
 Peregrine is built to be a **good web citizen**, not a scraper that bulldozes

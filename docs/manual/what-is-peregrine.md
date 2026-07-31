@@ -11,6 +11,23 @@ Peregrine runs that pipeline for you, but keeps **you** in control at every step
 applies on your behalf — the **Apply** button is gated behind a review so you always see your
 strengths, gaps, and materials before anything goes out.
 
+## A tour of the Jobs view
+
+![Annotated tour of the Peregrine Jobs view](/img/hero-annotated.png)
+
+| # | What it is |
+|---|---|
+| 1 | **The six tabs** — the whole app. Jobs is where you live; the number on Applications is your live count. |
+| 2 | **Demo data badge** — you're on a fictional persona. `./scripts/dataset.sh off` returns to your own data. |
+| 3 | **External / Internal (Claude)** — where the AI runs. External spends an API key; Internal drives the Claude already on your machine. |
+| 4 | **Scan all · Add a job** — two ways in: pull from the boards you configured, or paste / upload / link a single posting. |
+| 5 | **Status chips** — your funnel as a filter. The counts update live. |
+| 6 | **A job row** — fit score, company, position and skill fit at a glance. Click to open it on the right. |
+| 7 | **Evaluate fit** — scores this posting against your CV and writes everything below. |
+| 8 | **The evaluation** — not just a number: recommendation, legitimacy and archetype, then evidence-backed strengths, honest gaps, and what to prepare. |
+| 9 | **Prepare to apply** — the apply gate. The Apply link stays locked until you've read the review; Peregrine never applies for you. |
+| 10 | **The local Claude terminal** — in Internal mode the analysis runs in your own Claude session, on your machine. |
+
 ## How it works (high level)
 
 1. **You set up** a profile (from your CV) and a short list of target companies.
