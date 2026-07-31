@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { ZoomableImage } from "./components/ImageLightbox";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSlug from "rehype-slug";
@@ -25,6 +26,9 @@ function internalDocHref(href: string): string | null {
 }
 
 const components: Components = {
+  // Manual screenshots are whole app windows: at column width the labels they point at
+  // are unreadable, so every markdown image is click-to-enlarge.
+  img: ({ src, alt }) => <ZoomableImage src={typeof src === "string" ? src : undefined} alt={alt} />,
   a({ href, children, ...rest }) {
     const h = href || "";
     const internal = internalDocHref(h);
