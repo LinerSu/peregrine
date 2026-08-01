@@ -104,6 +104,27 @@ def test_suggest_queries_from_profile():
     # malformed / hand-edited profile must never 500
     assert tools.suggest_queries({"targets": "oops", "sections": "nope"}) == []
     assert tools.suggest_queries({"targets": {"roles": [None, "Designer"]}}) == ["Designer"]
+
+
+def test_suggest_queries_are_role_shaped():
+    """The suggester's output IS the relevance gate and the skill-gap target roles, so a
+    heading that isn't a job title (a paper, a project) must never become a query."""
+    profile = {
+        "headline": "Program-Analysis Researcher & Engineer",
+        "sections": [
+            {"id": "research", "items": [
+                {"heading": "Fast Widget Parsing at Scale"},      # paper title -> dropped
+                {"heading": "Associate Researcher (Part-time)"},  # role; parenthetical stripped
+            ]},
+        ],
+    }
+    q = tools.suggest_queries(profile)
+    assert "Program-Analysis Researcher" in q     # compound headline split on "&"
+    assert "Associate Researcher" in q            # "(Part-time)" removed
+    assert "Engineer" not in q                    # 1-word fragment matches everything
+    assert all("Widget" not in x for x in q)      # publications are not roles
+    # explicit target roles stay verbatim — the user typed them on purpose
+    assert tools.suggest_queries({"targets": {"roles": ["Widget Wrangler"]}}) == ["Widget Wrangler"]
     assert tools.suggest_queries(
         {"sections": [None, "x", {"id": "experience", "items": [None, "y", {"heading": None}]}]}
     ) == []

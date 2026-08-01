@@ -251,6 +251,25 @@ def detect_company_sources(name: str) -> list[dict[str, Any]]:
     return out
 
 
+# Words that make a heading read as a JOB TITLE rather than a project or paper. Profile
+# sections mix both — an academic's research items are publications, and a title like
+# "Fast Widget Parsing at Scale" must not become a board search term: no board matches
+# it, and worse, it silently becomes a "target role" for skill-gap analysis. Suggested
+# queries are role-shaped or nothing; single-word fragments from splitting compounds
+# ("... & Engineer") are dropped too — one generic word matches every posting.
+_ROLE_WORDS = frozenset(
+    "engineer scientist researcher developer designer manager analyst architect director "
+    "consultant specialist programmer lead intern administrator technician associate fellow "
+    "postdoc professor writer strategist marketer recruiter accountant attorney counsel "
+    "engineering".split()
+)
+
+
+def _role_shaped(s: str) -> bool:
+    words = s.lower().replace("-", " ").split()
+    return len(words) >= 2 and any(w in _ROLE_WORDS for w in words)
+
+
 def suggest_queries(profile: dict[str, Any]) -> list[str]:
     """Propose scan queries from the user's profile (deterministic, no LLM — so it's identical
     in both modes): their target roles, headline, and recent experience titles. A new user gets
@@ -259,16 +278,20 @@ def suggest_queries(profile: dict[str, Any]) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
 
-    def add(s: str) -> None:
-        s = re.sub(r"\s+", " ", s or "").strip(" -–—|/,·")
-        if s and s.lower() not in seen and 2 < len(s) <= 50:
-            seen.add(s.lower())
-            out.append(s)
+    def add(s: str, derived: bool = False) -> None:
+        s = re.sub(r"\([^)]*\)", " ", s or "")  # "(Part-time)" etc. — noise a board can't match
+        s = re.sub(r"\s+", " ", s).strip(" -–—|/,·&")
+        if not s or s.lower() in seen or not (2 < len(s) <= 50):
+            return
+        if derived and not _role_shaped(s):
+            return
+        seen.add(s.lower())
+        out.append(s)
 
     def from_title(text: str) -> None:
         title = re.split(r"\s[—–|]\s|\s+at\s+", text, maxsplit=1)[0]  # drop "— Company"
-        for part in title.split(","):  # "Art Director, UX Designer" -> two roles
-            add(part)
+        for part in re.split(r",|\s&\s", title):  # "Art Director, UX Designer" -> two roles
+            add(part, derived=True)
 
     # Defensive: targets/sections/items can be any shape (PUT /preferences stores a raw dict,
     # and profile.yml is hand-editable) — never 500 on a malformed profile.
