@@ -624,9 +624,26 @@ def delete_application(app_id: str) -> bool:
 # YAML config / memory
 # --------------------------------------------------------------------------- #
 def _read_yaml(path: Path) -> dict[str, Any]:
+    """Read a config mapping, degrading to {} rather than raising.
+
+    Every file this reads is documented as hand-editable, so malformed YAML is a user
+    typo, not an exceptional condition — and it used to surface as a 500 from whichever
+    request happened to touch it next, sometimes AFTER that request had already written
+    a row. A non-mapping (a list, a bare string) is the same class of mistake: callers
+    all do .get(), which would raise on a list. Both become "empty", loudly logged."""
     if not path.exists():
         return {}
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        log.warning("%s is not valid YAML (%s) — treating it as empty", path.name, exc.__class__.__name__)
+        return {}
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        log.warning("%s should be a mapping, got %s — treating it as empty", path.name, type(data).__name__)
+        return {}
+    return data
 
 
 def _write_yaml(path: Path, data: dict[str, Any]) -> None:

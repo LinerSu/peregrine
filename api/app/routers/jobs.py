@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 
 from .. import data_store as store
 from ..agent.llm import active_provider_is_mock
@@ -18,6 +20,7 @@ from ..schemas import (
     CoverLetterInput,
     CvTexInput,
     EvaluationInput,
+    Job,
     JobIngestInput,
     JobSourceInput,
     PortalsInput,
@@ -292,7 +295,15 @@ def get_job(job_id: str):
 # `company` is editable so a name variant is fixed IN PLACE ("Acme Inc" -> "Acme"):
 # correcting a spelling must never mean delete-and-re-add, which would drop the row's
 # history and any linked application.
-EDITABLE_JOB_FIELDS = {"starred", "role_category", "status", "company"} | CONTACT_FIELDS
+# Everything a user can legitimately correct. The parsed posting fields are here because
+# a wrong parse (a currency read as USD when the posting said CAD) otherwise had no fix
+# except hand-editing data/jobs.csv — the exact thing this API exists to avoid.
+EDITABLE_JOB_FIELDS = {
+    "starred", "role_category", "status", "company", "position", "location", "url",
+    "flexibility", "currency", "salary_min", "salary_max", "posted_date", "close_date",
+    "level",
+} | CONTACT_FIELDS
+_DATE_FIELDS = ("posted_date", "close_date")
 # Statuses that also make sense on an application (so a job→app status sync can't set
 # a pre-application status like "open"/"removed" on a tracked application).
 
@@ -308,7 +319,16 @@ def update_job(job_id: str, payload: dict):
     changes = {k: v for k, v in payload.items() if k in EDITABLE_JOB_FIELDS}
     if "people" in changes and not isinstance(changes["people"], str):
         changes["people"] = json.dumps(changes["people"])  # always a JSON string (the UI parses it)
-    updated = job.model_copy(update=changes)
+    for f in _DATE_FIELDS:  # stored as plain strings, so the schema can't catch a bad one
+        v = str(changes.get(f, "")).strip()
+        if v and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+            raise HTTPException(422, f"{f} must be YYYY-MM-DD (got {v!r})")
+    # Rebuild through the model rather than model_copy: model_copy skips validation, so a
+    # salary of "lots" would reach the CSV and break every later read.
+    try:
+        updated = Job(**{**job.model_dump(), **changes})
+    except ValidationError as exc:
+        raise HTTPException(422, f"invalid job update: {exc.error_count()} field(s) rejected")
     store.upsert_job(updated)
     # Keep a linked application (shared id) in sync: status, and the people fields — so contacts
     # are consistent across Jobs + Applications no matter where you enter them.

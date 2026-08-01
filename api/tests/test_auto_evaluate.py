@@ -113,6 +113,32 @@ def test_url_ingest_respects_the_callers_auto_evaluate_flag(env):
     assert env.calls == ["2026-001"]
 
 
+def test_upload_path_also_auto_evaluates(env):
+    # The third External entry point. URL and paste were covered; upload wasn't, and
+    # untested wiring is wiring that silently stops working.
+    _profile(True)
+    env.set_provider("anthropic")
+    env.set_ingest_result(created=True)
+    r = TestClient(app).post(
+        "/api/jobs/ingest-doc/upload",
+        files={"file": ("posting.txt", b"Acme is hiring an Engineer. Requires Python.", "text/plain")},
+    )
+    assert r.status_code == 200 and r.json()["auto_evaluating"] is True
+    assert env.calls == ["2026-001"]
+
+
+def test_upload_path_honours_the_guards(env):
+    _profile(False)  # empty profile -> scoring is noise
+    env.set_provider("anthropic")
+    env.set_ingest_result(created=True)
+    r = TestClient(app).post(
+        "/api/jobs/ingest-doc/upload",
+        files={"file": ("posting.txt", b"Acme is hiring an Engineer.", "text/plain")},
+    )
+    assert r.status_code == 200 and "auto_evaluating" not in r.json()
+    assert env.calls == []
+
+
 def test_internal_store_only_save_never_schedules_api_eval(env):
     # The mode contract: /ingest-doc/save is Claude's store-only path — the API must
     # not run LLM work for it (the skill chains the evaluation locally instead).
