@@ -22,6 +22,7 @@ from ..job_tags import extract_domains, extract_keywords, extract_level, extract
 from ..roles import classify_role
 from ..skills import normalize_category
 from ..schemas import Application, Job
+from . import crawl_policy
 from . import providers
 from .registry import registry
 from .subagents import (
@@ -725,6 +726,61 @@ def artifact_stale(job_id: str, suffix: str, cv_ts: float | None = ...) -> bool:
         return artifact.stat().st_mtime < ts
     except OSError:
         return False
+
+
+def refresh_posting(job_id: str) -> dict[str, Any]:
+    """Re-fetch a tracked job from its source board: is it still listed, and can we fill in
+    what the original add didn't capture?
+
+    Deterministic (no LLM), so External and Internal behave identically — and it costs no
+    tokens, only one polite request through crawl_policy.
+
+    Two deliberate restraints:
+
+    * **It never closes anything.** A board can 404 for reasons that aren't "the job is
+      gone" — a redesign, a rate limit, a region redirect — and a wrongly-closed job
+      silently drops out of the user's list. So it reports `alive: false` and leaves the
+      decision (and the click) to the user.
+    * **It only fills BLANKS.** Anything already on the row was either parsed once or typed
+      by the user, and a refresh must not overwrite a correction they made by hand.
+    """
+    job = store.get_job(job_id)
+    if not job:
+        return {"error": f"job {job_id} not found"}
+    url = (job.url or "").strip()
+    if not url:
+        return {"checked": False, "reason": "this job has no posting URL to check"}
+    try:
+        crawl_policy.check_url(url)
+    except crawl_policy.PolicyViolation as exc:
+        return {"checked": False, "reason": str(exc)}
+    if not providers.supports_url(url):
+        # No parser for this board: "not found" here would mean "we can't read it", which
+        # is not evidence about the posting.
+        return {"checked": False, "reason": f"no parser for {crawl_policy.host_of(url)} — check it by hand"}
+
+    try:
+        posting = providers.ingest_url(url)
+    except providers.PolicyViolation as exc:
+        return {"checked": False, "reason": str(exc)}
+    except Exception as exc:  # network, board outage, parser drift
+        log.warning("refresh_posting(%s): %s: %s", job_id, exc.__class__.__name__, exc)
+        return {"checked": False, "reason": f"couldn't reach the board ({exc.__class__.__name__})"}
+
+    if posting is None:
+        status.record("refresh_gone", f"{job_id} not listed", current_task="idle")
+        return {"checked": True, "alive": False,
+                "reason": "the board no longer lists this posting"}
+
+    filled: dict[str, str] = {}
+    for field in ("posted_date", "location"):
+        if not (getattr(job, field, "") or "").strip():
+            value = (getattr(posting, field, "") or "").strip()
+            if value:
+                filled[field] = value
+    if filled:
+        store.upsert_job(job.model_copy(update=filled))
+    return {"checked": True, "alive": True, "filled": filled}
 
 
 def get_cover_letter(job_id: str) -> dict[str, Any] | None:

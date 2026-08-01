@@ -79,6 +79,8 @@ export default function JobDetail({
   const [job, setJob] = useState<Job | null>(null);
   const [markdown, setMarkdown] = useState("");
   const [appStatus, setAppStatus] = useState("");  // linked application's status ("" = none)
+  const [checkMsg, setCheckMsg] = useState("");    // result of the last posting check
+  const [proposeClose, setProposeClose] = useState(false);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [busy, setBusy] = useState(false);
   const [applyUrl, setApplyUrl] = useState<string | null>(null);
@@ -139,6 +141,8 @@ export default function JobDetail({
     setCoverPrompt("");
     setWaitingCover(false);
     setCoverLetter(null);
+    setCheckMsg("");      // per-job — the previous job's liveness result says nothing here
+    setProposeClose(false);
     setCoverStale(false); // per-job — must not leak the previous job's stale state
     setShowStaleCover(false); // nor its "show anyway" bypass
     setCoverError("");
@@ -332,6 +336,50 @@ export default function JobDetail({
     }
   };
 
+  // Boards quietly drop postings, so a tracked job can be dead for weeks without a sign.
+  // This asks the board directly. It deliberately does NOT close anything: a 404 can mean
+  // a redesign or a rate limit, and a wrongly-closed job vanishes from the list — so the
+  // app reports, and the user decides.
+  const checkPosting = async () => {
+    setBusy(true);
+    setCheckMsg("");
+    setProposeClose(false);
+    try {
+      const r = await api.refreshPosting(jobId);
+      if (!r.checked) {
+        setCheckMsg(r.reason || "Couldn't check this posting.");
+      } else if (r.alive) {
+        const filled = Object.keys(r.filled || {});
+        setCheckMsg(
+          filled.length
+            ? `Still listed — filled in ${filled.join(", ").replace(/_/g, " ")}.`
+            : "Still listed on the board."
+        );
+        if (filled.length) await load();
+      } else {
+        setCheckMsg(r.reason || "The board no longer lists this posting.");
+        setProposeClose(true);
+      }
+    } catch (e) {
+      setCheckMsg(e instanceof Error ? e.message : "Couldn't check this posting.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const markClosed = async () => {
+    setBusy(true);
+    try {
+      await api.updateJob(jobId, { status: "closed" });
+      setProposeClose(false);
+      setCheckMsg("Marked closed.");
+      await load();
+      onChanged?.();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const prepare = async () => {
     setBusy(true);
     try {
@@ -468,6 +516,16 @@ export default function JobDetail({
               View posting ↗
             </a>
           )}
+          {postingHref && (
+            <button
+              onClick={checkPosting}
+              disabled={busy}
+              title="Ask the board whether this posting is still listed (no tokens spent)"
+              className="px-2.5 py-1.5 text-xs font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+            >
+              Check posting
+            </button>
+          )}
           <button
             onClick={evaluate}
             disabled={busy || waitingEval}
@@ -549,6 +607,29 @@ export default function JobDetail({
         )}
         {coverError && <p className="mt-2 text-sm text-rose-600">{coverError}</p>}
         {cvError && <p className="mt-2 text-sm text-rose-600">{cvError}</p>}
+
+        {checkMsg && (
+          <div className="mt-2 flex items-center gap-2 text-xs">
+            <span className={proposeClose ? "text-amber-700" : "text-gray-500"}>{checkMsg}</span>
+            {proposeClose && (
+              <>
+                <button
+                  onClick={markClosed}
+                  disabled={busy}
+                  className="px-2 py-0.5 font-medium text-amber-800 bg-amber-50 border border-amber-300 rounded hover:bg-amber-100 disabled:opacity-50"
+                >
+                  Mark closed
+                </button>
+                <button
+                  onClick={() => { setProposeClose(false); setCheckMsg(""); }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  Keep open
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         {/* At a glance — the facts the old layout never showed (salary, flexibility,
             deadline lives in the meta line) plus status + fit at a glance. */}

@@ -470,6 +470,19 @@ def _amazon_ingest(job_id: str, timeout: float = 30.0) -> RawPosting | None:
     )
 
 
+def supports_url(url: str) -> bool:
+    """Can ingest_url parse this URL at all?
+
+    ingest_url returns None for two very different situations — a board we have no parser
+    for, and a posting the board no longer lists. A liveness check must not confuse them:
+    the first means "can't tell", the second means "this job is probably dead". Callers
+    ask here first so they can tell which None they got."""
+    return any(
+        rx.search(url)
+        for rx in (_AMAZON_RE, _APPLE_RE, _GREENHOUSE_RE, _ASHBY_RE, _LEVER_RE)
+    )
+
+
 def ingest_url(url: str) -> RawPosting | None:
     """Detect the source from a pasted URL and return a normalized posting.
 

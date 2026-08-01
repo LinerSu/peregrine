@@ -210,6 +210,12 @@ export const api = {
     http<{ scheduled: number; remaining?: number; capped?: boolean; reason?: string }>(
       "/api/jobs/evaluate-missing", { method: "POST" }
     ),
+  // Re-check a tracked posting against its source board. Deterministic (no LLM, no
+  // tokens), so it's the same call in both modes. Never changes status — see JobDetail.
+  refreshPosting: (id: string) =>
+    http<{ checked: boolean; alive?: boolean; filled?: Record<string, string>; reason?: string }>(
+      `/api/jobs/${id}/refresh`, { method: "POST" }
+    ),
   // The in-app User Manual, for the /docs page (grouped into sections).
   docs: () => http<{ sections: DocSection[] }>("/api/docs"),
   doc: (slug: string) => http<DocMeta & { markdown: string }>(`/api/docs/${encodeURIComponent(slug)}`),
