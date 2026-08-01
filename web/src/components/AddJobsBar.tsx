@@ -36,6 +36,7 @@ export default function AddJobsBar({
   // the Internal terminal, which left External-mode users with no route at all.
   const scoreMissing = async () => {
     if (mode === "internal") {   // metered route: never call it on the user's behalf here
+      setScoreMsg("");           // a message from an earlier External click isn't about this
       setScorePrompt(true);
       setScoreCopied(false);
       return;
@@ -51,8 +52,15 @@ export default function AddJobsBar({
           : r.reason || "Nothing to score."
       );
       if (r.scheduled) setTimeout(onChanged, 4000);  // scores land in the background
-    } catch {
-      setScoreMsg("Couldn't start scoring — is the API running?");
+    } catch (e) {
+      // The API's own reason is usually the useful part (a guard explaining itself, a
+      // config problem). Fall back to the generic hint only for a bare HTTP status.
+      const reason = e instanceof Error ? e.message : "";
+      setScoreMsg(
+        !reason || /^\d{3}\b/.test(reason)
+          ? "Couldn't start scoring — is the API running?"
+          : reason
+      );
     } finally {
       setBusy(false);
     }
