@@ -12,9 +12,11 @@ import { JOB_AGENT_PROMPT } from "../prompts";
 export default function AddJobsBar({
   mode,
   onChanged,
+  unscored = 0,
 }: {
   mode: AssistantMode;
   onChanged: () => void;
+  unscored?: number;   // open jobs with no CURRENT fit score (the list nulls stale ones)
 }) {
   const [open, setOpen] = useState(false);
   const [showAgentPrompt, setShowAgentPrompt] = useState(false);
@@ -25,6 +27,44 @@ export default function AddJobsBar({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const [helpOpen, setHelpOpen] = useState(false); // "why isn't my company here?" explainer
+  const [scoreMsg, setScoreMsg] = useState("");
+  const [scorePrompt, setScorePrompt] = useState(false); // Internal: show the command instead
+  const [scoreCopied, setScoreCopied] = useState(false);
+
+  // Jobs tracked before auto-evaluate existed — plus any whose evaluation went stale after a
+  // CV re-upload — never get scored on their own. Without this the only way to fix that was
+  // the Internal terminal, which left External-mode users with no route at all.
+  const scoreMissing = async () => {
+    if (mode === "internal") {   // metered route: never call it on the user's behalf here
+      setScoreMsg("");           // a message from an earlier External click isn't about this
+      setScorePrompt(true);
+      setScoreCopied(false);
+      return;
+    }
+    setBusy(true);
+    setScoreMsg("");
+    try {
+      const r = await api.evaluateMissing();
+      setScoreMsg(
+        r.scheduled
+          ? `Scoring ${r.scheduled} job${r.scheduled > 1 ? "s" : ""} in the background…` +
+            (r.remaining ? ` ${r.remaining} left — click again when these land.` : "")
+          : r.reason || "Nothing to score."
+      );
+      if (r.scheduled) setTimeout(onChanged, 4000);  // scores land in the background
+    } catch (e) {
+      // The API's own reason is usually the useful part (a guard explaining itself, a
+      // config problem). Fall back to the generic hint only for a bare HTTP status.
+      const reason = e instanceof Error ? e.message : "";
+      setScoreMsg(
+        !reason || /^\d{3}\b/.test(reason)
+          ? "Couldn't start scoring — is the API running?"
+          : reason
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     api.sources().then((r) => setSources(r.companies)).catch(() => {});
@@ -176,8 +216,54 @@ export default function AddJobsBar({
         >
           Why these companies?
         </button>
+        {unscored > 0 && (
+          <button
+            type="button"
+            onClick={scoreMissing}
+            disabled={busy}
+            title={`${unscored} open job${unscored > 1 ? "s have" : " has"} no current fit score`}
+            className="px-2 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md hover:bg-emerald-100 disabled:opacity-50"
+          >
+            Score {unscored} unscored
+          </button>
+        )}
         {scanMsg && <span className="text-xs text-gray-500">{scanMsg}</span>}
+        {scoreMsg && <span className="text-xs text-gray-500">{scoreMsg}</span>}
       </div>
+
+      {mode === "internal" && scorePrompt && (
+        <div className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-sm">
+          <div className="flex items-center gap-2">
+            <code className="flex-1 px-2 py-1 rounded bg-white border border-emerald-200 text-gray-800">
+              evaluate all jobs missing a fit score
+            </code>
+            <button
+              type="button"
+              onClick={() =>
+                navigator.clipboard
+                  ?.writeText("evaluate all jobs missing a fit score")
+                  .then(() => setScoreCopied(true))
+                  .catch(() => {})
+              }
+              className="px-2 py-1 text-xs font-medium text-emerald-700 bg-white border border-emerald-300 rounded hover:bg-emerald-100"
+            >
+              {scoreCopied ? "Copied" : "Copy"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setScorePrompt(false)}
+              className="px-1.5 py-1 text-xs text-emerald-700 hover:bg-emerald-100 rounded"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-emerald-700">
+            Run it in the Claude terminal — Internal mode scores on your machine, so the app
+            doesn't spend an API key on your behalf. Refresh when it finishes.
+          </p>
+        </div>
+      )}
 
       {helpOpen && (
         <div className="mt-2 rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600 space-y-1.5">

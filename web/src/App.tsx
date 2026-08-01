@@ -305,7 +305,11 @@ export default function App() {
                 {/* Fixed-ish list width so the DETAIL pane (the reading surface) takes
                     the majority — mirrors the master-detail reference layout. */}
                 <div className="w-[400px] xl:w-[440px] min-w-[340px] shrink-0 border-r border-gray-200 flex flex-col min-h-0">
-                  <AddJobsBar mode={mode} onChanged={refresh} />
+                  <AddJobsBar
+                    mode={mode}
+                    onChanged={refresh}
+                    unscored={jobs.filter((j) => j.status === "open" && j.fit_score == null).length}
+                  />
                   <div className="flex-1 min-h-0">
                     <JobsTable
                       jobs={jobs}
