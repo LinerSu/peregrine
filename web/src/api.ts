@@ -203,6 +203,13 @@ export const api = {
     }),
   // Relevance queries proposed from the profile (roles/headline/experience), no LLM.
   suggestQueries: () => http<{ queries: string[] }>("/api/jobs/portals/suggest-queries"),
+  // Backfill fit scores for jobs tracked before auto-evaluate existed. Capped per call —
+  // `remaining` says whether another click has work to do. EXTERNAL ONLY: it spends the
+  // API key, so Internal mode shows the terminal command instead (mode contract).
+  evaluateMissing: () =>
+    http<{ scheduled: number; remaining?: number; capped?: boolean; reason?: string }>(
+      "/api/jobs/evaluate-missing", { method: "POST" }
+    ),
   // The in-app User Manual, for the /docs page (grouped into sections).
   docs: () => http<{ sections: DocSection[] }>("/api/docs"),
   doc: (slug: string) => http<DocMeta & { markdown: string }>(`/api/docs/${encodeURIComponent(slug)}`),
