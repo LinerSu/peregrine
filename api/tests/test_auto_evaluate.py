@@ -232,3 +232,22 @@ def test_a_failing_evaluation_releases_its_claim(env, monkeypatch):
         pass  # TestClient surfaces the background task's error; the claim must still clear
     assert "2026-001" not in jobs_router._evaluating
 
+
+
+def test_backfill_treats_a_stale_evaluation_as_missing(env, monkeypatch):
+    """GET /api/jobs nulls a fit score whose evaluation predates the last CV parse, so on
+    screen — and to the Internal skill, which reads that list — the job reads as unscored.
+    The backfill read raw rows, making it the one place that disagreed: the job the user
+    can see needs scoring was the one job it skipped."""
+    _profile(True)
+    env.set_provider("anthropic")
+    _job("2026-001", fit=0.8)   # scored, but against a previous CV
+    _job("2026-002", fit=0.9)   # scored and current
+
+    monkeypatch.setattr(tools, "cv_parsed_stamp", lambda: 1000.0)
+    monkeypatch.setattr(tools, "artifact_stale",
+                        lambda jid, suffix, cv_ts=None: jid == "2026-001")
+
+    r = TestClient(app).post("/api/jobs/evaluate-missing").json()
+    assert r["scheduled"] == 1
+    assert env.calls == ["2026-001"]
