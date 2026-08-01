@@ -141,6 +141,8 @@ export default function JobDetail({
     setCoverPrompt("");
     setWaitingCover(false);
     setCoverLetter(null);
+    setCheckMsg("");      // per-job — the previous job's liveness result says nothing here
+    setProposeClose(false);
     setCoverStale(false); // per-job — must not leak the previous job's stale state
     setShowStaleCover(false); // nor its "show anyway" bypass
     setCoverError("");
