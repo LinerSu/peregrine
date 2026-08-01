@@ -354,6 +354,20 @@ def update_job(job_id: str, payload: dict):
     return {"job": updated.model_dump()}
 
 
+@router.post("/{job_id}/refresh")
+def refresh_posting(job_id: str):
+    """Re-check a tracked posting against its source board: still listed? anything to fill in?
+
+    Deterministic (no LLM), so it behaves identically in both modes and costs no tokens —
+    one polite request through crawl_policy. It never changes status on its own: a board
+    can 404 for reasons that aren't "the job is gone", and a wrongly-closed job silently
+    drops out of the list, so closing stays a user decision."""
+    result = tools.refresh_posting(job_id)
+    if "error" in result:
+        raise HTTPException(404, result["error"])
+    return result
+
+
 @router.post("/{job_id}/evaluate")
 def evaluate(job_id: str):
     result = tools.evaluate_fit(job_id)
