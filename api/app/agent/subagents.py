@@ -62,7 +62,7 @@ def evaluator(job_md: str, profile: dict[str, Any]) -> dict[str, Any]:
         {
             "role": "user",
             "content": (
-                "Profile (YAML):\n```\n"
+                "Profile (JSON):\n```\n"
                 + json.dumps(profile, ensure_ascii=False, indent=2)
                 + "\n```\n\n"
                 + untrusted_block("JOB POSTING", job_md)
