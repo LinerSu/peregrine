@@ -247,3 +247,26 @@ def test_list_jobs_search_matches_description_keywords(tmp_path, monkeypatch):
     assert "keywords" not in found[0]                        # internal index never shipped to the client
     assert tools.list_jobs(query="kubernetes")["jobs"] == []  # a term in no posting matches nothing
     assert len(tools.list_jobs(query="   ")["jobs"]) == 2     # whitespace-only query = no filter (all jobs)
+
+
+def test_malformed_config_files_degrade_instead_of_raising(tmp_path, monkeypatch):
+    """Every file the reader touches is documented as hand-editable, so bad YAML is a typo,
+    not an exception — and it used to 500 whichever request happened to touch it next,
+    sometimes after that request had already written a row."""
+    from app import config
+    from app import data_store as store_mod
+
+    p = tmp_path / "profile.yml"
+    monkeypatch.setattr(config, "PROFILE_YML", p)
+
+    p.write_text("name: [unclosed\n  bad: : yaml\n")     # not parseable
+    assert store_mod.read_profile() == {}
+    assert tools.profile_ready() is False
+
+    p.write_text("- a list\n- not a mapping\n")           # parses, wrong shape
+    assert store_mod.read_profile() == {}
+    assert tools.profile_ready() is False
+
+    p.write_text("name: someone\nskills: [python]\n")     # still works when valid
+    assert tools.profile_ready() is True
+

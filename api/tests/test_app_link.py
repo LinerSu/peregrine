@@ -427,3 +427,39 @@ def test_job_detail_answers_have_i_applied_by_identity(tmp_store, monkeypatch):
     client.patch("/api/applications/2026-001", json={"status": "closed"})
     assert client.get("/api/jobs/2026-001").json()["application_status"] == "closed"
 
+
+def test_patch_can_correct_parsed_posting_fields(tmp_store):
+    """A wrong parse (currency read as USD when the posting said CAD) had no fix except
+    hand-editing the CSV — the exact thing the API exists to avoid."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1", position="Enginer"))
+    client = TestClient(app)
+
+    r = client.patch("/api/jobs/2026-001", json={
+        "currency": "CAD", "salary_min": 90000, "salary_max": "120000",
+        "position": "Engineer", "location": "Toronto, ON", "close_date": "2026-10-12",
+    })
+    assert r.status_code == 200
+    j = store.get_job("2026-001")
+    assert j.currency == "CAD" and j.position == "Engineer" and j.location == "Toronto, ON"
+    assert j.salary_min == 90000 and j.salary_max == 120000   # string coerced by the schema
+    assert j.close_date == "2026-10-12"
+
+
+def test_patch_rejects_values_that_would_corrupt_the_row(tmp_store):
+    # model_copy skips validation, so an unchecked write would reach the CSV and break
+    # every later read. Both of these must be refused, not stored.
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1", position="Eng"))
+    client = TestClient(app)
+
+    assert client.patch("/api/jobs/2026-001", json={"salary_min": "lots"}).status_code == 422
+    assert client.patch("/api/jobs/2026-001", json={"posted_date": "last Tuesday"}).status_code == 422
+    assert store.get_job("2026-001").salary_min is None      # nothing was written
+
