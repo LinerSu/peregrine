@@ -199,7 +199,17 @@ def evaluate_missing(background: BackgroundTasks):
     if active_provider_is_mock():
         return {"scheduled": 0,
                 "reason": "mock provider — placeholder scores are never written automatically"}
-    pending = [j.id for j in store.list_jobs() if j.fit_score is None and j.status == "open"]
+    # "Missing" must mean what the rest of the app means. GET /api/jobs nulls a fit score
+    # whose evaluation predates the last CV parse, so on screen — and to the Internal skill,
+    # which reads that same list — a stale job already reads as unscored. Reading the raw
+    # rows here made this the one place that disagreed: the job the user can see needs
+    # scoring was the one job the backfill skipped.
+    cv_ts = tools.cv_parsed_stamp()
+    pending = [
+        j.id for j in store.list_jobs()
+        if j.status == "open"
+        and (j.fit_score is None or tools.artifact_stale(j.id, ".evaluation.json", cv_ts))
+    ]
     scheduled = []
     for jid in pending:
         if len(scheduled) >= _BACKFILL_CAP:
