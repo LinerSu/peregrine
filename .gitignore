@@ -111,3 +111,9 @@ externals/
 # Generated demo/test datasets (PEREGRINE_DATASET=<persona>); seeded from code.
 **/.demo/*
 !.demo/.gitkeep
+
+# Your own long-form material (papers, write-ups, talks) — the most personal thing the
+# app holds. Contents ignored; the directory itself ships so a clone has somewhere to put them.
+data/evidence/*
+!data/evidence/.gitkeep
+!data/evidence/README.md

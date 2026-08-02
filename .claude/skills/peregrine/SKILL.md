@@ -46,21 +46,32 @@ the local API** so the web page reflects it exactly like External (API) mode.
 
 1. Read `data/jobs/<id>.md` (posting + the "Agent evaluation" section) and
    `config/profile.yml`.
-2. Read style/structure samples — the curated ones in `api/app/cover_letters/*.md`
+2. Fetch the evidence selected for this job — the SAME passages External mode uses, so
+   both modes draft from identical material:
+   ```bash
+   curl -s http://localhost:8000/api/jobs/<id>/evidence
+   ```
+   It returns `passages` (from `data/evidence/`, the user's own write-ups, papers, talks
+   and notes) plus `goal` (what they want next, if they've set one). Empty `passages` just
+   means they haven't added material yet — write from the profile as before, and it's
+   worth telling them the letter would be stronger with some.
+3. Read style/structure samples — the curated ones in `api/app/cover_letters/*.md`
    and any of the user's own in `data/cover_letter_samples/*.md`. You **may** also
    web-search for a couple of reputable cover-letter examples to refine structure
    (this is fine in Internal mode — it's your own search, on the user's
    subscription). Match tone/structure only; never copy phrasing or invent facts.
-3. Follow the rubric in `.agents/skills/cover-letter/SKILL.md`: 3–4 short
-   paragraphs, evidence-grounded, ~200–300 words, no fabrication.
-4. Persist it (this is what makes it appear in the **Cover letter** panel). Send
+4. Follow the rubric in `.agents/skills/cover-letter/SKILL.md`: an ARGUMENT in 3–4 short
+   paragraphs (thesis → evidence for that thesis → forward-looking → a close that proposes
+   something), ~200–300 words, no fabrication. Prefer specifics from the evidence passages
+   over anything already visible on the CV.
+5. Persist it (this is what makes it appear in the **Cover letter** panel). Send
    the letter as a JSON string in `content`:
    ```bash
    curl -s -X PUT http://localhost:8000/api/jobs/<id>/cover-letter \
      -H 'content-type: application/json' \
      -d "$(jq -n --arg c "<the full letter text>" '{content:$c}')"
    ```
-5. Tell the user it's saved — the Cover letter panel will show it.
+6. Tell the user it's saved — the Cover letter panel will show it.
 
 ## "parse my cv"
 
