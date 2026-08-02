@@ -113,3 +113,50 @@ def test_select_can_reuse_an_already_loaded_library(lib, monkeypatch):
     loaded = evidence.load_passages()
     monkeypatch.setattr(evidence, "load_passages", lambda: pytest.fail("re-scanned the library"))
     assert evidence.select(_job(), passages=loaded)
+
+
+# --- does the app know enough about you to write? ------------------------------------
+
+def _coverage(tmp_path, monkeypatch, profile: str, files: dict[str, str] | None = None):
+    from app import config
+    from app.agent import tools
+
+    monkeypatch.setattr(config, "PROFILE_YML", tmp_path / "profile.yml")
+    d = tmp_path / "ev"
+    d.mkdir(exist_ok=True)
+    monkeypatch.setattr(config, "EVIDENCE_DIR", d)
+    config.PROFILE_YML.write_text(profile)
+    for name, body in (files or {}).items():
+        (d / name).write_text(body)
+    return tools.background_coverage()
+
+
+_LONG = "An LLVM C++ compiler pass for loop folding, and why it was built. " * 6
+
+
+def test_no_profile_reads_as_empty(tmp_path, monkeypatch):
+    c = _coverage(tmp_path, monkeypatch, "name: ''\n")
+    assert c["level"] == "empty" and "import your CV" in c["message"]
+
+
+def test_a_cv_with_no_writing_reads_as_thin(tmp_path, monkeypatch):
+    """The state that produced the original complaint: letters can only restate the CV,
+    and nothing on screen said why."""
+    c = _coverage(tmp_path, monkeypatch, "name: Someone\nskills: [python, llvm]\n")
+    assert c["level"] == "thin"
+    assert "data/evidence/" in c["message"]
+    assert c["profile"]["skills"] == 2 and c["evidence"]["passages"] == 0
+
+
+def test_evidence_moves_it_off_thin(tmp_path, monkeypatch):
+    c = _coverage(tmp_path, monkeypatch, "name: Someone\nskills: [python]\n",
+                  {"a.md": f"# Pass\n{_LONG}"})
+    assert c["level"] == "ok" and c["evidence"]["files"] == 1
+
+
+def test_enough_material_and_a_goal_reads_as_rich(tmp_path, monkeypatch):
+    files = {f"f{i}.md": f"# Note {i}\n{_LONG}" for i in range(3)}
+    c = _coverage(tmp_path, monkeypatch,
+                  "name: Someone\nskills: [python]\ngoal: ship analysis into other teams' CI\n",
+                  files)
+    assert c["level"] == "rich" and c["profile"]["has_goal"] is True

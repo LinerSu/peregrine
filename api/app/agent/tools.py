@@ -672,6 +672,53 @@ def career_goal(profile: dict[str, Any] | None = None) -> str:
     return str(goal).strip() if goal else ""
 
 
+def background_coverage() -> dict[str, Any]:
+    """How much of the candidate does Peregrine actually hold?
+
+    Everything generated — fit reasoning, letters, tailored CVs — is bounded by this, and
+    a thin profile fails silently: the output is fluent, generic, and gives no hint that
+    the cause is missing input rather than a weak candidate. So it's measured and said out
+    loud. Deterministic; no LLM, no tokens."""
+    profile = store.read_profile()
+    sections = profile.get("sections")
+    sections = [s for s in sections if isinstance(s, dict)] if isinstance(sections, list) else []
+    items = sum(len(s.get("items") or []) for s in sections if isinstance(s.get("items"), list))
+    skills = profile.get("skills")
+    skills = len(skills) if isinstance(skills, list) else 0
+
+    passages = evidence_lib.load_passages()
+    files = len({p.source for p in passages})
+    has_goal = bool(career_goal(profile))
+
+    # Deliberately blunt thresholds: this is a nudge, not a score. "thin" is the state
+    # where letters can only paraphrase the CV, which is the complaint that started it.
+    if not (skills or items):
+        level, message = "empty", "Peregrine doesn't know you yet — import your CV to start."
+    elif not passages:
+        level, message = (
+            "thin",
+            "Peregrine knows your CV but none of your writing, so letters can only restate "
+            "what a reader already has. Add project write-ups, papers or talk notes to "
+            "data/evidence/.",
+        )
+    elif files < 3 or not has_goal:
+        level, message = (
+            "ok",
+            "Good base. More of your writing, or a one-line goal in your profile, gives "
+            "letters more to argue with.",
+        )
+    else:
+        level, message = "rich", "Peregrine has plenty to work with."
+
+    return {
+        "level": level,
+        "message": message,
+        "profile": {"sections": len(sections), "items": items, "skills": skills,
+                    "has_goal": has_goal},
+        "evidence": {"files": files, "passages": len(passages)},
+    }
+
+
 def evidence_for(job_id: str, limit: int = 3) -> dict[str, Any]:
     """Passages from data/evidence/ worth quoting for this job — the SAME selection the
     External writer gets, exposed so Internal mode drafts from identical material."""

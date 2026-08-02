@@ -66,10 +66,13 @@ the local API** so the web page reflects it exactly like External (API) mode.
    over anything already visible on the CV.
 5. Persist it (this is what makes it appear in the **Cover letter** panel). Send
    the letter as a JSON string in `content`:
+   Write the letter to a file first (it contains quotes and newlines that a shell
+   argument mangles), then send it. `python3` is used to build the JSON because it's
+   always present here — `jq` often isn't:
    ```bash
-   curl -s -X PUT http://localhost:8000/api/jobs/<id>/cover-letter \
-     -H 'content-type: application/json' \
-     -d "$(jq -n --arg c "<the full letter text>" '{content:$c}')"
+   python3 -c 'import json;print(json.dumps({"content":open("letter.md",encoding="utf-8").read()}))' \
+     | curl -s -X PUT http://localhost:8000/api/jobs/<id>/cover-letter \
+         -H 'content-type: application/json' --data-binary @-
    ```
 6. Tell the user it's saved — the Cover letter panel will show it.
 
@@ -104,11 +107,12 @@ the local API** so the web page reflects it exactly like External (API) mode.
 3. Persist it (the API saves the `.tex` and compiles a PDF — this is what fills the
    **Tailored CV** panel). Send the LaTeX as a JSON string in `tex`:
    ```bash
-   curl -s -X PUT http://localhost:8000/api/jobs/<id>/cv \
-     -H 'content-type: application/json' \
-     -d "$(jq -n --arg t "$(cat cv.tex)" '{tex:$t}')"
+   python3 -c 'import json;print(json.dumps({"tex":open("cv.tex",encoding="utf-8").read()}))' \
+     | curl -s -X PUT http://localhost:8000/api/jobs/<id>/cv \
+         -H 'content-type: application/json' --data-binary @-
    ```
-   (Write the LaTeX to `cv.tex` first, or inline it into the `--arg`.)
+   (Write the LaTeX to `cv.tex` first — LaTeX is full of backslashes and braces that a
+   shell argument will not survive intact.)
 4. Tell the user it's saved — the Tailored CV panel shows it with a PDF download.
 
 ## "ingest the job I pasted"

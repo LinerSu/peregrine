@@ -188,6 +188,14 @@ def put_profile(payload: ProfileInput):
     return tools.save_profile(payload.model_dump(exclude_none=True))
 
 
+@router.get("/profile/coverage")
+def profile_coverage():
+    """What the app holds about the candidate, and whether that's enough to write from.
+
+    Deterministic (no LLM) so both modes agree, and cheap enough to poll on a tab open."""
+    return tools.background_coverage()
+
+
 @router.get("/preferences")
 def get_preferences():
     """What the user is looking for (drives scan filtering + fit scoring)."""

@@ -80,6 +80,7 @@ export default function JobDetail({
   const [markdown, setMarkdown] = useState("");
   const [appStatus, setAppStatus] = useState("");  // linked application's status ("" = none)
   const [checkMsg, setCheckMsg] = useState("");    // result of the last posting check
+  const [thinBackground, setThinBackground] = useState("");  // "" unless the app is short on material
   const [proposeClose, setProposeClose] = useState(false);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [busy, setBusy] = useState(false);
@@ -132,6 +133,18 @@ export default function JobDetail({
     setCvPdf(!!cv?.pdf_available);
     setCvTexCopied(false);
   };
+
+  // Asked once per job open, not per render: cheap, deterministic, and the answer only
+  // changes when the user adds material.
+  useEffect(() => {
+    let live = true;   // same guard as load() below: a late reply must not set state
+    api.coverage()
+      .then((c) => {
+        if (live) setThinBackground(c.level === "empty" || c.level === "thin" ? c.message : "");
+      })
+      .catch(() => { if (live) setThinBackground(""); });
+    return () => { live = false; };
+  }, [jobId]);
 
   useEffect(() => {
     setApplyUrl(null);
@@ -787,6 +800,18 @@ export default function JobDetail({
             .
           </div>
         )}
+        {/* Said where the cost is felt. A letter written from a CV alone reads fluent and
+            generic, and nothing on screen would otherwise suggest the cause is missing
+            input rather than a weak candidate. */}
+        {thinBackground && (
+          <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            {thinBackground}{" "}
+            <a href="/docs/evidence-library" className="underline hover:no-underline">
+              How the evidence library works
+            </a>
+          </p>
+        )}
+
         {coverLetter != null && (!coverStale || showStaleCover) && (
           <div className="mt-4 rounded-lg border border-purple-200 bg-white">
             <div className="flex items-center justify-between border-b border-purple-100 px-3 py-2">
