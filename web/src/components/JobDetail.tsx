@@ -137,9 +137,13 @@ export default function JobDetail({
   // Asked once per job open, not per render: cheap, deterministic, and the answer only
   // changes when the user adds material.
   useEffect(() => {
+    let live = true;   // same guard as load() below: a late reply must not set state
     api.coverage()
-      .then((c) => setThinBackground(c.level === "empty" || c.level === "thin" ? c.message : ""))
-      .catch(() => setThinBackground(""));
+      .then((c) => {
+        if (live) setThinBackground(c.level === "empty" || c.level === "thin" ? c.message : "");
+      })
+      .catch(() => { if (live) setThinBackground(""); });
+    return () => { live = false; };
   }, [jobId]);
 
   useEffect(() => {

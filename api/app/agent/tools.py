@@ -704,8 +704,8 @@ def background_coverage() -> dict[str, Any]:
     elif files < 3 or not has_goal:
         level, message = (
             "ok",
-            "Good base. More material — or a one-line goal: in your profile — gives letters "
-            "more to argue with.",
+            "Good base. More of your writing, or a one-line goal in your profile, gives "
+            "letters more to argue with.",
         )
     else:
         level, message = "rich", "Peregrine has plenty to work with."
