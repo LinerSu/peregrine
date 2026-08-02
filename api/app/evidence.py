@@ -32,7 +32,7 @@ log = get_logger(__name__)
 def _dir() -> Path:
     return getattr(config, "EVIDENCE_DIR", config.DATA_DIR / "evidence")
 _READABLE = (".md", ".markdown", ".txt", ".pdf", ".tex")
-_MAX_FILE_BYTES = 4_000_000     # a runaway PDF shouldn't stall a letter
+MAX_FILE_BYTES = 4_000_000     # a runaway PDF shouldn't stall a letter
 _MIN_PASSAGE_CHARS = 120        # a heading with one line under it isn't evidence
 _MAX_PASSAGE_CHARS = 1_400      # keep a selected passage promptable
 
@@ -117,7 +117,7 @@ def load_passages() -> list[Passage]:
             continue
         # Nothing here is worth failing a letter over: an unreadable file is skipped, loudly.
         try:
-            if path.stat().st_size > _MAX_FILE_BYTES:
+            if path.stat().st_size > MAX_FILE_BYTES:
                 log.warning("evidence: skipping %s (%.1f MB)", path.name, path.stat().st_size / 1e6)
                 continue
             raw = extract_text(path.name, path.read_bytes())
@@ -152,7 +152,7 @@ def _safe_name(filename: str) -> str:
     return f"{stem[:80]}.{ext}" if dot and ext else stem[:80]
 
 
-def list_files() -> list[dict[str, Any]]:
+def list_files(passages: list[Passage] | None = None) -> list[dict[str, Any]]:
     """What's in the library, with how much each file actually contributes.
 
     Passage count matters more than file count: a PDF of slides with six words a page
@@ -160,17 +160,24 @@ def list_files() -> list[dict[str, Any]]:
     root = _dir()
     if not root.exists():
         return []
+    root_real = root.resolve()
     counts: dict[str, int] = {}
-    for p in load_passages():
+    for p in (load_passages() if passages is None else passages):
         counts[p.source] = counts.get(p.source, 0) + 1
     out = []
     for path in sorted(root.rglob("*")):
         if path.suffix.lower() not in _READABLE or path.name.startswith("."):
             continue
         try:
+            # Same confinement as the reader: an unresolved symlink would list a file
+            # outside the library and report ITS size, leaking that it exists.
+            real = path.resolve()
+            real.relative_to(root_real)
+            if not real.is_file():
+                continue
             rel = path.relative_to(root).as_posix()
-            out.append({"name": rel, "bytes": path.stat().st_size, "passages": counts.get(rel, 0)})
-        except OSError:
+            out.append({"name": rel, "bytes": real.stat().st_size, "passages": counts.get(rel, 0)})
+        except (ValueError, OSError):
             continue
     return out
 
@@ -180,8 +187,8 @@ def save_file(filename: str, raw: bytes) -> dict[str, Any]:
     name = _safe_name(filename)
     if Path(name).suffix.lower() not in _READABLE:
         return {"error": f"unsupported file type — use {', '.join(_READABLE)}"}
-    if len(raw) > _MAX_FILE_BYTES:
-        return {"error": f"file is larger than {_MAX_FILE_BYTES // 1_000_000} MB"}
+    if len(raw) > MAX_FILE_BYTES:
+        return {"error": f"file is larger than {MAX_FILE_BYTES // 1_000_000} MB"}
     root = _dir()
     root.mkdir(parents=True, exist_ok=True)
     dest = root / name

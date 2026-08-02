@@ -20,6 +20,10 @@ export default function BackgroundPanel() {
   const [files, setFiles] = useState<EvidenceFile[]>([]);
   const [goal, setGoal] = useState("");
   const [savedGoal, setSavedGoal] = useState("");
+  // The whole preferences object, kept so a save can MERGE. PUT /api/preferences replaces
+  // profile.targets wholesale, so writing {goal} alone would delete the user's roles,
+  // locations and keywords. null = we never loaded it, and must not write.
+  const [prefs, setPrefs] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -33,9 +37,13 @@ export default function BackgroundPanel() {
       setFiles(ev.files);
       setCoverage(ev.coverage);
     }
-    const g = ((prefs as Record<string, unknown> | null)?.goal as string) || "";
-    setGoal(g);
-    setSavedGoal(g);
+    if (prefs) {
+      const loaded = prefs as unknown as Record<string, unknown>;
+      setPrefs(loaded);
+      const g = (loaded.goal as string) || "";
+      setGoal(g);
+      setSavedGoal(g);
+    }
   }, []);
 
   useEffect(() => {
@@ -85,13 +93,20 @@ export default function BackgroundPanel() {
   };
 
   const saveGoal = async () => {
+    if (!prefs) {
+      // Refusing to save is the safe failure. Saving {goal} alone would replace the whole
+      // targets object, so a transient GET failure would cost the user their search setup.
+      setMsg("Couldn't load your preferences, so the goal wasn't saved — reload and retry.");
+      return;
+    }
     setBusy(true);
     try {
-      const prefs = (await api.getPreferences().catch(() => ({}))) as Record<string, unknown>;
       await api.savePreferences({ ...prefs, goal: goal.trim() } as never);
       setSavedGoal(goal.trim());
       setMsg("Goal saved.");
       await load();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Couldn't save the goal.");
     } finally {
       setBusy(false);
     }
@@ -169,7 +184,7 @@ export default function BackgroundPanel() {
         <div className="mt-1 flex items-center gap-2">
           <button
             onClick={saveGoal}
-            disabled={busy || goal.trim() === savedGoal}
+            disabled={busy || !prefs || goal.trim() === savedGoal}
             className="px-3 py-1 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
           >
             Save goal

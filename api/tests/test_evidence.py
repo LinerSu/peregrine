@@ -203,3 +203,28 @@ def test_delete_is_confined_to_the_library(lib, tmp_path):
     assert outside.exists()
     assert evidence.delete_file("keep.md") is True
     assert evidence.list_files() == []
+
+
+def test_listing_is_confined_like_reading(lib, tmp_path):
+    # load_passages() was confined but list_files() wasn't: a symlink would have appeared
+    # in the listing with the TARGET's size, leaking that the file exists and how big it is.
+    outside = tmp_path / "secret.md"
+    outside.write_text("x" * 5000)
+    (lib / "real.md").write_text("# LLVM\n" + "C++ pass work. " * 8)
+    try:
+        (lib / "leak.md").symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks unavailable on this filesystem")
+
+    names = {f["name"] for f in evidence.list_files()}
+    assert names == {"real.md"}
+
+
+def test_listing_and_coverage_can_share_one_scan(lib, monkeypatch):
+    from app.agent import tools
+
+    (lib / "a.md").write_text("# LLVM\n" + "C++ LLVM pass. " * 8)
+    loaded = evidence.load_passages()
+    monkeypatch.setattr(evidence, "load_passages", lambda: pytest.fail("re-scanned the library"))
+    assert evidence.list_files(loaded)
+    assert tools.background_coverage(loaded)["evidence"]["passages"] == len(loaded)

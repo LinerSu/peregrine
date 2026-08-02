@@ -672,7 +672,7 @@ def career_goal(profile: dict[str, Any] | None = None) -> str:
     return str(goal).strip() if goal else ""
 
 
-def background_coverage() -> dict[str, Any]:
+def background_coverage(passages: list[Any] | None = None) -> dict[str, Any]:
     """How much of the candidate does Peregrine actually hold?
 
     Everything generated — fit reasoning, letters, tailored CVs — is bounded by this, and
@@ -686,7 +686,7 @@ def background_coverage() -> dict[str, Any]:
     skills = profile.get("skills")
     skills = len(skills) if isinstance(skills, list) else 0
 
-    passages = evidence_lib.load_passages()
+    passages = evidence_lib.load_passages() if passages is None else passages
     files = len({p.source for p in passages})
     has_goal = bool(career_goal(profile))
 
