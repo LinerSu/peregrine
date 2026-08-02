@@ -93,13 +93,27 @@ def _split(raw: str) -> list[tuple[str, str]]:
 
 
 def load_passages() -> list[Passage]:
-    """Every readable passage in data/evidence/ (empty list when the folder is empty)."""
+    """Every readable passage in data/evidence/ (empty list when the folder is empty).
+
+    Confined to the folder the same way résumé intake is: `is_file()` follows symlinks, so
+    without resolving, a link inside the library would let its target be read and pasted
+    into a prompt — an arbitrary-file read dressed up as evidence.
+    """
     root = _dir()
     if not root.exists():
         return []
+    root_real = root.resolve()
     passages: list[Passage] = []
     for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.suffix.lower() not in _READABLE or path.name.startswith("."):
+        if path.suffix.lower() not in _READABLE or path.name.startswith("."):
+            continue
+        try:
+            real = path.resolve()
+            real.relative_to(root_real)  # a symlink out of the library is not evidence
+            if not real.is_file():
+                continue
+        except (ValueError, OSError):
+            log.warning("evidence: skipping %s (outside the library)", path.name)
             continue
         # Nothing here is worth failing a letter over: an unreadable file is skipped, loudly.
         try:
@@ -110,8 +124,14 @@ def load_passages() -> list[Passage]:
         except Exception as exc:
             log.warning("evidence: could not read %s (%s)", path.name, exc.__class__.__name__)
             continue
+        # Relative path, not just the name: the manual allows subfolders, and two
+        # `notes.md` under different ones would otherwise cite each other's content.
+        try:
+            label = path.relative_to(root).as_posix()
+        except ValueError:
+            label = path.name
         for heading, body in _split(raw):
-            passages.append(Passage(source=path.name, heading=heading, text=body))
+            passages.append(Passage(source=label, heading=heading, text=body))
     return passages
 
 
@@ -132,14 +152,14 @@ _STOPWORDS = {
 }
 
 
-def select(job: Any, limit: int = 3) -> list[Passage]:
+def select(job: Any, limit: int = 3, passages: list[Passage] | None = None) -> list[Passage]:
     """The passages most worth quoting for THIS posting, best first.
 
     Scoring is overlap on the shared vocabulary, weighted so a passage that matches the
     job's *required skills* beats one that merely shares prose. Ties break on brevity — a
     tight passage is easier to quote than a long one that happens to mention more words.
     """
-    passages = load_passages()
+    passages = load_passages() if passages is None else passages
     if not passages:
         return []
     req = {s.strip().lower() for s in (getattr(job, "req_skills", "") or "").split(",") if s.strip()}

@@ -678,10 +678,12 @@ def evidence_for(job_id: str, limit: int = 3) -> dict[str, Any]:
     job = store.get_job(job_id)
     if not job:
         return {"error": f"job {job_id} not found"}
-    picked = evidence_lib.select(job, limit=limit)
+    # One scan per request: select() would re-read (and re-parse every PDF) otherwise.
+    library = evidence_lib.load_passages()
+    picked = evidence_lib.select(job, limit=limit, passages=library)
     return {"job_id": job_id, "goal": career_goal(),
             "passages": [p.to_dict() for p in picked],
-            "available": len(evidence_lib.load_passages())}
+            "available": len(library)}
 
 
 def get_evaluation(job_id: str) -> dict[str, Any] | None:

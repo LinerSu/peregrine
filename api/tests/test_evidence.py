@@ -76,3 +76,40 @@ def test_prompt_block_attributes_each_passage(lib):
     block = evidence.as_prompt_block(evidence.select(_job()))
     assert "[paper.md — Abstract]" in block
     assert "never invent" in block
+
+
+def test_a_symlink_out_of_the_library_is_not_evidence(lib, tmp_path):
+    """is_file() follows symlinks, so without confinement a link inside the library would
+    let its target be read and pasted into a prompt — an arbitrary-file read dressed up as
+    evidence. Résumé intake already guards this way; the library must match."""
+    secret = tmp_path / "secret.md"
+    secret.write_text("# Secret\n" + "Private notes that were never in the library. " * 6)
+    (lib / "good.md").write_text("# LLVM\n" + "C++ compiler pass work in LLVM. " * 6)
+    try:
+        (lib / "leak.md").symlink_to(secret)
+    except OSError:
+        pytest.skip("symlinks unavailable on this filesystem")
+
+    got = evidence.load_passages()
+    assert [p.heading for p in got] == ["LLVM"]
+    assert all("Private notes" not in p.text for p in got)
+
+
+def test_subfolders_keep_their_files_distinguishable(lib):
+    # Two notes.md in different folders would otherwise cite each other's content.
+    (lib / "compilers").mkdir()
+    (lib / "talks").mkdir()
+    (lib / "compilers" / "notes.md").write_text("# A\n" + "LLVM C++ pass notes. " * 8)
+    (lib / "talks" / "notes.md").write_text("# B\n" + "Slides about LLVM C++ passes. " * 8)
+
+    sources = {p.source for p in evidence.load_passages()}
+    assert sources == {"compilers/notes.md", "talks/notes.md"}
+
+
+def test_select_can_reuse_an_already_loaded_library(lib, monkeypatch):
+    # evidence_for() loads once and passes it in; select() must not re-scan (PDFs are
+    # expensive to parse and Internal mode fetches this per letter).
+    (lib / "a.md").write_text("# LLVM\n" + "C++ LLVM compiler pass. " * 6)
+    loaded = evidence.load_passages()
+    monkeypatch.setattr(evidence, "load_passages", lambda: pytest.fail("re-scanned the library"))
+    assert evidence.select(_job(), passages=loaded)
