@@ -210,6 +210,15 @@ export const api = {
     http<{ scheduled: number; remaining?: number; capped?: boolean; reason?: string }>(
       "/api/jobs/evaluate-missing", { method: "POST" }
     ),
+  // How much of you the app actually holds — everything generated is bounded by it, and
+  // a thin profile fails silently (fluent, generic output with no hint of the cause).
+  coverage: () =>
+    http<{
+      level: "empty" | "thin" | "ok" | "rich";
+      message: string;
+      profile: { sections: number; items: number; skills: number; has_goal: boolean };
+      evidence: { files: number; passages: number };
+    }>("/api/profile/coverage"),
   // Re-check a tracked posting against its source board. Deterministic (no LLM, no
   // tokens), so it's the same call in both modes. Never changes status — see JobDetail.
   refreshPosting: (id: string) =>
