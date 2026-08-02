@@ -160,3 +160,71 @@ def test_enough_material_and_a_goal_reads_as_rich(tmp_path, monkeypatch):
                   "name: Someone\nskills: [python]\ngoal: ship analysis into other teams' CI\n",
                   files)
     assert c["level"] == "rich" and c["profile"]["has_goal"] is True
+
+
+# --- getting material INTO the library ------------------------------------------------
+
+def test_upload_names_cannot_escape_the_library(lib):
+    # An upload names its own file, so traversal is the caller's to attempt and ours to refuse.
+    body = ("# Notes\n" + "LLVM C++ pass work. " * 8).encode()
+    r = evidence.save_file("../../etc/passwd.md", body)
+    assert r["name"] == "etc_passwd.md" or "/" not in r["name"]
+    assert (lib / r["name"]).exists()
+    assert not (lib.parent / "etc").exists()
+
+
+def test_upload_rejects_types_we_cannot_read(lib):
+    assert "error" in evidence.save_file("slides.pptx", b"binary")
+    assert "error" in evidence.save_file("photo.png", b"binary")
+
+
+def test_a_second_upload_does_not_clobber_the_first(lib):
+    body = ("# A\n" + "LLVM C++ pass work. " * 8).encode()
+    first = evidence.save_file("notes.md", body)
+    second = evidence.save_file("notes.md", body)
+    assert first["name"] != second["name"]
+    assert len(evidence.list_files()) == 2
+
+
+def test_listing_reports_passages_not_just_files(lib):
+    # A file that yields nothing readable is the case worth surfacing: the upload
+    # "worked" but contributes nothing to a letter.
+    (lib / "rich.md").write_text("# Pass\n" + "An LLVM C++ pass for loop folding. " * 8)
+    (lib / "empty.md").write_text("# Slides\nTitle\n")
+    got = {f["name"]: f["passages"] for f in evidence.list_files()}
+    assert got["rich.md"] >= 1 and got["empty.md"] == 0
+
+
+def test_delete_is_confined_to_the_library(lib, tmp_path):
+    outside = tmp_path / "secret.md"
+    outside.write_text("private")
+    (lib / "keep.md").write_text("# K\n" + "LLVM work. " * 8)
+    assert evidence.delete_file("../secret.md") is False
+    assert outside.exists()
+    assert evidence.delete_file("keep.md") is True
+    assert evidence.list_files() == []
+
+
+def test_listing_is_confined_like_reading(lib, tmp_path):
+    # load_passages() was confined but list_files() wasn't: a symlink would have appeared
+    # in the listing with the TARGET's size, leaking that the file exists and how big it is.
+    outside = tmp_path / "secret.md"
+    outside.write_text("x" * 5000)
+    (lib / "real.md").write_text("# LLVM\n" + "C++ pass work. " * 8)
+    try:
+        (lib / "leak.md").symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks unavailable on this filesystem")
+
+    names = {f["name"] for f in evidence.list_files()}
+    assert names == {"real.md"}
+
+
+def test_listing_and_coverage_can_share_one_scan(lib, monkeypatch):
+    from app.agent import tools
+
+    (lib / "a.md").write_text("# LLVM\n" + "C++ LLVM pass. " * 8)
+    loaded = evidence.load_passages()
+    monkeypatch.setattr(evidence, "load_passages", lambda: pytest.fail("re-scanned the library"))
+    assert evidence.list_files(loaded)
+    assert tools.background_coverage(loaded)["evidence"]["passages"] == len(loaded)

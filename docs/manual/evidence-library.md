@@ -1,7 +1,12 @@
 # Your evidence library
 
-Drop your own long-form writing into `data/evidence/` and the cover-letter writer will
-quote the parts that fit a given posting.
+Give Peregrine your own long-form writing and the cover-letter writer will quote the parts
+that fit a given posting.
+
+**Two ways in.** On the **Profile** tab, *What Peregrine knows about you* has an upload
+control and shows what each file contributes. Or copy files straight into
+`data/evidence/` — same folder, same result. The panel also tells you when the app is
+working from too little, which is the state that makes letters read generic.
 
 ## Why it exists
 
@@ -42,8 +47,8 @@ have; the library gives it better raw material, not permission to embellish.
 
 ## Say what you want next
 
-The forward-looking paragraph needs the one thing no CV contains — your intent. Add a line
-to `config/profile.yml`:
+The forward-looking paragraph needs the one thing no CV contains — your intent. Set it in
+the **Profile** tab under *What you want next*, or add it to `config/profile.yml` by hand:
 
 ```yaml
 goal: >

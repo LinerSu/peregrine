@@ -7,6 +7,7 @@ from datetime import date
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from .. import data_store as store
+from .. import evidence
 from ..agent import tools
 from ..extract import extract_text
 from ..schemas import APPLICATION_STATUSES, CONTACT_FIELDS, Application, CvSourceInput, ProfileInput
@@ -194,6 +195,38 @@ def profile_coverage():
 
     Deterministic (no LLM) so both modes agree, and cheap enough to poll on a tab open."""
     return tools.background_coverage()
+
+
+@router.get("/evidence")
+def list_evidence():
+    """The library's contents, with each file's passage count.
+
+    Passage count is the honest number: a slide PDF with six words a page contributes
+    nothing, and the user should see that rather than assume the upload worked."""
+    # One scan per request: both halves want the same passages, and PDFs are the
+    # expensive case to parse twice.
+    passages = evidence.load_passages()
+    return {"files": evidence.list_files(passages),
+            "coverage": tools.background_coverage(passages)}
+
+
+@router.post("/evidence/upload")
+async def upload_evidence(file: UploadFile = File(...)):
+    """Add a file to the evidence library (store-only: no LLM, identical in both modes)."""
+    # Read one byte past the cap, not the whole upload: the limit exists to bound memory,
+    # so enforcing it after buffering everything would defeat the point.
+    raw = await file.read(evidence.MAX_FILE_BYTES + 1)
+    result = evidence.save_file(file.filename or "", raw)
+    if "error" in result:
+        raise HTTPException(422, result["error"])
+    return result
+
+
+@router.delete("/evidence/{name:path}")
+def delete_evidence(name: str):
+    if not evidence.delete_file(name):
+        raise HTTPException(404, f"no evidence file {name!r}")
+    return {"deleted": name}
 
 
 @router.get("/preferences")

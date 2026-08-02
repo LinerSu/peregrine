@@ -210,6 +210,23 @@ export const api = {
     http<{ scheduled: number; remaining?: number; capped?: boolean; reason?: string }>(
       "/api/jobs/evaluate-missing", { method: "POST" }
     ),
+  // The evidence library: your own writing, the material a CV can't hold.
+  listEvidence: () =>
+    http<{ files: { name: string; bytes: number; passages: number }[];
+           coverage: Awaited<ReturnType<typeof api.coverage>> }>("/api/evidence"),
+  uploadEvidence: async (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${BASE}/api/evidence/upload`, { method: "POST", body: fd });
+    if (!res.ok) {
+      let detail = "";
+      try { detail = ((await res.json()) as { detail?: string }).detail || ""; } catch { /* non-JSON */ }
+      throw new Error(detail || `${res.status} ${res.statusText}`);
+    }
+    return (await res.json()) as { name: string; bytes: number; passages: number };
+  },
+  deleteEvidence: (name: string) =>
+    http<{ deleted: string }>(`/api/evidence/${encodeURIComponent(name)}`, { method: "DELETE" }),
   // How much of you the app actually holds — everything generated is bounded by it, and
   // a thin profile fails silently (fluent, generic output with no hint of the cause).
   coverage: () =>
