@@ -174,7 +174,8 @@ _MOCK_MARKER = "Running in **mock** LLM mode"
 
 
 def cover_letter_writer(
-    job: Any, job_md: str, profile: dict[str, Any], evaluation: dict[str, Any] | None, style_refs: str
+    job: Any, job_md: str, profile: dict[str, Any], evaluation: dict[str, Any] | None,
+    style_refs: str, evidence: str = "", goal: str = ""
 ) -> str:
     """Draft a tailored cover letter. Returns the letter text (markdown)."""
     llm = LLMClient()
@@ -182,6 +183,15 @@ def cover_letter_writer(
         "Candidate profile (JSON):\n```\n" + json.dumps(profile, ensure_ascii=False, indent=2) + "\n```",
         untrusted_block("JOB POSTING", job_md) + "\n\n" + UNTRUSTED_RULE,
     ]
+    # The candidate's own writing — the only source of specifics the résumé can't hold, and
+    # the difference between an argument and a paraphrase. Trusted input, unlike the posting.
+    if evidence:
+        parts.append(evidence)
+    if goal:
+        parts.append(
+            "What the candidate wants from their next role (their words — use it for the "
+            f"forward-looking paragraph, don't quote it verbatim):\n{goal}"
+        )
     if evaluation:
         parts.append(
             "Fit evaluation (JSON):\n```\n" + json.dumps(evaluation, ensure_ascii=False, indent=2) + "\n```"

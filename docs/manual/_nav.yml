@@ -11,6 +11,7 @@ sections:
       # literal-order reader must build one before evaluating anything.
       - find-jobs
       - cv-help
+      - evidence-library
       - check-fit
       - prepare-apply
       - track-applications

@@ -49,6 +49,9 @@ else:
     RESUME_DIR = ROOT / "resume"  # your master résumé(s) live here (CV intake reads them)
 
 JOBS_DIR = DATA_DIR / "jobs"
+# Long-form material a CV can't hold (write-ups, papers, talks, notes) — read by the
+# cover-letter writer. Personal data: gitignored, hook-blocked, never committed.
+EVIDENCE_DIR = DATA_DIR / "evidence"
 SKILLS_DIR = ROOT / ".agents" / "skills"
 # Anchored beside DATA_DIR so demo datasets get their OWN logs + status page —
 # otherwise demo activity overwrites the live user's runtime log/status.
@@ -95,7 +98,7 @@ def ensure_dirs() -> None:
     In demo mode (PEREGRINE_DATASET set) the dataset is generated from the chosen
     persona; otherwise the live CSVs are seeded from the committed examples.
     """
-    for d in (DATA_DIR, JOBS_DIR, CONFIG_DIR, APPLICATIONS_DIR, RESUME_DIR, LOGS_DIR):
+    for d in (DATA_DIR, JOBS_DIR, EVIDENCE_DIR, CONFIG_DIR, APPLICATIONS_DIR, RESUME_DIR, LOGS_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
     if DATASET:

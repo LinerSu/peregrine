@@ -354,6 +354,18 @@ def update_job(job_id: str, payload: dict):
     return {"job": updated.model_dump()}
 
 
+@router.get("/{job_id}/evidence")
+def job_evidence(job_id: str):
+    """The passages from data/evidence/ selected for this job (deterministic, no LLM).
+
+    Exists so Internal mode drafts from the SAME material External does — otherwise the
+    two modes would write from different evidence and the contract would be nominal."""
+    result = tools.evidence_for(job_id)
+    if "error" in result:
+        raise HTTPException(404, result["error"])
+    return result
+
+
 @router.post("/{job_id}/refresh")
 def refresh_posting(job_id: str):
     """Re-check a tracked posting against its source board: still listed? anything to fill in?

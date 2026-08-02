@@ -72,3 +72,77 @@ def test_generate_cover_letter_mock_path(tmp_store):
     # Mock provider -> deterministic fallback draft, still job-specific and persisted.
     assert "Luma AI" in res["content"]
     assert store.read_cover_letter("2026-001") == res["content"]
+
+
+# --- evidence library wiring (issue #69) ---------------------------------------------
+
+def test_both_modes_draft_from_the_same_selected_evidence(tmp_path, monkeypatch):
+    """The contract's real test: External passes evidence into the prompt, and the endpoint
+    Internal reads returns the SAME passages. Different material in each mode would make
+    the two modes only nominally equivalent."""
+    from fastapi.testclient import TestClient
+
+    from app import config, evidence
+    from app import data_store as store
+    from app.agent import subagents, tools
+    from app.main import app
+    from app.schemas import Job
+
+    monkeypatch.setattr(config, "JOBS_CSV", tmp_path / "jobs.csv")
+    monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(config, "APPLICATIONS_CSV", tmp_path / "applications.csv")
+    monkeypatch.setattr(config, "PROFILE_YML", tmp_path / "profile.yml")
+    (tmp_path / "jobs").mkdir()
+    ev = tmp_path / "evidence"
+    ev.mkdir()
+    monkeypatch.setattr(config, "EVIDENCE_DIR", ev)
+    (ev / "pass.md").write_text("# Loop folding\n" + "An LLVM C++ pass that folds loads. " * 6)
+    config.PROFILE_YML.write_text("name: Someone\ngoal: ship analysis into other teams' CI\n")
+
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1",
+                         position="Compiler Engineer", req_skills="C++, LLVM"))
+    monkeypatch.setattr(tools.status, "record", lambda *a, **k: None)
+
+    seen: dict = {}
+
+    def fake_writer(job, job_md, profile, evaluation, style_refs, evidence="", goal=""):
+        seen["evidence"], seen["goal"] = evidence, goal
+        return "Dear team, ..."
+
+    monkeypatch.setattr(tools, "cover_letter_writer", fake_writer)
+    tools.generate_cover_letter("2026-001")
+
+    assert "Loop folding" in seen["evidence"]          # External got the passage
+    assert seen["goal"] == "ship analysis into other teams' CI"
+
+    got = TestClient(app).get("/api/jobs/2026-001/evidence").json()
+    assert [p["heading"] for p in got["passages"]] == ["Loop folding"]   # Internal: identical
+    assert got["goal"] == seen["goal"]
+
+
+def test_a_letter_still_works_with_no_evidence(tmp_path, monkeypatch):
+    # The library is additive: someone who never creates data/evidence/ must not lose the
+    # feature they already had.
+    from app import config
+    from app import data_store as store
+    from app.agent import tools
+    from app.schemas import Job
+
+    monkeypatch.setattr(config, "JOBS_CSV", tmp_path / "jobs.csv")
+    monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(config, "APPLICATIONS_CSV", tmp_path / "applications.csv")
+    monkeypatch.setattr(config, "PROFILE_YML", tmp_path / "profile.yml")
+    monkeypatch.setattr(config, "EVIDENCE_DIR", tmp_path / "nope")
+    (tmp_path / "jobs").mkdir()
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1", position="Eng"))
+    monkeypatch.setattr(tools.status, "record", lambda *a, **k: None)
+
+    captured: dict = {}
+
+    def fake_writer(job, job_md, profile, evaluation, style_refs, evidence="", goal=""):
+        captured["evidence"] = evidence
+        return "letter"
+
+    monkeypatch.setattr(tools, "cover_letter_writer", fake_writer)
+    assert "error" not in tools.generate_cover_letter("2026-001")
+    assert captured["evidence"] == ""

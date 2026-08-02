@@ -17,6 +17,7 @@ from .. import status
 from ..config import APPLICATIONS_DIR
 from ..cover_letter import gather_style_references
 from ..evaluation import assess_legitimacy, classify_archetype
+from .. import evidence as evidence_lib
 from ..logging_config import get_logger
 from ..job_tags import extract_domains, extract_keywords, extract_level, extract_skills
 from ..roles import classify_role
@@ -657,6 +658,32 @@ def get_upskilling(job_id: str) -> dict[str, Any] | None:
     return store.read_upskilling(job_id)
 
 
+def career_goal(profile: dict[str, Any] | None = None) -> str:
+    """The candidate's own statement of what they're aiming for.
+
+    A letter can't argue for a future it was never told about, and nothing else in the
+    profile carries intent — skills and sections are all backward-looking. Read from
+    `goal` (or targets.goal) so it's one hand-edited line, not another UI."""
+    p = profile if profile is not None else store.read_profile()
+    goal = p.get("goal")
+    if not goal:
+        targets = p.get("targets")
+        goal = targets.get("goal") if isinstance(targets, dict) else None
+    return str(goal).strip() if goal else ""
+
+
+def evidence_for(job_id: str, limit: int = 3) -> dict[str, Any]:
+    """Passages from data/evidence/ worth quoting for this job — the SAME selection the
+    External writer gets, exposed so Internal mode drafts from identical material."""
+    job = store.get_job(job_id)
+    if not job:
+        return {"error": f"job {job_id} not found"}
+    picked = evidence_lib.select(job, limit=limit)
+    return {"job_id": job_id, "goal": career_goal(),
+            "passages": [p.to_dict() for p in picked],
+            "available": len(evidence_lib.load_passages())}
+
+
 def get_evaluation(job_id: str) -> dict[str, Any] | None:
     """Read the last saved structured fit evaluation (None if never run)."""
     return store.read_evaluation(job_id)
@@ -673,8 +700,11 @@ def generate_cover_letter(job_id: str) -> dict[str, Any]:
         return {"error": f"job {job_id} not found"}
     status.record("cover_letter_start", job_id, current_task=f"Cover letter for {job_id}")
     job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
+    profile = store.read_profile()
     content = cover_letter_writer(
-        job, job_md, store.read_profile(), store.read_evaluation(job_id), gather_style_references()
+        job, job_md, profile, store.read_evaluation(job_id), gather_style_references(),
+        evidence=evidence_lib.as_prompt_block(evidence_lib.select(job)),
+        goal=career_goal(profile),
     )
     saved = save_cover_letter(job_id, content)
     status.record("cover_letter_done", job_id, current_task="idle")
