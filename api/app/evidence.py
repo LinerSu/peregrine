@@ -135,6 +135,83 @@ def load_passages() -> list[Passage]:
     return passages
 
 
+_SAFE_NAME = re.compile(r"[^A-Za-z0-9._ -]+")
+
+
+def _safe_name(filename: str) -> str:
+    """A filename that can only land inside the library.
+
+    Uploads name their own file, so this takes the basename only (killing `../` and any
+    absolute path), strips anything exotic, and keeps the extension — which is also what
+    decides whether we can read it at all.
+    """
+    base = Path(filename or "").name
+    stem, dot, ext = base.rpartition(".")
+    stem = _SAFE_NAME.sub("_", stem or base).strip(" ._-") or "evidence"
+    ext = _SAFE_NAME.sub("", ext).lower()
+    return f"{stem[:80]}.{ext}" if dot and ext else stem[:80]
+
+
+def list_files() -> list[dict[str, Any]]:
+    """What's in the library, with how much each file actually contributes.
+
+    Passage count matters more than file count: a PDF of slides with six words a page
+    yields nothing, and the user should see that rather than assume it landed."""
+    root = _dir()
+    if not root.exists():
+        return []
+    counts: dict[str, int] = {}
+    for p in load_passages():
+        counts[p.source] = counts.get(p.source, 0) + 1
+    out = []
+    for path in sorted(root.rglob("*")):
+        if path.suffix.lower() not in _READABLE or path.name.startswith("."):
+            continue
+        try:
+            rel = path.relative_to(root).as_posix()
+            out.append({"name": rel, "bytes": path.stat().st_size, "passages": counts.get(rel, 0)})
+        except OSError:
+            continue
+    return out
+
+
+def save_file(filename: str, raw: bytes) -> dict[str, Any]:
+    """Store an uploaded file in the library. Returns {error} rather than raising."""
+    name = _safe_name(filename)
+    if Path(name).suffix.lower() not in _READABLE:
+        return {"error": f"unsupported file type — use {', '.join(_READABLE)}"}
+    if len(raw) > _MAX_FILE_BYTES:
+        return {"error": f"file is larger than {_MAX_FILE_BYTES // 1_000_000} MB"}
+    root = _dir()
+    root.mkdir(parents=True, exist_ok=True)
+    dest = root / name
+    # Don't silently replace someone's earlier upload of a different document.
+    if dest.exists():
+        stem, _, ext = name.rpartition(".")
+        n = 2
+        while dest.exists():
+            dest = root / (f"{stem}-{n}.{ext}" if ext else f"{name}-{n}")
+            n += 1
+    dest.write_bytes(raw)
+    passages = sum(1 for p in load_passages() if p.source == dest.name)
+    log.info("evidence: stored %s (%d passages)", dest.name, passages)
+    return {"name": dest.name, "bytes": len(raw), "passages": passages}
+
+
+def delete_file(name: str) -> bool:
+    """Remove one file from the library. Confined: a name that escapes is refused."""
+    root = _dir().resolve()
+    try:
+        target = (root / name).resolve()
+        target.relative_to(root)
+    except (ValueError, OSError):
+        return False
+    if not target.is_file():
+        return False
+    target.unlink()
+    return True
+
+
 def _terms(*texts: str) -> set[str]:
     """The vocabulary a posting and a passage are compared on: the app's own skill tags
     plus the distinctive words of the title, lowercased."""

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type Profile } from "../api";
 import type { AssistantMode } from "../App";
 import { LinkIcon } from "./icons";
+import BackgroundPanel from "./BackgroundPanel";
 
 // Display order for the structured skill groups (anything else falls under "Other").
 const SKILL_ORDER = ["Languages", "Frameworks & Libraries", "Tools", "Domains", "Soft skills"];
@@ -410,6 +411,10 @@ export default function ProfilePanel({
           </li>
         </ul>
       </section>
+
+      <div className="rounded-lg border border-gray-200 p-4">
+        <BackgroundPanel />
+      </div>
     </div>
   );
 }
