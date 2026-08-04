@@ -175,7 +175,7 @@ _MOCK_MARKER = "Running in **mock** LLM mode"
 
 def cover_letter_writer(
     job: Any, job_md: str, profile: dict[str, Any], evaluation: dict[str, Any] | None,
-    style_refs: str, evidence: str = "", goal: str = ""
+    style_refs: str, evidence: str = "", goal: str = "", employer: str = ""
 ) -> str:
     """Draft a tailored cover letter. Returns the letter text (markdown)."""
     llm = LLMClient()
@@ -191,6 +191,14 @@ def cover_letter_writer(
         parts.append(
             "What the candidate wants from their next role (their words — use it for the "
             f"forward-looking paragraph, don't quote it verbatim):\n{goal}"
+        )
+    if employer:
+        # Quoted from the posting, so it is as trustworthy as the posting itself — which
+        # is to say it is the employer's own description of themselves, not a fact we
+        # verified. Enough to ground "why here"; not enough to make claims about them.
+        parts.append(
+            "How this organisation describes itself (from the posting — use it to ground "
+            f"why THIS employer, never to flatter them):\n{employer}"
         )
     if evaluation:
         parts.append(

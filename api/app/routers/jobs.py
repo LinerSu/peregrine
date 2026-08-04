@@ -10,6 +10,8 @@ from fastapi.responses import FileResponse
 from pydantic import ValidationError
 
 from .. import data_store as store
+from .. import evidence as evidence_lib
+from .. import letter_check
 from ..agent.llm import active_provider_is_mock
 from ..agent import tools
 from ..extract import extract_text
@@ -484,12 +486,19 @@ def read_cover_letter(job_id: str):
     404s on an unknown job, consistent with GET /{job_id}. `stale` means it was
     drafted against a PREVIOUS CV (the profile changed since) — the UI de-emphasizes
     it and points at Redraft."""
-    if not store.get_job(job_id):
+    job = store.get_job(job_id)
+    if not job:
         raise HTTPException(404, f"job {job_id} not found")
     cover = tools.get_cover_letter(job_id)
     if not cover:
         return {}
     cover["stale"] = tools.artifact_stale(job_id, ".cover_letter.md")
+    # Mechanical rubric checks (no LLM, no tokens) so a draft carries its own critique —
+    # otherwise the rules only bind whoever happened to read the rubric.
+    cover["checks"] = letter_check.check_letter(
+        cover.get("content", ""), job,
+        unused_evidence=evidence_lib.unused_for(job, cover.get("content", "")),
+    )
     return cover
 
 

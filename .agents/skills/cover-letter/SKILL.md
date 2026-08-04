@@ -25,13 +25,33 @@ already has the résumé. Argue instead:
    most impressive things available. Prefer detail from the candidate's own written
    material (provided when it exists) over anything already visible on the CV: why a
    decision was made, what failed first, the number that made it matter.
-3. **Forward-looking** — what they'd work on, or what they believe about the problem.
-   Use their stated goal when given. This is where ambition lives, and it's a claim about
-   intent, not about facts, so it costs nothing in honesty.
+3. **Forward-looking, and specific to THIS employer** — what they would work on here, and
+   why here. Ground it in something true about the organisation: its mandate, its
+   constraints, what the posting says it is under pressure to do. Use the candidate's
+   stated goal when given; ambition is a claim about intent, not about facts, so it costs
+   nothing in honesty. What this paragraph must NOT be is enthusiasm — "I admire your
+   mission" is the sentence every other applicant also wrote.
 4. **Close** — propose a specific next step: a question worth answering, or work the
    reader can look at. Formally phrased, but not empty: a close that asks for nothing
    ("I would welcome the opportunity to discuss this role") wastes the last thing they
    read.
+
+## Who is reading this
+
+Assume the first reader is **not a specialist in the candidate's subfield** unless the
+posting proves otherwise — a security team hiring for C experience is not a compilers
+research group, and a foundation's hiring committee is neither.
+
+- Name a technique **once**, then say what it achieves in plain terms. "A heap-aware taint
+  analysis on LLVM IR" tells most readers nothing; "traces untrusted input through a C
+  program to the places it can do damage" tells them what it is for. Keeping the proper
+  name matters for the specialist who may read it second; the explanation matters for the
+  person deciding whether to forward the letter.
+- **Use the employer's vocabulary.** Where the posting and the candidate have different
+  words for the same thing, prefer the posting's. It shows the posting was read, and it
+  spares the reader a translation.
+- Numbers survive translation and should always be kept — a percentage means the same
+  thing to every reader.
 
 ## Register
 
@@ -53,8 +73,12 @@ candidate and will read the letter beside twenty others.
 - **Never fabricate** skills, employers, numbers, or experience the profile
   doesn't support. If a key requirement isn't met, don't claim it — emphasize
   adjacent strengths instead.
-- Be **concise** (roughly 200–300 words) — that is a limit, not a target to fill.
+- Be **concise** (roughly 250–350 words, about one page) — a limit, not a target to fill.
   No buzzword filler, no restating the résumé.
+- **Do not open every sentence with "I".** At most half may, and no two consecutive
+  paragraphs may begin with it. A letter of "I did… I built… I would…" reads as a list of
+  claims about the writer; varying the subject puts the work, the problem and the employer
+  in the frame too.
 - **Never write a sentence that would be true of any competent applicant.** "I am excited
   by your mission" and "I would bring the same focus to your team" say nothing; cut them
   and spend the words on a specific.

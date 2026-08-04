@@ -132,6 +132,14 @@ export interface PatternInsights {
 }
 
 // Structured fit evaluation (v2). Empty object ({}) when a job has none yet.
+// Mechanical rubric checks on a draft (no LLM). Empty list = the countable rules pass;
+// it says nothing about whether the argument persuades.
+export interface LetterCheck {
+  rule: string;
+  severity: "high" | "medium" | "low";
+  detail: string;
+}
+
 export interface Evaluation {
   job_id?: string;
   stale?: boolean; // evaluated against a PREVIOUS CV — UI hides scores, points at re-run
@@ -383,7 +391,9 @@ export const api = {
   generateCoverLetter: (id: string) =>
     http<{ job_id: string; content: string }>(`/api/jobs/${id}/cover-letter`, { method: "POST" }),
   getCoverLetter: (id: string) =>
-    http<{ job_id?: string; content?: string; stale?: boolean }>(`/api/jobs/${id}/cover-letter`),
+    http<{ job_id?: string; content?: string; stale?: boolean; checks?: LetterCheck[] }>(
+      `/api/jobs/${id}/cover-letter`
+    ),
   // Tailored CV: External generates LaTeX (+ PDF); Internal saves Claude's .tex.
   generateCv: (id: string) =>
     http<{ job_id: string; tex: string; pdf_available: boolean }>(`/api/jobs/${id}/cv`, { method: "POST" }),
