@@ -74,7 +74,19 @@ the local API** so the web page reflects it exactly like External (API) mode.
      | curl -s -X PUT http://localhost:8000/api/jobs/<id>/cover-letter \
          -H 'content-type: application/json' --data-binary @-
    ```
-6. Tell the user it's saved — the Cover letter panel will show it.
+6. **Read your own draft back and fix what it flags.** The GET returns `checks`: the
+   countable rubric rules (length, formal register, clichés, how often sentences open with
+   "I", whether the employer is actually named, whether any figure survived, and which
+   selected evidence you didn't use). No LLM, no tokens — it is the same check the web UI
+   shows, so a letter you save should not arrive with findings the user has to read back
+   to you:
+   ```bash
+   curl -s http://localhost:8000/api/jobs/<id>/cover-letter \
+     | python3 -c 'import json,sys; [print(c["severity"], c["rule"], c["detail"]) for c in json.load(sys.stdin).get("checks",[])]'
+   ```
+   Revise and PUT again if anything comes back. A clean list is not a good letter — it
+   means nothing mechanical is wrong, which is the cheap half of the job.
+7. Tell the user it's saved — the Cover letter panel will show it.
 
 ## "parse my cv"
 

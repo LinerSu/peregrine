@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type Evaluation, type Job } from "../api";
+import { api, type Evaluation, type Job, type LetterCheck } from "../api";
 import type { AssistantMode } from "../App";
 import { fitClass, legitimacyClass, relativeTime, safeHttpUrl, salaryRange, statusClass } from "../format";
 import JobMarkdown from "./JobMarkdown";
@@ -103,6 +103,7 @@ export default function JobDetail({
   const [cvError, setCvError] = useState("");
   const [starBusy, setStarBusy] = useState(false); // in-flight guard for the star PATCH
   const [coverStale, setCoverStale] = useState(false); // drafted against a previous CV
+  const [coverChecks, setCoverChecks] = useState<LetterCheck[]>([]);
   const [showStaleCover, setShowStaleCover] = useState(false);
   const baseline = useRef(""); // job markdown before the run
   const coverBaseline = useRef<string | null>(null); // cover letter before the run
@@ -128,6 +129,7 @@ export default function JobDetail({
     setEvaluation(normEval(ev));
     setCoverLetter(cover?.content ?? null);
     setCoverStale(!!cover?.stale);
+    setCoverChecks(cover?.checks ?? []);
     setCoverTextCopied(false); // new/refreshed content -> reset the Copy button
     setCvTex(cv?.tex ?? null);
     setCvPdf(!!cv?.pdf_available);
@@ -156,6 +158,7 @@ export default function JobDetail({
     setCoverLetter(null);
     setCheckMsg("");      // per-job — the previous job's liveness result says nothing here
     setProposeClose(false);
+    setCoverChecks([]);   // per-job, like everything else here
     setCoverStale(false); // per-job — must not leak the previous job's stale state
     setShowStaleCover(false); // nor its "show anyway" bypass
     setCoverError("");
@@ -220,7 +223,7 @@ export default function JobDetail({
       if (inFlight) return;
       inFlight = true;
       try {
-        const res = await api.getCoverLetter(jobId).catch(() => null);
+        const res = await api.getCoverLetter(jobId, false).catch(() => null);  // poll: skip the checks
         if (!live) return;
         const content = res?.content ?? null;
         // null = not saved yet; a non-null value (even "") that differs is a save.
@@ -817,6 +820,11 @@ export default function JobDetail({
             <div className="flex items-center justify-between border-b border-purple-100 px-3 py-2">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-purple-700">
                 Cover letter{coverStale ? " — from your previous CV" : ""}
+                {coverChecks.length > 0 && (
+                  <span className="ml-2 font-normal normal-case text-amber-700">
+                    · {coverChecks.length} thing{coverChecks.length > 1 ? "s" : ""} to look at
+                  </span>
+                )}
               </h4>
               <button
                 onClick={() =>
@@ -831,6 +839,29 @@ export default function JobDetail({
               </button>
             </div>
             <pre className="whitespace-pre-wrap px-3 py-3 text-sm text-gray-800 font-sans">{coverLetter}</pre>
+            {/* Countable rubric rules only. A clean list does not mean the letter is good —
+                it means nothing mechanical is wrong with it, which is the cheap half. */}
+            {coverChecks.length > 0 && (
+              <ul className="border-t border-purple-100 px-3 py-2 space-y-1">
+                {coverChecks.map((c, i) => (
+                  <li key={`${c.rule}-${i}`} className="flex gap-2 text-xs">
+                    <span
+                      className={
+                        c.severity === "high"
+                          ? "text-rose-600"
+                          : c.severity === "medium"
+                          ? "text-amber-600"
+                          : "text-gray-400"
+                      }
+                      aria-label={c.severity}
+                    >
+                      ●
+                    </span>
+                    <span className="text-gray-600">{c.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

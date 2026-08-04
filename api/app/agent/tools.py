@@ -672,6 +672,30 @@ def career_goal(profile: dict[str, Any] | None = None) -> str:
     return str(goal).strip() if goal else ""
 
 
+# Sentences that describe the ORGANISATION rather than the job. A posting almost always
+# contains a few ("The Python Software Foundation is a US 501(c)(3) non-profit…"), and
+# they are the only employer knowledge the app holds — nothing fetches company profiles.
+_ORG_HINT = re.compile(
+    r"\b(we are|our team|our mission|the (company|foundation|organi[sz]ation)|"
+    r"is a (us |uk )?\d*\s*\(?c?\)?\(?3\)?|non-?profit|founded in|we build|we help)\b",
+    re.I,
+)
+
+
+def employer_context(job_id: str, limit: int = 4) -> str:
+    """Sentences from the stored posting that describe the EMPLOYER, not the role.
+
+    The letter has to argue "why here", and until now nothing gave it anything to argue
+    from — the same gap `goal` filled for ambition. This is deliberately extraction, not
+    research: no network call, no LLM, so it behaves identically in both modes and cannot
+    invent a fact about a company.
+    """
+    md = store.read_job_md(job_id) or ""
+    body = _posting_description(md) if md else ""
+    picked = [s.strip() for s in re.split(r"(?<=[.!?])\s+", body) if _ORG_HINT.search(s)]
+    return " ".join(picked[:limit])
+
+
 def background_coverage(passages: list[Any] | None = None) -> dict[str, Any]:
     """How much of the candidate does Peregrine actually hold?
 
@@ -754,6 +778,7 @@ def generate_cover_letter(job_id: str) -> dict[str, Any]:
         job, job_md, profile, store.read_evaluation(job_id), gather_style_references(),
         evidence=evidence_lib.as_prompt_block(evidence_lib.select(job)),
         goal=career_goal(profile),
+        employer=employer_context(job_id),
     )
     saved = save_cover_letter(job_id, content)
     status.record("cover_letter_done", job_id, current_task="idle")

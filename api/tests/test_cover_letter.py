@@ -105,8 +105,9 @@ def test_both_modes_draft_from_the_same_selected_evidence(tmp_path, monkeypatch)
 
     seen: dict = {}
 
-    def fake_writer(job, job_md, profile, evaluation, style_refs, evidence="", goal=""):
-        seen["evidence"], seen["goal"] = evidence, goal
+    def fake_writer(job, job_md, profile, evaluation, style_refs, evidence="", goal="",
+                    employer=""):
+        seen["evidence"], seen["goal"], seen["employer"] = evidence, goal, employer
         return "Dear team, ..."
 
     monkeypatch.setattr(tools, "cover_letter_writer", fake_writer)
@@ -139,10 +140,37 @@ def test_a_letter_still_works_with_no_evidence(tmp_path, monkeypatch):
 
     captured: dict = {}
 
-    def fake_writer(job, job_md, profile, evaluation, style_refs, evidence="", goal=""):
+    def fake_writer(job, job_md, profile, evaluation, style_refs, evidence="", goal="",
+                    employer=""):
         captured["evidence"] = evidence
         return "letter"
 
     monkeypatch.setattr(tools, "cover_letter_writer", fake_writer)
     assert "error" not in tools.generate_cover_letter("2026-001")
     assert captured["evidence"] == ""
+
+
+def test_employer_context_comes_from_the_posting_not_the_web(tmp_path, monkeypatch):
+    """The letter has to argue "why here", and nothing in the pipeline knew anything about
+    the employer. Postings describe themselves; extracting that is free and cannot invent
+    a fact about a company the way a web lookup could."""
+    from app import config
+    from app import data_store as store
+    from app.agent import tools
+    from app.schemas import Job
+
+    monkeypatch.setattr(config, "JOBS_CSV", tmp_path / "jobs.csv")
+    monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(config, "APPLICATIONS_CSV", tmp_path / "applications.csv")
+    (tmp_path / "jobs").mkdir()
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1", position="Eng"))
+    store.write_job_md("2026-001", """# Eng — Acme
+
+## Posting
+We are a non-profit that maintains widget infrastructure used by thousands of projects.
+You will triage incoming reports and improve the tooling. Requires C and Python.
+The role is remote.
+""")
+    ctx = tools.employer_context("2026-001")
+    assert "non-profit" in ctx                    # organisational sentence extracted
+    assert "triage incoming reports" not in ctx   # role duties are not employer context

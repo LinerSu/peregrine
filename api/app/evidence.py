@@ -261,6 +261,27 @@ def select(job: Any, limit: int = 3, passages: list[Passage] | None = None) -> l
     return [p for _, _, p in scored[:limit]]
 
 
+def unused_for(job: Any, letter: str, passages: list[Passage] | None = None) -> list[str]:
+    """Labels of passages the selector offered for this job that the letter didn't use.
+
+    Judged by vocabulary overlap rather than quotation, because a good letter paraphrases
+    rather than pastes. The threshold is deliberately low: the question is "did this
+    material inform the letter at all", not "was it quoted faithfully".
+    """
+    picked = select(job, passages=passages) if passages is not None else select(job)
+    if not picked:
+        return []
+    in_letter = _terms(letter or "")
+    unused = []
+    for p in picked:
+        distinctive = _terms(p.heading, p.text)
+        if not distinctive:
+            continue
+        if len(distinctive & in_letter) < max(2, len(distinctive) // 12):
+            unused.append(f"{p.source}" + (f" — {p.heading}" if p.heading else ""))
+    return unused
+
+
 def as_prompt_block(passages: list[Passage]) -> str:
     """Render selected passages for a prompt, attributed so the writer can cite the source.
 
