@@ -28,8 +28,26 @@ already has the résumé. Argue instead:
 3. **Forward-looking** — what they'd work on, or what they believe about the problem.
    Use their stated goal when given. This is where ambition lives, and it's a claim about
    intent, not about facts, so it costs nothing in honesty.
-4. **Close** — propose something (a conversation about a specific question, a pointer to
-   work they can read). Never "I would welcome the opportunity to discuss".
+4. **Close** — propose a specific next step: a question worth answering, or work the
+   reader can look at. Formally phrased, but not empty: a close that asks for nothing
+   ("I would welcome the opportunity to discuss this role") wastes the last thing they
+   read.
+
+## Register
+
+Formal professional English, pitched at a hiring committee that has never met the
+candidate and will read the letter beside twenty others.
+
+- **Full sentences.** No fragments for emphasis ("The hard half was precision, not
+  detection.").
+- **No idioms or colloquialisms** — "cry wolf", "nobody reads it", "the interesting half".
+  They read as chatty in a document that is, formally, an application.
+- **No rhetorical questions**, and no second-person address beyond what the role requires.
+- **Avoid contractions.**
+- **Measured verbs**: reduced, extended, evaluated, designed — not dramatic ones.
+- **Formality is not vagueness.** It governs how a claim is phrased, never whether a
+  specific number, system or result appears. A formal letter that says nothing concrete
+  has failed twice over: it is both dull and uninformative.
 
 ## Rules
 - **Never fabricate** skills, employers, numbers, or experience the profile
