@@ -481,11 +481,15 @@ def save_cover_letter(job_id: str, payload: CoverLetterInput):
 
 
 @router.get("/{job_id}/cover-letter")
-def read_cover_letter(job_id: str):
+def read_cover_letter(job_id: str, checks: bool = True):
     """Read the last saved cover-letter draft ({} if none yet) — used by the UI poll.
     404s on an unknown job, consistent with GET /{job_id}. `stale` means it was
     drafted against a PREVIOUS CV (the profile changed since) — the UI de-emphasizes
-    it and points at Redraft."""
+    it and points at Redraft.
+
+    `checks=0` skips the rubric checks. Internal mode polls this endpoint every few
+    seconds while waiting for a draft, and the checks read the whole evidence library —
+    re-extracting every PDF on each poll would turn a cheap wait into real work."""
     job = store.get_job(job_id)
     if not job:
         raise HTTPException(404, f"job {job_id} not found")
@@ -495,10 +499,11 @@ def read_cover_letter(job_id: str):
     cover["stale"] = tools.artifact_stale(job_id, ".cover_letter.md")
     # Mechanical rubric checks (no LLM, no tokens) so a draft carries its own critique —
     # otherwise the rules only bind whoever happened to read the rubric.
-    cover["checks"] = letter_check.check_letter(
-        cover.get("content", ""), job,
-        unused_evidence=evidence_lib.unused_for(job, cover.get("content", "")),
-    )
+    if checks:
+        cover["checks"] = letter_check.check_letter(
+            cover.get("content", ""), job,
+            unused_evidence=evidence_lib.unused_for(job, cover.get("content", "")),
+        )
     return cover
 
 

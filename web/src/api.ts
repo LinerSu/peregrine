@@ -390,9 +390,11 @@ export const api = {
   // Cover letter: External generates via the LLM; Internal saves Claude's draft.
   generateCoverLetter: (id: string) =>
     http<{ job_id: string; content: string }>(`/api/jobs/${id}/cover-letter`, { method: "POST" }),
-  getCoverLetter: (id: string) =>
+  // checks=false for the Internal-mode poll: the rubric checks read the whole evidence
+  // library, and re-extracting every PDF every few seconds is not what a wait should cost.
+  getCoverLetter: (id: string, checks = true) =>
     http<{ job_id?: string; content?: string; stale?: boolean; checks?: LetterCheck[] }>(
-      `/api/jobs/${id}/cover-letter`
+      `/api/jobs/${id}/cover-letter${checks ? "" : "?checks=0"}`
     ),
   // Tailored CV: External generates LaTeX (+ PDF); Internal saves Claude's .tex.
   generateCv: (id: string) =>

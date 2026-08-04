@@ -52,6 +52,24 @@ _CONTRACTION = re.compile(
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _WORD = re.compile(r"[A-Za-z0-9'’\-]+")
 
+# Words that identify no employer on their own. "The Foundation" must not be counted by
+# matching every "the" in the letter.
+_COMPANY_NOISE = {
+    "the", "inc", "inc.", "llc", "ltd", "ltd.", "corp", "corp.", "co", "co.", "company",
+    "group", "holdings", "limited", "gmbh", "sa", "ag", "plc", "and", "of", "for",
+}
+
+
+def _company_token(company: str) -> str:
+    """The word most likely to identify this employer in prose.
+
+    Not simply the first word: "The Python Software Foundation" starts with an article,
+    and matching it would count every "the" in the letter. Longest informative word wins,
+    which favours the distinctive part of a name over its legal suffix."""
+    words = [w for w in re.findall(r"[A-Za-z][A-Za-z0-9&-]*", company or "")
+             if w.lower() not in _COMPANY_NOISE]
+    return max(words, key=len) if words else ""
+
 
 def _body(text: str) -> str:
     """The letter minus its salutation and sign-off, which distort every count.
@@ -139,9 +157,10 @@ def check_letter(text: str, job: Any = None, unused_evidence: list[str] | None =
         # Counted over the FULL text, salutation included: "Dear Members of the Python
         # Security Response Team" genuinely names them. Requiring two mentions is what
         # separates a letter that engages with the employer from one that merely
-        # addresses them — the salutation alone cannot satisfy it.
-        head = re.escape(company.split()[0])
-        mentions = len(re.findall(rf"\b{head}", text or "", re.I))
+        # addresses them — the salutation alone cannot satisfy it. Bounded at BOTH ends so
+        # "Python" does not match "Pythonic".
+        token = _company_token(company)
+        mentions = len(re.findall(rf"\b{re.escape(token)}\b", text or "", re.I)) if token else 2
         if mentions < 2:
             out.append({"rule": "employer", "severity": "high",
                         "detail": f"{company} is named {mentions} time(s). A letter that could be "

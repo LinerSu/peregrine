@@ -124,3 +124,24 @@ def test_possessives_are_not_contractions():
     assert "register" not in _rules(ok)
     assert "register" in _rules(GOOD.replace("cannot distinguish", "can't distinguish"))
     assert "register" in _rules(GOOD.replace("It is", "It's").replace("and it\nis the", "and it's the"))
+
+
+def test_employer_counting_uses_a_word_that_identifies_the_company():
+    """Two ways the naive version broke: an employer whose name starts with an article
+    counted every "the" in the letter, and an unbounded match counted "Pythonic"."""
+    from app.letter_check import _company_token
+
+    assert _company_token("The Python Software Foundation") == "Foundation"
+    assert _company_token("Acme Inc.") == "Acme"
+    assert _company_token("The Co.") == ""          # nothing distinctive -> check is skipped
+
+    the_job = Job(id="1", company="The Foundation", company_job_id="R", position="Eng")
+    # "the" appears constantly; only real mentions of Foundation should count
+    thin = "Dear Team,\n\n" + ("The work in the posting is the thing. " * 12) + "\n\nYours sincerely,\n"
+    assert "employer" in {c["rule"] for c in check_letter(thin, the_job)}
+
+    py_job = Job(id="1", company="Python Software Foundation", company_job_id="R", position="Eng")
+    pythonic = GOOD.replace("the Python Software Foundation describes in this posting",
+                            "Pythonic conventions describe this posting")
+    pythonic = pythonic.replace("The Foundation runs OSS-Fuzz", "Pythonic tooling runs OSS-Fuzz")
+    assert "employer" in {c["rule"] for c in check_letter(pythonic, py_job)}
