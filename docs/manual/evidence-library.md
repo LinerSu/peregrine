@@ -48,7 +48,12 @@ have; the library gives it better raw material, not permission to embellish.
 ## Say what you want next
 
 The forward-looking paragraph needs the one thing no CV contains — your intent. Set it in
-the **Profile** tab under *What you want next*, or add it to `config/profile.yml` by hand:
+the **Profile** tab, or add it to `config/profile.yml` by hand.
+
+**It is not a search filter.** Your target roles already decide which jobs get kept; this
+decides what a letter argues you're moving *toward*. "I'm looking for compiler roles"
+tells a hiring team nothing they can't infer from your application. Write a claim about
+the work:
 
 ```yaml
 goal: >

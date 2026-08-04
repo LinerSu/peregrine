@@ -173,11 +173,16 @@ export default function BackgroundPanel() {
 
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">
-          What you want next — the one thing no CV contains
+          What you want to <em>do</em> next — not which jobs to look for
         </label>
+        <p className="mb-1 text-[11px] text-gray-500">
+          This isn't a search filter (your target roles above do that). It's the ambition a
+          letter argues from: the kind of work you're moving toward, and why. Write it as a
+          claim about the work, not about the job hunt.
+        </p>
         <textarea
           className="w-full h-16 px-3 py-2 text-sm border border-gray-300 rounded-md resize-y"
-          placeholder="e.g. Move from research prototypes into tooling that ships to other engineers — I want the analysis I build to run in someone's CI, not just in a paper."
+          placeholder="e.g. Move from research prototypes into tooling other engineers run daily — I want the analysis I build catching real bugs in someone's CI, not just proving a point in a paper."
           value={goal}
           onChange={(e) => setGoal(e.target.value)}
         />
@@ -190,7 +195,7 @@ export default function BackgroundPanel() {
             Save goal
           </button>
           <span className="text-[11px] text-gray-400">
-            Used for the forward-looking paragraph in cover letters.
+            Becomes the forward-looking paragraph of every cover letter.
           </span>
         </div>
       </div>
