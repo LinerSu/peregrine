@@ -56,8 +56,22 @@ in order, before any bytes leave the machine:
    a browser, never send credentials/cookies, and never touch login-, paywall-, or
    CAPTCHA-protected content.
 
+A **redirect is a fetch of a different URL**, so it runs all five checks again. `safe_get`
+follows chains itself, one hop at a time (at most `MAX_REDIRECTS`), and never delegates
+redirect-following to the HTTP client — a 302 off the allow-list, to a blocked board, or to
+a robots-disallowed path is refused with its reason, not followed. For the same reason
+`safe_get` forwards **no** transport options to the HTTP client: a caller cannot pass
+headers (which would overwrite the honest User-Agent), cookies/auth, a proxy, or disable
+TLS verification. A hop may not downgrade `https` to `http`. `robots.txt` is fetched under
+the same rule, and more strictly: its redirects may only stay **within the board's own
+domain** (`boards.greenhouse.io` → `greenhouse.io` is canonicalisation), and a robots.txt
+we are refused is treated as **disallow**, never as "no robots file" — otherwise a redirect
+would be a way to switch robots enforcement off.
+
 Covered by [`api/tests/test_crawl_policy.py`](../api/tests/test_crawl_policy.py): allowed
-hosts pass, blocked hosts raise, arbitrary hosts are refused.
+hosts pass, blocked hosts raise, arbitrary hosts and non-`http(s)` schemes are refused, and
+every redirect hop is re-gated, rate-limited and robots-checked (offline, with a stubbed
+HTTP client).
 
 ## Privacy
 
@@ -87,6 +101,8 @@ true:
    it to `BLOCKED_HOSTS` with a reason, or support paste-only.
 3. **Never add browser impersonation, cookies, auth headers, or CAPTCHA/anti-bot evasion.**
 4. **Stay per-company.** Don't add platform-wide enumeration or following of arbitrary
-   links from feed content (feed URLs are already host-checked before storing).
+   links from feed content (feed URLs are already host-checked before storing), and don't
+   hand redirect-following (or any other transport option) to the HTTP client —
+   `safe_get(url, follow_redirects=True)` already follows chains through the full gate.
 5. **Privacy:** scan results are public job postings; never fetch or store anything from a
    user's account, and keep all personal data local.

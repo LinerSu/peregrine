@@ -57,7 +57,10 @@ small and specific, and users expect a quick result then a follow-up. So:
   (supported boards only — SSRF + scope), a **block-list** of ToS-prohibited / bot-
   protected sites (LinkedIn, Meta, Indeed, Glassdoor — refused before any request),
   **robots.txt**, per-host **rate limiting**, and an **honest self-identifying User-Agent**
-  (no browser impersonation, no auth-walled/login scraping). Do not bypass it; to support
+  (no browser impersonation, no auth-walled/login scraping). **Every redirect hop re-runs
+  the whole gate** — `safe_get` follows chains itself (bounded by `MAX_REDIRECTS`) and
+  forwards no transport options (headers/cookies/auth/proxy/verify/follow_redirects) to
+  httpx, because each one would silently disable one of those checks. Do not bypass it; to support
   a new board, add its host to `ALLOWED_HOSTS` and a parser — never fetch raw URLs directly.
   For blocked boards, have the user paste the job text instead of scraping.
 

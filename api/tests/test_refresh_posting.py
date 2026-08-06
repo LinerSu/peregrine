@@ -7,6 +7,7 @@ Two restraints carry the design and are pinned here:
   * it only fills BLANKS — anything already on the row was parsed once or typed by hand,
     and a refresh must not overwrite a correction.
 """
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -90,6 +91,36 @@ def test_board_outage_is_not_a_dead_posting(tmp_store, monkeypatch):
     monkeypatch.setattr(providers, "ingest_url", boom)
     r = TestClient(app).post("/api/jobs/2026-001/refresh").json()
     assert r["checked"] is False and "couldn't reach" in r["reason"]
+    assert store.get_job("2026-001").status == "open"
+
+
+def test_a_redirect_into_a_blocked_board_is_a_refusal_not_a_dead_posting(tmp_store, monkeypatch):
+    """The crawl policy can now refuse *during* the fetch — a redirect hop that leaves the
+    allow-list or lands on a blocked board. That refusal has to arrive as a refusal.
+    PolicyViolation subclasses RuntimeError, so one blanket `except Exception` in a
+    provider turns it into None, and None here means "the board no longer lists this
+    posting" — reported as dead, and recorded as such, for a posting that is still up.
+
+    Driven end to end through the route, because the swallowing happens between safe_get
+    and this function: a test that stubs ingest_url (as the ones above do) cannot see it."""
+    apple = "https://jobs.apple.com/en-us/details/200123456/engineer"
+    _job(url=apple)
+    recorded: list[str] = []
+    monkeypatch.setattr(tools.status, "record", lambda kind, *a, **k: recorded.append(kind))
+
+    def redirect_to_linkedin(url, *, headers=None, timeout=None, follow_redirects=False, **kw):
+        return httpx.Response(302, headers={"location": "https://www.linkedin.com/jobs/view/1/"},
+                              request=httpx.Request("GET", str(url)))
+
+    monkeypatch.setattr(crawl_policy.httpx, "get", redirect_to_linkedin)
+    monkeypatch.setattr(crawl_policy, "_robots_allows", lambda url: True)
+    monkeypatch.setattr(crawl_policy, "_respect_rate_limit", lambda host: None)
+
+    r = TestClient(app).post("/api/jobs/2026-001/refresh").json()
+    assert r["checked"] is False and "alive" not in r        # not evidence the job is gone
+    assert "linkedin" in r["reason"].lower()
+    assert "Paste the job description text instead" in r["reason"]  # the advice survives the hop
+    assert "refresh_gone" not in recorded
     assert store.get_job("2026-001").status == "open"
 
 

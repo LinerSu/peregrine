@@ -50,7 +50,8 @@ other companies' sites.
 - It **won't bypass** logins, paywalls, CAPTCHAs or bot-detection, won't send credentials,
   and won't impersonate a browser. Every board fetch goes through one gate
   ([`crawl_policy.py`](api/app/agent/crawl_policy.py)) that enforces a **block-list → host
-  allow-list → robots.txt → per-host rate limit → honest, self-identifying User-Agent**.
+  allow-list → robots.txt → per-host rate limit → honest, self-identifying User-Agent** —
+  re-run in full on **every redirect hop**, so a redirect can't step off the allow-list.
 - It **won't submit applications for you** — you always click Apply after the review gate —
   and won't invent skills or experience you don't have.
 

@@ -397,7 +397,10 @@ def _apple_ingest(url: str, timeout: float = 30.0) -> RawPosting | None:
     """Parse a single Apple posting from the page's embedded hydration JSON.
 
     Host is allow-listed to jobs.apple.com by crawl_policy; the SPA needs the
-    title slug in the path, so we fetch the pasted URL through safe_get."""
+    title slug in the path, so we fetch the pasted URL through safe_get. Apple
+    canonicalises locale/slug with a 302, hence follow_redirects — crawl_policy
+    re-runs the whole gate on every hop, so a redirect that leaves jobs.apple.com
+    is refused rather than followed."""
     try:
         r = crawl_policy.safe_get(url, timeout=timeout, follow_redirects=True)
         r.raise_for_status()
@@ -406,6 +409,14 @@ def _apple_ingest(url: str, timeout: float = 30.0) -> RawPosting | None:
             return None
         data = json.loads(json.loads('"' + m.group(1) + '"'))
         job = _find_apple_posting(data)
+    except PolicyViolation:
+        # A refusal is an ANSWER, not a failure to read: safe_get now raises mid-fetch
+        # when a redirect hop leaves the allow-list or lands on a blocked board, and
+        # PolicyViolation subclasses RuntimeError, so the catch-all below would turn it
+        # into None — which callers read as "the board no longer lists this posting".
+        # Both call sites have an `except PolicyViolation` arm to show the real reason
+        # (tools.ingest_job_url, tools.refresh_posting); let it reach them.
+        raise
     except Exception as exc:
         log.warning("apple ingest(%s) failed: %s", url, exc)
         return None
@@ -449,12 +460,21 @@ def _amazon_ingest(job_id: str, timeout: float = 30.0) -> RawPosting | None:
         r = crawl_policy.safe_get(url, timeout=timeout)
         r.raise_for_status()
         jobs = r.json().get("jobs", [])
+    except PolicyViolation:
+        raise  # a refusal is an answer — see _apple_ingest
     except Exception as exc:
         log.warning("amazon ingest(%s) failed: %s", job_id, exc)
         return None
 
-    job = next((j for j in jobs if str(j.get("id_icims")) == str(job_id)), jobs[0] if jobs else None)
+    # Only the requisition the URL names. search.json is a SEARCH: an id it doesn't know
+    # still returns whatever else matched, and falling back to jobs[0] would track a job
+    # the user never pasted under their URL. None is the honest answer, and callers already
+    # read it as "the board doesn't list this" (see supports_url). The key mirrors the scan
+    # path's (`id_icims or id`) so both agree on what a requisition id is — a posting with
+    # a null id_icims must not become unfindable at ingest time.
+    job = next((j for j in jobs if str(j.get("id_icims") or j.get("id") or "") == str(job_id)), None)
     if not job:
+        log.info("amazon ingest(%s): not in the search response — not substituting another job", job_id)
         return None
 
     # `or` (not a get-default) — the API can return a present-but-null field, which would make
@@ -468,6 +488,30 @@ def _amazon_ingest(job_id: str, timeout: float = 30.0) -> RawPosting | None:
         posted_date=_amazon_date(job.get("posted_date")),
         description=_amazon_body(job),
     )
+
+
+def _board_slug_as_company(slug: str, board: str) -> str:
+    """Company name for a posting reached by URL: the board's tenant slug, verbatim.
+
+    Deliberately NOT `slug.title()`. That invents an employer — "y-combinator" becomes
+    "Y-Combinator" — and the invention is not cosmetic: company is half the dedup key and
+    the application-matching key (data_store.norm_company).
+
+    Equally deliberately NOT a name fetched from the board. `norm_company` lowercases and
+    collapses punctuation, so the verbatim slug normalizes to exactly what `slug.title()`
+    normalized to ("ycombinator" -> "ycombinator", "y-combinator" -> "y combinator") and
+    every row ingested before this change still dedups. A fetched display name would not
+    ("Y Combinator" -> "y combinator" != "ycombinator"), and it would make an identity key
+    depend on whether an HTTP call succeeded — a dedup key must be deterministic.
+
+    So: the slug is the only fact the pasted URL carries, and it is what we store. A name
+    that visibly reads as a slug is one the user corrects; a plausible fiction is one they
+    don't."""
+    log.info(
+        "%s publishes no company name in its public feed for board %r — tracking the posting "
+        "under the board slug; rename the company on the job row if it differs", board, slug
+    )
+    return slug
 
 
 def supports_url(url: str) -> bool:
@@ -488,8 +532,13 @@ def ingest_url(url: str) -> RawPosting | None:
 
     Supported: amazon.jobs, Apple (jobs.apple.com), Greenhouse, Ashby
     (jobs.ashbyhq.com) and Lever (jobs.lever.co) boards. Returns None for
-    unsupported hosts (add a parser here to extend). Raises PolicyViolation for
-    hosts our crawl policy refuses (e.g. LinkedIn)."""
+    unsupported hosts (add a parser here to extend) and for a posting the board
+    does not list. Raises PolicyViolation for hosts our crawl policy refuses
+    (e.g. LinkedIn).
+
+    The company is the board's tenant slug verbatim — never a title-cased guess at
+    it, and never a name fetched at ingest time (_board_slug_as_company explains
+    why an identity key must not depend on either)."""
     reason = crawl_policy.blocked_reason(crawl_policy.host_of(url))
     if reason:
         raise PolicyViolation(f"{crawl_policy.host_of(url)} is blocked by policy — {reason}")
@@ -504,18 +553,21 @@ def ingest_url(url: str) -> RawPosting | None:
     m = _GREENHOUSE_RE.search(url)
     if m:
         slug, _job_id = m.group(1), m.group(2)
-        postings = greenhouse(slug.title(), slug)
+        company = _board_slug_as_company(slug, "Greenhouse")
+        postings = greenhouse(company, slug)
         return next((p for p in postings if p.company_job_id == _job_id), None)
 
     m = _ASHBY_RE.search(url)
     if m:
         org, jid = m.group(1), m.group(2)
-        return next((p for p in ashby(org.title(), org) if p.company_job_id == jid), None)
+        company = _board_slug_as_company(org, "Ashby")  # the posting API carries no employer name
+        return next((p for p in ashby(company, org) if p.company_job_id == jid), None)
 
     m = _LEVER_RE.search(url)
     if m:
         org, jid = m.group(1), m.group(2)
-        return next((p for p in lever(org.title(), org) if p.company_job_id == jid), None)
+        company = _board_slug_as_company(org, "Lever")  # the postings API carries no employer name
+        return next((p for p in lever(company, org) if p.company_job_id == jid), None)
 
     log.info("ingest_url: unsupported host for %s", url)
     return None
