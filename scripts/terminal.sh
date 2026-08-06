@@ -81,5 +81,23 @@ if ttyd --help 2>&1 | grep -q -- '--writable'; then
   WRITABLE=(-W)
 fi
 
+# -O/--check-origin is a SECURITY flag, not a convenience one. Loopback binding
+# stops the network; it does NOT stop a web page you already have open. A
+# WebSocket handshake is exempt from the same-origin policy and from CORS, so
+# without -O any page in your browser can open ws://127.0.0.1:7681/ws and type
+# into this PTY — full code execution as you, with your CLI's subscription and
+# read/write on config/profile.yml, resume/ and data/. The API's Origin guard
+# cannot help: it never sees this connection.
+#
+# Safe for the embed: web/src/components/TerminalPanel.tsx loads the iframe from
+# the terminal's own URL, so the WebSocket Origin matches ttyd's Host and passes.
+ORIGIN=()
+if ttyd --help 2>&1 | grep -q -- '--check-origin'; then
+  ORIGIN=(-O)
+else
+  echo "WARNING: this ttyd build has no --check-origin; any page in your browser" >&2
+  echo "         could connect to this terminal. Upgrade ttyd." >&2
+fi
+
 # -i 127.0.0.1 : bind to loopback only (do not change to 0.0.0.0)
-exec ttyd -i 127.0.0.1 -p "${PORT}" "${WRITABLE[@]}" "${CMD[@]}"
+exec ttyd -i 127.0.0.1 -p "${PORT}" "${ORIGIN[@]}" "${WRITABLE[@]}" "${CMD[@]}"
