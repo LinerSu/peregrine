@@ -10,12 +10,12 @@ TODAY = date(2026, 6, 22)
 def test_skill_gaps_ranks_by_unlocked_roles_with_outcome_signal():
     jobs = [
         # Golang is the canonical token extract_skills emits (bare "Go" never appears in req_skills).
-        Job(id="1", company="A", company_job_id="1", position="X", req_skills="Python, Kubernetes, Golang", status="open"),
-        Job(id="2", company="B", company_job_id="2", position="Y", req_skills="Kubernetes, Docker", status="open"),
-        Job(id="3", company="C", company_job_id="3", position="Z", req_skills="Kubernetes", status="closed"),  # dead -> ignored
+        Job(id="2026-001", company="A", company_job_id="1", position="X", req_skills="Python, Kubernetes, Golang", status="open"),
+        Job(id="2026-002", company="B", company_job_id="2", position="Y", req_skills="Kubernetes, Docker", status="open"),
+        Job(id="2026-003", company="C", company_job_id="3", position="Z", req_skills="Kubernetes", status="closed"),  # dead -> ignored
     ]
     apps = [
-        Application(id="4", company="D", company_job_id="4", position="W", req_skills="Kubernetes, Golang",
+        Application(id="2026-004", company="D", company_job_id="4", position="W", req_skills="Kubernetes, Golang",
                     status="rejected", applied_date="2026-06-01"),
     ]
     gaps = compute_skill_gaps(jobs, apps, user_skills={"Python", "Docker"})
@@ -28,7 +28,8 @@ def test_skill_gaps_ranks_by_unlocked_roles_with_outcome_signal():
 
 
 def _app(aid, status, fit=None, role="", applied="2026-06-10", interview=""):
-    return Application(id=aid, company=f"C{aid}", company_job_id=f"R{aid}", position="Eng",
+    # ids are minted (year-NNN) and name files on disk — a bare "1" is not a valid row.
+    return Application(id=f"2026-{int(aid):03d}", company=f"C{aid}", company_job_id=f"R{aid}", position="Eng",
                        status=status, fit_score=fit, role_category=role,
                        applied_date=applied, interview_date=interview)
 
@@ -100,7 +101,7 @@ def test_follow_ups_stale_future_and_unparseable():
         _app("6", "applied", applied="not-a-date"),                       # unparseable -> skip
     ]
     fu = compute_outcomes(apps, TODAY)["follow_ups"]
-    assert [f["id"] for f in fu] == ["1"] and fu[0]["days"] == 21
+    assert [f["id"] for f in fu] == ["2026-001"] and fu[0]["days"] == 21
 
 
 def test_empty_is_safe():
