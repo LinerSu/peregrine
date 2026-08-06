@@ -134,8 +134,10 @@ _Last updated: 2026-06-19._
 **Remaining roadmap (prioritized — pick up here):**
 1. **Wire a real LLM** — set `LLM_PROVIDER` + key in `.env`; with `mock`, fit/CV/upskilling are placeholders.
 2. **Cover-letter generation** in `materials-prep` (LLM-gated).
-3. **min_salary** is captured in Targets but not yet enforced in `_passes_filters` (salary isn't on
-   RawPosting at scan time) — wire it once providers carry comp.
+3. **min_salary** is a serve-time flag (`below_min_salary` on each listed job, from
+   `Job.salary_min`), never a scan filter — `RawPosting` carries no comp, so a gate in
+   `_passes_filters` could only be a no-op. Teaching providers to carry compensation is the
+   open piece; the flag turns into a real filter only if we ever want one.
 4. Optional **SQLite** derived index for fast search at scale; broaden test coverage (routers/subagents).
 
 **Provider notes / ToS:** Meta (metacareers.com) is **intentionally unsupported** — it blocks

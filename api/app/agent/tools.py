@@ -362,6 +362,16 @@ def _too_old(posted_date: str, max_age_days: int) -> bool:
     return (date.today() - d).days > max_age_days
 
 
+def _below_min_salary(salary_min: float | None, target: float) -> bool:
+    """True if a posting's stated base pay is under the user's salary floor. An unstated
+    salary counts as NOT below it (we can't price what the posting never priced, so we
+    keep it rather than guess) — the same restraint _too_old shows for undated postings.
+    No floor set (0/absent/garbage) means nothing is below it."""
+    if target <= 0 or salary_min is None:
+        return False
+    return salary_min < target
+
+
 _QUERY_WORD_RE = re.compile(r"[a-z0-9+#]+")
 
 
@@ -464,7 +474,11 @@ def _passes_filters(
 ) -> bool:
     """Portals filters + the user's search targets (config/profile.yml::targets). (Query
     relevance is applied separately in scan_jobs, against the structured tags — see
-    _relevance_text — so it matches the Jobs-tab `relevant` flag exactly.)"""
+    _relevance_text — so it matches the Jobs-tab `relevant` flag exactly.)
+
+    targets.min_salary is deliberately absent: RawPosting carries no compensation, so a gate
+    here could only ever be a no-op. It is a serve-time flag instead — see _below_min_salary
+    and the `below_min_salary` key in list_jobs."""
     targets = targets or {}
     loc_hay = p.location.lower()
     text = f"{p.position} {p.description}".lower()
@@ -1253,12 +1267,20 @@ def list_jobs(query: str = "") -> dict[str, Any]:
     # Cheap fit signal (no LLM): which of a job's required skills the user has. Lets a brand-new
     # user — who hasn't run any LLM fit evals — still triage to the roles they best match.
     user_skills = _user_skills()
+    # The salary floor (targets.min_salary) is a DERIVED flag, judged here and not at scan time:
+    # providers.RawPosting carries no compensation, so a scan-time gate would be a no-op — but
+    # Job.salary_min IS populated for pasted and ingested postings, and that is what this reads.
+    # A flag, never a filter: a posting under your floor can still be worth a look (and the number
+    # may be stale or negotiable), so the UI de-emphasises rather than hides. Read once — a
+    # per-row read_targets() would re-parse profile.yml for every job.
+    min_salary = _as_float(store.read_targets().get("min_salary"), 0.0)
     cv_ts = cv_parsed_stamp()  # fetched once — artifact_stale in a loop must not re-read yaml
     out = []
     for j in jobs:
         d = j.model_dump()
         d.pop("keywords", None)  # internal search index — matched server-side, never shipped to the client
         d["relevant"] = is_relevant(j)
+        d["below_min_salary"] = _below_min_salary(j.salary_min, min_salary)
         d["skill_fit"] = _skill_fit(j.req_skills, user_skills)
         # A fit score evaluated against a PREVIOUS CV is never shown as current — the
         # list nulls it (so ranking/sorting drop it too), matching the detail pane's

@@ -134,13 +134,29 @@ def link_application(app_id: str, payload: dict):
     return {"application": linked.model_dump(), "job_tracked": True}
 
 
+# Job statuses that only mean anything while an application row backs them — the
+# post-apply half of APPLICATION_STATUSES. Deleting the application must return the job to
+# "open", or it strands in a status nothing explains: the Jobs tab shows "interviewing" for
+# an interview it has no record of, and the Applications tab has nothing to open.
+# "closed" is deliberately excluded even though it IS an application status: for a JOB it
+# also means "the board no longer lists this posting" (scan_jobs sets exactly that), and
+# reopening a dead posting into the actionable list is the worse mistake of the two.
+_STATUSES_IMPLYING_AN_APPLICATION = APPLICATION_STATUSES - {"closed"}
+
+
 @router.delete("/applications/{app_id}")
 def delete_application(app_id: str):
+    """Delete an application row and, if it was tracking a job, hand that job back.
+
+    The reset used to fire only on the exact status "applied", so deleting an application
+    from `interviewing`, `offer` or `rejected` — the statuses you reach precisely by
+    tracking a real application — left the job claiming a history that had just been
+    erased, with no way back to "open" short of editing it by hand."""
     if not store.delete_application(app_id):
         raise HTTPException(404, f"application {app_id} not found")
     # If it was tracking a scanned job, make that job actionable again.
     job = store.get_job(app_id)
-    if job and job.status == "applied":
+    if job and job.status in _STATUSES_IMPLYING_AN_APPLICATION:
         job.status = "open"
         store.upsert_job(job)
     return {"deleted": app_id}
