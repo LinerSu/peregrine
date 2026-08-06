@@ -104,6 +104,102 @@ def test_new_parsers_survive_malformed_payloads():
     assert sr2[0].location == "" and sr2[0].url.endswith("/x/k")
 
 
+def _no_network(*a, **k):
+    raise AssertionError("this path must not make an HTTP request")
+
+
+class _Resp:
+    """Stand-in for the httpx response safe_get returns (no network in this file)."""
+
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._payload
+
+
+def test_an_amazon_id_the_search_does_not_list_ingests_nothing(monkeypatch):
+    # search.json is a SEARCH, not a lookup: an id it doesn't know still returns whatever
+    # else matched the query. Taking the first result files a job the user never pasted
+    # under their URL — silent, and wrong in the worst place (their tracked list).
+    payload = {"jobs": [{"id_icims": "7654321", "title": "Some Other Role",
+                         "normalized_location": "Seattle, WA", "job_path": "/en/jobs/7654321"}]}
+    monkeypatch.setattr(P.crawl_policy, "safe_get", lambda *a, **k: _Resp(payload))
+
+    assert P._amazon_ingest("1234567") is None      # the pasted id is absent -> no guess
+    hit = P._amazon_ingest("7654321")               # present -> that posting, as before
+    assert hit and hit.company_job_id == "7654321" and hit.position == "Some Other Role"
+
+
+def test_an_amazon_posting_is_found_by_the_same_id_the_scan_would_use(monkeypatch):
+    # The scan keys on `id_icims or id`. If ingest keyed on id_icims alone, a posting that
+    # carries only `id` would be tracked by a scan and unfindable by its own URL.
+    payload = {"jobs": [{"id_icims": None, "id": 1234567, "title": "Engineer",
+                         "job_path": "/en/jobs/1234567"}]}
+    monkeypatch.setattr(P.crawl_policy, "safe_get", lambda *a, **k: _Resp(payload))
+    hit = P._amazon_ingest("1234567")
+    assert hit and hit.position == "Engineer" and hit.company_job_id == "1234567"
+
+
+@pytest.mark.parametrize("url", [
+    "https://jobs.apple.com/en-us/details/200123456/engineer",
+    "https://www.amazon.jobs/en/jobs/1234567",
+])
+def test_a_policy_refusal_during_ingest_is_raised_not_reported_as_unlisted(monkeypatch, url):
+    # safe_get can refuse mid-fetch now (a redirect hop off the allow-list, or onto a
+    # blocked board). PolicyViolation subclasses RuntimeError, so a blanket `except
+    # Exception` would swallow it and return None — which callers read as "the board no
+    # longer lists this posting". A refusal is an answer, and it has to reach them.
+    def refuse(*a, **k):
+        raise PolicyViolation("www.linkedin.com is blocked by policy — paste the text instead")
+
+    monkeypatch.setattr(P.crawl_policy, "safe_get", refuse)
+    with pytest.raises(PolicyViolation) as exc:
+        P.ingest_url(url)
+    assert "blocked by policy" in str(exc.value)
+
+
+def test_url_ingest_tracks_a_posting_under_the_board_slug_verbatim(monkeypatch):
+    # `slug.title()` reads as a display nicety and is not one: company is half the dedup
+    # key and the application-matching key, so an invented spelling splits an employer in
+    # two. The verbatim slug is the fix AND the compatible one — norm_company lowercases
+    # and collapses punctuation, so it normalizes to exactly what the old title-cased
+    # value did, and every row ingested before this change still dedups. A name fetched
+    # from the board would not, and would make an identity key depend on an HTTP call.
+    from app import data_store as store
+
+    norm = store.norm_company
+    assert norm("ycombinator") == norm("Ycombinator") != norm("Y Combinator")  # the stakes
+    assert norm("y-combinator") == norm("Y-Combinator") == norm("y combinator")
+
+    seen: dict[str, str] = {}
+
+    def board(name: str, job_id: str):
+        def fetch(company, slug, timeout=30.0):
+            seen[name] = company
+            return [P.RawPosting(company=company, company_job_id=job_id, position="Engineer")]
+        return fetch
+
+    monkeypatch.setattr(P, "lever", board("lever", "abc123"))
+    monkeypatch.setattr(P, "ashby", board("ashby", "abc123"))
+    monkeypatch.setattr(P, "greenhouse", board("greenhouse", "4521"))  # numeric ids on GH
+
+    lever = P.ingest_url("https://jobs.lever.co/y-combinator/abc123")
+    assert lever.company == "y-combinator" and seen["lever"] == "y-combinator"  # not "Y-Combinator"
+    ashby = P.ingest_url("https://jobs.ashbyhq.com/ycombinator/abc123")
+    assert ashby.company == "ycombinator"          # not "Ycombinator", and not "Y Combinator"
+    gh = P.ingest_url("https://job-boards.greenhouse.io/acmecorp/jobs/4521")
+    assert gh.company == "acmecorp" and seen["greenhouse"] == "acmecorp"
+
+    # Identity is decided from the URL alone: no board request, so no way for a network
+    # answer (or its absence) to change which employer a posting is filed under.
+    monkeypatch.setattr(P.crawl_policy, "safe_get", _no_network)
+    assert P.ingest_url("https://job-boards.greenhouse.io/acmecorp/jobs/4521").company == "acmecorp"
+
+
 def test_scan_dedups_within_and_across_scans(tmp_path, monkeypatch):
     # Clicking Scan must never add a duplicate job — within one scan (same posting twice)
     # or across re-scans (already-tracked jobs). Dedup key = company + company_job_id.

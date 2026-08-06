@@ -837,7 +837,8 @@ def refresh_posting(job_id: str) -> dict[str, Any]:
     what the original add didn't capture?
 
     Deterministic (no LLM), so External and Internal behave identically — and it costs no
-    tokens, only one polite request through crawl_policy.
+    tokens, only a polite request through crawl_policy (a redirect adds a hop, and each
+    hop is re-gated and rate-limited like any other fetch).
 
     Two deliberate restraints:
 
