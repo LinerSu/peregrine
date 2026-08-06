@@ -17,6 +17,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
+# Inert outside pytest, but the documented container test run
+# (`docker compose run --rm -v "$PWD/api/tests:/app/tests" api ... pytest tests`) has
+# ROOT=/app with data/, config/, applications/ and logs/ bind-mounted from the host —
+# so without this the suite writes STATUS.md and applications/<id>/ artifacts straight
+# into the user's real install. The conftest points it at a throwaway root instead.
+COPY conftest.py .
+
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

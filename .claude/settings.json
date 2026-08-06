@@ -33,7 +33,16 @@
       "Bash(git branch:*)",
       "Bash(git checkout:*)",
       "Bash(git restore:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+
+      "Bash(gh pr view:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run list:*)"
     ],
     "deny": [
       "Write(./data/**)",
