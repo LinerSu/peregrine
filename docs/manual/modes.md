@@ -33,6 +33,35 @@ Then just click **Internal (Claude)** in the top bar. (Or run `./start.sh` to br
 stack and the terminal together for one session.) The terminal is bound to `127.0.0.1` —
 local-only; never expose it.
 
+### Using a different CLI
+
+The terminal will run whatever CLI you point it at — `PEREGRINE_TERMINAL_CMD` is read by
+both `scripts/terminal.sh` and `scripts/install-terminal-service.sh`:
+
+```bash
+PEREGRINE_TERMINAL_CMD=codex ./scripts/terminal.sh              # one session
+PEREGRINE_TERMINAL_CMD=codex ./scripts/install-terminal-service.sh   # or the background service
+```
+
+Pair it with `PEREGRINE_TERMINAL_PORT` to run two CLIs side by side. These are **shell**
+variables, not compose ones — putting them in `.env` will not work, because that file is
+read by Docker and the terminal runs on the host.
+
+**What actually works today with a non-Claude CLI.** Everything deterministic: reading
+`data/jobs/<id>.md` and `config/profile.yml`, and `curl`ing any store-only route. The API
+has no authentication and does not care which CLI is calling it.
+
+**What does not.** The guided prompts Internal mode hands you — "evaluate fit for
+2026-001", "draft a cover letter for 2026-001" — are bare phrases that only work because
+Claude Code auto-loads `.claude/skills/peregrine/SKILL.md` and matches its frontmatter.
+Codex discovers skills only under `$CODEX_HOME/skills` (default `~/.codex/skills`), with no
+repo-local equivalent, so the same phrase arrives as an unqualified request. Until that is
+bridged, treat a non-Claude CLI as: launches fine, drives the API fine, but you will have
+to tell it what to do rather than pasting the one-liner.
+
+The rubrics it would follow — `.agents/skills/*/SKILL.md` — are already vendor-neutral, so
+it is only the router that is Claude-specific.
+
 ## Troubleshooting the terminal
 
 **"Port 7681 is already in use" when running `./start.sh` / `terminal.sh`** — three cases:
@@ -46,9 +75,11 @@ local-only; never expose it.
 3. **Something else owns the port.** Run on another port:
    `PEREGRINE_TERMINAL_PORT=7682 ./scripts/terminal.sh`.
 
-**Terminal shows a shell prompt instead of Claude** — Claude Code isn't installed or
-logged in on the host: install it, run `claude` once to log in, then restart the service
-(`systemctl --user restart peregrine-terminal`).
+**Terminal shows a shell prompt instead of your CLI** — it isn't installed or logged in on
+the host: install it, run it once to sign in, then restart the service
+(`systemctl --user restart peregrine-terminal`). If you installed the CLI through a version
+manager (nvm, asdf), re-run `./scripts/install-terminal-service.sh` — the unit bakes in the
+CLI's directory at install time, so it moves when your toolchain does.
 
 ## How to choose
 
