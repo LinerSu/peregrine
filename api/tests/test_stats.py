@@ -4,7 +4,8 @@ from app.stats import compute_insights
 
 
 def _job(jid, status="open", fit=None, posted="2026-06-15"):
-    return Job(id=jid, company="Acme", company_job_id=jid, position="Eng",
+    # ids are minted (year-NNN) and name files on disk — a bare "1" is not a valid row.
+    return Job(id=f"2026-{int(jid):03d}", company="Acme", company_job_id=jid, position="Eng",
                status=status, fit_score=fit, posted_date=posted)
 
 
@@ -38,7 +39,7 @@ def test_score_distribution_buckets():
 
 def test_weekly_activity_groups_by_iso_week():
     jobs = [_job("1", posted="2026-06-15"), _job("2", posted="2026-06-15")]  # same week
-    apps = [Application(id="3", company="Acme", company_job_id="3", position="Eng",
+    apps = [Application(id="2026-003", company="Acme", company_job_id="3", position="Eng",
                         applied_date="2026-06-15")]
     act = compute_insights(jobs, apps)["activity"]
     assert len(act) == 1

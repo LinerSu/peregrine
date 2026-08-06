@@ -44,6 +44,28 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
 _STORE_LOCK = threading.RLock()
 
 
+# Leading characters a spreadsheet reads as "this cell is a formula". company, position and
+# location arrive verbatim from a job board, and docs/manual/edit-data.md tells users to
+# bulk-edit these CSVs — in a spreadsheet. `csv` quotes such a value but quoting is not
+# neutralising: Excel/LibreOffice still evaluate `=WEBSERVICE(...)` or a DDE payload on open.
+_FORMULA_LEAD = ("=", "+", "-", "@")
+
+
+def _neutralize_formula(value: Any) -> Any:
+    """Prefix a formula-leading STRING with an apostrophe, the spreadsheet marker for
+    "this is text".
+
+    Strings only: salary_min / fit_score are floats, and apostrophising a negative number
+    would come back as a value `float()` can't read. The escape is idempotent — a value
+    that already starts with `'` no longer starts with a formula lead, so the rewrite of
+    every row on every save can't grow a second one. That stability is the contract the
+    round-trip test pins; `_read_csv` deliberately does NOT unescape (undoing it would put
+    the live payload back into the file a spreadsheet opens)."""
+    if isinstance(value, str) and value[:1] in _FORMULA_LEAD:
+        return "'" + value
+    return value
+
+
 def _write_csv(path: Path, fields: list[str], rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -51,7 +73,9 @@ def _write_csv(path: Path, fields: list[str], rows: list[dict[str, Any]]) -> Non
         writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         for r in rows:
-            writer.writerow({k: ("" if r.get(k) is None else r.get(k)) for k in fields})
+            writer.writerow(
+                {k: ("" if r.get(k) is None else _neutralize_formula(r.get(k))) for k in fields}
+            )
     tmp.replace(path)  # atomic
 
 

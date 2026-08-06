@@ -29,8 +29,12 @@ Handler = Callable[[str, list[dict[str, str]]], "tuple[str, list[dict[str, Any]]
 
 
 def run(message: str, history: list[dict[str, str]]) -> dict[str, Any]:
-    status.record("chat", message[:120], current_task="Handling chat request")
+    # Log what the user asked FOR, never what they wrote. Pasting a CV into chat is a
+    # designed flow (>400 chars routes to _handle_cv), and the first 120 characters of a
+    # CV are a name, an email address and a phone number — which logs/STATUS.md then
+    # invites the user to paste into a fresh agent session.
     intent, handler = _route(message)
+    status.record("chat", f"{intent} ({len(message)} chars)", current_task="Handling chat request")
     reply, actions = handler(message, history)
     status.record("chat_done", intent, current_task="idle")
     return {"reply": reply, "actions": actions}

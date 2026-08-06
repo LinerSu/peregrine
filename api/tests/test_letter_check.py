@@ -135,12 +135,12 @@ def test_employer_counting_uses_a_word_that_identifies_the_company():
     assert _company_token("Acme Inc.") == "Acme"
     assert _company_token("The Co.") == ""          # nothing distinctive -> check is skipped
 
-    the_job = Job(id="1", company="The Foundation", company_job_id="R", position="Eng")
+    the_job = Job(id="2026-001", company="The Foundation", company_job_id="R", position="Eng")
     # "the" appears constantly; only real mentions of Foundation should count
     thin = "Dear Team,\n\n" + ("The work in the posting is the thing. " * 12) + "\n\nYours sincerely,\n"
     assert "employer" in {c["rule"] for c in check_letter(thin, the_job)}
 
-    py_job = Job(id="1", company="Python Software Foundation", company_job_id="R", position="Eng")
+    py_job = Job(id="2026-001", company="Python Software Foundation", company_job_id="R", position="Eng")
     pythonic = GOOD.replace("the Python Software Foundation describes in this posting",
                             "Pythonic conventions describe this posting")
     pythonic = pythonic.replace("The Foundation runs OSS-Fuzz", "Pythonic tooling runs OSS-Fuzz")

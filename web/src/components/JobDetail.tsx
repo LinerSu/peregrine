@@ -400,7 +400,10 @@ export default function JobDetail({
     setBusy(true);
     try {
       const res = await api.prepare(jobId);
-      setApplyUrl(res.apply_url);
+      // The apply link is posting-derived, so it gets the same sanitiser as job.url:
+      // React does not block a `javascript:` href at runtime, and this one sits under
+      // Peregrine's own "Apply on company site" button on an allowed origin.
+      setApplyUrl(safeHttpUrl(res.apply_url) ?? null);
       await load();
       // The gate lives at the END of the scroll now — bring it into view so the
       // unlocked Apply link is never a mystery below the fold.
