@@ -552,6 +552,16 @@ def delete_job(job_id: str) -> bool:
         if len(remaining) == len(jobs):
             return False
         _write_csv(config.JOBS_CSV, JOB_FIELDS, [j.model_dump() for j in remaining])
+    _remove_job_artifacts(job_id)
+    log.info("delete_job id=%s", job_id)
+    return True
+
+
+def _remove_job_artifacts(job_id: str) -> None:
+    """Remove everything a job owns OUTSIDE jobs.csv: its `<id>.*` sidecar family under
+    data/jobs/ and its applications/<id>/ materials mirror. Split out of delete_job so the
+    bulk purge can reuse it without also inheriting delete_job's per-row CSV rewrite.
+    Callers guarantee no application row exists for this id."""
     # Exact-prefix match, not glob(f"{job_id}.*"): ids come from our own rows, but a
     # name with glob metacharacters must never widen the match — startswith can't.
     try:
@@ -565,11 +575,8 @@ def delete_job(job_id: str) -> bool:
         pass
     # The applications/<id>/ mirror (prepared materials) goes too — otherwise a later
     # job that REUSES this id (ids are minted per-year sequentially) would silently
-    # inherit the old job's materials. Safe: the caller guarantees no application row
-    # exists for this id.
+    # inherit the old job's materials.
     shutil.rmtree(config.APPLICATIONS_DIR / job_id, ignore_errors=True)
-    log.info("delete_job id=%s", job_id)
-    return True
 
 
 def purge_closed_jobs(older_than_days: int, today: "date | None" = None) -> dict[str, int]:
@@ -578,7 +585,13 @@ def purge_closed_jobs(older_than_days: int, today: "date | None" = None) -> dict
     Deliberately conservative: only status == "closed" (dead) rows qualify; jobs with
     a linked application are skipped (they are the user's history), and jobs with a
     missing/unparseable posted_date are skipped rather than guessed at. `today` is
-    injectable for tests."""
+    injectable for tests.
+
+    Decide first, write ONCE. It used to call delete_job per doomed row, and each of those
+    re-read and rewrote the entire CSV (plus a full applications read per candidate for the
+    linked check) — quadratic work on a path that runs at the end of every scan, where the
+    rows to purge are exactly the ones that accumulate over months. The artifacts still go
+    one job at a time, because they are separate files; only the row rewrite is batched."""
     from datetime import date, timedelta
 
     zeros = {"deleted": 0, "skipped_linked": 0, "skipped_undated": 0}
@@ -588,22 +601,32 @@ def purge_closed_jobs(older_than_days: int, today: "date | None" = None) -> dict
         return zeros
 
     cutoff = (today or date.today()) - timedelta(days=older_than_days)
-    deleted = skipped_linked = skipped_undated = 0
-    for j in list_jobs():
-        if j.status != "closed":
-            continue
-        try:
-            posted = date.fromisoformat(j.posted_date)
-        except (TypeError, ValueError):
-            skipped_undated += 1
-            continue
-        if posted > cutoff:
-            continue
-        if get_application(j.id):
-            skipped_linked += 1
-            continue
-        delete_job(j.id)
-        deleted += 1
+    skipped_linked = skipped_undated = 0
+    doomed: list[str] = []
+    with _STORE_LOCK:  # read-modify-write, held across the decision so nothing shifts under it
+        jobs = list_jobs()
+        linked = {a.id for a in list_applications()}
+        for j in jobs:
+            if j.status != "closed":
+                continue
+            try:
+                posted = date.fromisoformat(j.posted_date)
+            except (TypeError, ValueError):
+                skipped_undated += 1
+                continue
+            if posted > cutoff:
+                continue
+            if j.id in linked:
+                skipped_linked += 1
+                continue
+            doomed.append(j.id)
+        if doomed:
+            gone = set(doomed)
+            _write_csv(config.JOBS_CSV, JOB_FIELDS,
+                       [j.model_dump() for j in jobs if j.id not in gone])
+    for job_id in doomed:  # outside the lock: filesystem cleanup, no shared state
+        _remove_job_artifacts(job_id)
+    deleted = len(doomed)
     log.info("purge_closed_jobs days=%s deleted=%s skipped_linked=%s skipped_undated=%s",
              older_than_days, deleted, skipped_linked, skipped_undated)
     return {"deleted": deleted, "skipped_linked": skipped_linked, "skipped_undated": skipped_undated}

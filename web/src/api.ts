@@ -24,6 +24,8 @@ export interface Job {
   domains: string; // comma-joined finer fields
   starred: boolean;
   relevant?: boolean; // derived (server): does it match your scan queries? (separate from status)
+  below_min_salary?: boolean; // derived (server): stated salary is under targets.min_salary
+  //   (false when the posting states none — an unpriced posting is never marked below your floor)
   skill_fit?: { have: string[]; missing: string[]; score: number }; // cheap no-LLM fit signal
   people: string; // JSON list of {name, role, link} you entered (never scraped); synced job↔app
 }

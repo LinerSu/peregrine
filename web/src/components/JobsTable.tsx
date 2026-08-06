@@ -366,7 +366,14 @@ export default function JobsTable({
         )}
       </td>
       {colVisible("salary") && (
-        <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
+        // below_min_salary is derived server-side from your targets.min_salary. It marks the
+        // number, it never hides the row — the floor is a preference, not a fact about the job.
+        <td
+          className={`px-3 py-2 whitespace-nowrap ${
+            j.below_min_salary ? "text-amber-600" : "text-gray-500"
+          }`}
+          title={j.below_min_salary ? "Below your minimum salary target" : undefined}
+        >
           {salaryRange(j.salary_min, j.salary_max, j.currency)}
         </td>
       )}

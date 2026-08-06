@@ -14,7 +14,8 @@ Discover relevant openings and persist them as the single source of truth.
    (`provider_greenhouse`, `provider_ashby`, `provider_lever`, or `provider_generic`).
 3. For each free-text query, run `web_search` across supported boards.
 4. **Dedupe** on `company` + `company_job_id`.
-5. Apply hard filters (location, remote_only, min_base).
+5. Apply hard filters (location, remote_only, max_age_days). Not salary: boards don't
+   give comp at scan time, so `targets.min_salary` is flagged at serve time instead.
 6. For survivors: write a row to `data/jobs.csv` and, if `snapshot: true`,
    a `data/jobs/<id>.md` with the full posting.
 7. Keep scanning until the queries/companies are exhausted, then report counts.
