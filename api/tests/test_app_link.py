@@ -449,6 +449,35 @@ def test_patch_can_correct_parsed_posting_fields(tmp_store):
     assert j.close_date == "2026-10-12"
 
 
+def test_patching_an_application_rejects_values_that_would_corrupt_the_row(tmp_store):
+    """Same guarantee as the jobs route, for the row a tracker edits most. Every read of
+    applications.csv goes back through the model, so one unvalidated write takes the
+    Applications tab, Insights and Outcomes down together until the CSV is hand-edited."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    store.upsert_application(Application(id="2026-001", company="Acme", company_job_id="R1",
+                                         position="Eng", status="applied",
+                                         applied_date="2026-07-01"))
+    client = TestClient(app)
+
+    assert client.patch("/api/applications/2026-001", json={"status": "banana"}).status_code == 422
+    assert client.patch("/api/applications/2026-001", json={"interview_date": "next Tuesday"}).status_code == 422
+    assert client.patch("/api/applications/2026-001", json={"applied_date": "07/01/2026"}).status_code == 422
+    saved = store.get_application("2026-001")
+    assert saved.status == "applied" and saved.applied_date == "2026-07-01"  # nothing written
+    assert client.get("/api/applications").status_code == 200                # the list still reads
+
+    # …and the values the tracker actually sends still save, including clearing a date.
+    r = client.patch("/api/applications/2026-001",
+                     json={"status": "interviewing", "interview_date": "2026-08-12", "applied_date": ""})
+    assert r.status_code == 200
+    saved = store.get_application("2026-001")
+    assert saved.status == "interviewing" and saved.interview_date == "2026-08-12"
+    assert saved.applied_date == ""
+
+
 def test_patch_rejects_values_that_would_corrupt_the_row(tmp_store):
     # model_copy skips validation, so an unchecked write would reach the CSV and break
     # every later read. Both of these must be refused, not stored.

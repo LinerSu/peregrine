@@ -2,21 +2,31 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from pydantic import ValidationError
 
 from .. import data_store as store
 from .. import evidence
 from ..agent import tools
 from ..extract import extract_text
-from ..schemas import APPLICATION_STATUSES, CONTACT_FIELDS, Application, CvSourceInput, ProfileInput
+from ..schemas import (
+    APPLICATION_STATUSES,
+    CONTACT_FIELDS,
+    Application,
+    CvSourceInput,
+    ProfileInput,
+    TargetsInput,
+)
 from ..skills import normalize_category
 
 router = APIRouter(prefix="/api", tags=["applications"])
 
 # Tracker fields the user may edit from the Applications view (incl. user-entered people).
 EDITABLE_APPLICATION_FIELDS = {"status", "interview_date", "applied_date", "contacts", "notes"} | CONTACT_FIELDS
+_DATE_FIELDS = ("applied_date", "interview_date")
 
 
 @router.get("/applications")
@@ -146,7 +156,18 @@ def update_application(app_id: str, payload: dict):
     changes = {k: v for k, v in payload.items() if k in EDITABLE_APPLICATION_FIELDS}
     if "people" in changes and not isinstance(changes["people"], str):
         changes["people"] = json.dumps(changes["people"])  # always a JSON string (the UI parses it)
-    updated = app.model_copy(update=changes)
+    for f in _DATE_FIELDS:  # stored as plain strings, so the schema can't catch a bad one
+        v = str(changes.get(f, "")).strip()
+        if v and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+            raise HTTPException(422, f"{f} must be YYYY-MM-DD (got {v!r})")
+    # Rebuild through the model rather than model_copy (same reason as PATCH /api/jobs):
+    # model_copy skips validation, so a status of "banana" would reach applications.csv and
+    # then raise on EVERY later read of the row — the Applications tab, Insights and
+    # Outcomes all 500 at once, until someone hand-edits the CSV.
+    try:
+        updated = Application(**{**app.model_dump(), **changes})
+    except ValidationError as exc:
+        raise HTTPException(422, f"invalid application update: {exc.error_count()} field(s) rejected")
     store.upsert_application(updated)
     # Keep a linked tracked job (shared id) in sync: status + the people fields, so contacts are
     # consistent across Applications + Jobs no matter where you enter them.
@@ -236,8 +257,21 @@ def get_preferences():
 
 
 @router.put("/preferences")
-def put_preferences(payload: dict):
-    store.write_targets(payload)
+def put_preferences(payload: TargetsInput):
+    """Save what the user is looking for (profile.targets). Store-only — no LLM, so it is
+    identical in both modes.
+
+    MERGES rather than replacing. `store.write_targets` swaps the whole `targets` sub-tree,
+    so writing the request body verbatim deleted every key the sender didn't happen to
+    send — a key added by hand in profile.yml, or one a newer UI knows about and an older
+    caller doesn't. Merging keeps this endpoint honest about being a partial update, like
+    PUT /api/jobs/portals.
+
+    Sending a key still overwrites it, so nothing either caller does changes: the Search
+    panel posts every filter on each save (an explicit `[]` / `null` still clears one), and
+    the Background panel posts the career `goal`. Only an OMITTED key is left alone."""
+    targets = {**store.read_targets(), **payload.model_dump(exclude_unset=True)}
+    store.write_targets(targets)
     return store.read_targets()
 
 

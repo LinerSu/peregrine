@@ -117,3 +117,6 @@ externals/
 data/evidence/*
 !data/evidence/.gitkeep
 !data/evidence/README.md
+
+# Agent worktrees (created by worktree-isolated subagent runs) — never commit these.
+.claude/worktrees/

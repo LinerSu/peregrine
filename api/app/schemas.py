@@ -296,6 +296,42 @@ class PortalsInput(BaseModel):
         return [s for s in (_as_str(x).strip() for x in v) if s]
 
 
+class TargetsInput(BaseModel):
+    """Body for PUT /api/preferences — the user's search intent, stored under
+    profile.targets. Store-only (no LLM, so it is identical in both modes), and PARTIAL
+    in the same way as PortalsInput: only the keys actually sent are written.
+
+    Validated because the stored value is not inert — it drives scan filtering and is
+    shown to the fit-scoring model, so a wrong type is never contained. `exclude_keywords:
+    [1, 2]` used to reach the YAML and then 500 the next scan on `kw.lower()`, and
+    `locations: "remote"` iterated character by character and silently mis-filtered: the
+    user simply saw the wrong jobs, with nothing on screen to point at.
+
+    work_mode stays a free string on purpose — profile.yml is hand-editable, and a
+    Literal would lock a user out of saving anything until they fixed a word they may
+    not know is there. `goal` is here because the Background panel saves it through this
+    same endpoint (it feeds career_goal() and the cover-letter prompt); a model without it
+    would accept that save and drop it on the floor."""
+    roles: Optional[list[str]] = None
+    locations: Optional[list[str]] = None
+    work_mode: Optional[str] = None
+    min_salary: Optional[float] = None
+    include_keywords: Optional[list[str]] = None
+    exclude_keywords: Optional[list[str]] = None
+    goal: Optional[str] = None  # one line on what the user wants to DO next — not a filter
+
+    @field_validator("roles", "locations", "include_keywords", "exclude_keywords", mode="before")
+    @classmethod
+    def _clean_list(cls, v):
+        # A non-list is handed back untouched so pydantic REJECTS it (422). Coercing it to
+        # None instead would read as a successful save and then mis-filter every scan —
+        # the silent half of this bug is the worse half.
+        if not isinstance(v, list):
+            return v
+        # _as_str maps None->"" (str(None) would persist the literal "None"); drop blanks.
+        return [s for s in (_as_str(x).strip() for x in v) if s]
+
+
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
     content: str
