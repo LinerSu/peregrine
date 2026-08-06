@@ -77,8 +77,12 @@ docker compose up --build     # web -> http://localhost:5173 , api -> :8000
   shows a copyable guided prompt for local Claude and polls the `GET`. Add the Internal
   command to `.claude/skills/peregrine/SKILL.md` **and** list its trigger phrase in that
   skill's frontmatter `description` (else local Claude won't auto-invoke it).
-  `tests/test_mode_contract.py` enforces the POST/PUT/GET trio — a single-mode feature
-  fails CI.
+  `tests/test_mode_contract.py` checks the POST/PUT/GET trio, but it is an **allowlist,
+  not a detector**: it walks a hardcoded `CONTRACT` dict, so a new feature that never gets
+  added to it stays green while being single-mode. Register your feature there yourself.
+  It also asserts nothing about the LLM — the only store-only-no-LLM guard is
+  `tests/test_internal_pipeline.py`, and it covers just evaluation + upskilling. The web
+  leg has no coverage at all and must be checked by hand in both modes.
 - **Real LLM** → set `LLM_PROVIDER` + key in `.env`.
 
 ## Quality gate (CI + local git hooks)
