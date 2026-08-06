@@ -1,6 +1,7 @@
 """Pydantic models shared across the API and agent."""
 from __future__ import annotations
 
+import re
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -9,6 +10,22 @@ JobStatus = Literal["open", "closed", "removed", "applied", "interviewing", "rej
 # Lifecycle statuses that make sense once you have applied — shared by the routers so a
 # job and its application can never be promoted into different vocabularies.
 APPLICATION_STATUSES = {"applied", "interviewing", "offer", "rejected", "closed"}
+
+# The shape `data_store._allocate_id` mints, and the only shape a row may carry. An id is
+# not an opaque label: it names `data/jobs/<id>.*` and it is handed to
+# `shutil.rmtree(APPLICATIONS_DIR / id)` on delete. No route lets a client choose one — but
+# `data/jobs.csv` is documented as hand-editable and a local coding CLI writes it directly,
+# so an off-contract id must be a loud validation error, not a silent recursive delete.
+JOB_ID_RE = re.compile(r"\d{4}-\d{3,}")
+
+
+def _http_url_only(v: Any) -> str:
+    """Blank anything that isn't http(s). A posting's "apply" link is attacker-controlled
+    text that ends up in an href and in the prompt a local CLI acts on, so a `javascript:`
+    or `data:` scheme must never reach the store in the first place — the web sanitises
+    too, but the store is what an Internal-mode agent reads."""
+    s = "" if v is None else str(v).strip()
+    return s if re.match(r"https?://", s, re.I) else ""
 
 
 class Job(BaseModel):
@@ -40,6 +57,21 @@ class Job(BaseModel):
     # (often just one recruiter's name + email). Stored as a string (round-trips through the CSV);
     # the UI parses it. Kept in sync with a linked application so it reads the same everywhere.
     people: str = ""  # JSON: [{"name": str, "role": str, "link": str}]
+
+    @field_validator("id")
+    @classmethod
+    def _minted_id_only(cls, v: str) -> str:
+        if not JOB_ID_RE.fullmatch(v or ""):
+            raise ValueError(
+                f"id must be a minted id like 2026-001 (got {v!r}) — it names files under "
+                "data/jobs/ and applications/, so an arbitrary string is a path, not a label"
+            )
+        return v
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def _safe_url(cls, v) -> str:
+        return _http_url_only(v)
 
 
 class Application(Job):
@@ -225,11 +257,18 @@ class JobIngestInput(BaseModel):
     salary_min: Optional[float] = None
     salary_max: Optional[float] = None
 
-    @field_validator("company_job_id", "location", "url", "posted_date", "description",
+    @field_validator("company_job_id", "location", "posted_date", "description",
                      "flexibility", "close_date", "currency")
     @classmethod
     def _coerce_none(cls, v: Optional[str]) -> str:
         return v or ""
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def _safe_url(cls, v) -> str:
+        # Same rule as Job.url. This is the Internal-mode ingest body: the url in it was
+        # read out of the posting by a local CLI, so it is third-party text, not ours.
+        return _http_url_only(v)
 
     @field_validator("salary_min", "salary_max", mode="before")
     @classmethod

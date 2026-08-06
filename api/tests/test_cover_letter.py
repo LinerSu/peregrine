@@ -174,3 +174,24 @@ The role is remote.
     ctx = tools.employer_context("2026-001")
     assert "non-profit" in ctx                    # organisational sentence extracted
     assert "triage incoming reports" not in ctx   # role duties are not employer context
+
+
+def test_employer_context_caps_a_posting_that_never_ends_a_sentence(tmp_path, monkeypatch):
+    """`limit` counts sentences, and a "sentence" is whatever sits between two full stops —
+    which a hostile posting is under no obligation to provide. A body with no ./!/? is ONE
+    sentence, so the count cap alone let an arbitrarily long payload ride into the letter
+    prompt wearing the employer's voice. Each pick is capped in characters as well."""
+    from app import config
+    from app.agent import tools
+    from app.schemas import Job
+
+    monkeypatch.setattr(config, "JOBS_CSV", tmp_path / "jobs.csv")
+    monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(config, "APPLICATIONS_CSV", tmp_path / "applications.csv")
+    (tmp_path / "jobs").mkdir()
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1", position="Eng"))
+    # one "sentence": an org-hint to get it picked, then 2 KB of payload and no full stop
+    store.write_job_md("2026-001", "# Eng — Acme\n\n## Posting\nWe are a team " + "x" * 2000 + "\n")
+
+    ctx = tools.employer_context("2026-001")
+    assert len(ctx) <= 300

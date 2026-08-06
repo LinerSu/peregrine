@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { api, type Application, type Job } from "../api";
 import type { AssistantMode } from "../App";
-import { salaryRange, statusClass } from "../format";
+import { safeHttpUrl, salaryRange, statusClass } from "../format";
 import JobIngestPanel from "./JobIngestPanel";
 import JobPicker from "./JobPicker";
 import ContactsEditor from "./ContactsEditor";
@@ -387,8 +387,10 @@ export default function ApplicationsTable({
                     />
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
-                    {a.url && (
-                      <a href={a.url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline mr-2">
+                    {/* never render a non-http(s) scheme as a link — the row's url came
+                        from a posting, and React happily emits a javascript: href */}
+                    {safeHttpUrl(a.url) && (
+                      <a href={safeHttpUrl(a.url)} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline mr-2">
                         ↗
                       </a>
                     )}

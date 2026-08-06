@@ -16,11 +16,11 @@ def tmp_store(tmp_path, monkeypatch):
 
 def test_match_job_key_then_title_with_location_tiebreak():
     jobs = [
-        Job(id="1", company="Acme", company_job_id="R1", position="Engineer", location="NYC"),
-        Job(id="2", company="Acme", company_job_id="R2", position="Engineer", location="SF"),
+        Job(id="2026-001", company="Acme", company_job_id="R1", position="Engineer", location="NYC"),
+        Job(id="2026-002", company="Acme", company_job_id="R2", position="Engineer", location="SF"),
     ]
-    assert store.match_job(jobs, "Acme", "X", "R2").id == "2"  # exact key wins
-    assert store.match_job(jobs, "acme", "engineer", "", "SF").id == "2"  # title + location tiebreak
+    assert store.match_job(jobs, "Acme", "X", "R2").id == "2026-002"  # exact key wins
+    assert store.match_job(jobs, "acme", "engineer", "", "SF").id == "2026-002"  # title + location tiebreak
     assert store.match_job(jobs, "Beta", "Engineer") is None  # no match
     # ambiguous: 2 same company+position, location doesn't disambiguate -> None (no guess)
     assert store.match_job(jobs, "Acme", "Engineer") is None              # no location
@@ -400,13 +400,13 @@ def test_url_match_refuses_to_guess_between_duplicate_rows():
     # The same posting tracked twice under one link (listed in two cities) must not be
     # resolved by row order — fall through to the requisition key, which does separate them.
     jobs = [
-        Job(id="1", company="Acme", company_job_id="R1", position="Engineer",
+        Job(id="2026-001", company="Acme", company_job_id="R1", position="Engineer",
             location="NYC", url="https://example.com/jobs/r-1"),
-        Job(id="2", company="Acme", company_job_id="R2", position="Engineer",
+        Job(id="2026-002", company="Acme", company_job_id="R2", position="Engineer",
             location="SF", url="https://example.com/jobs/r-1"),
     ]
     assert store.match_job(jobs, "Acme", "Engineer", "", "", "https://example.com/jobs/r-1") is None
-    assert store.match_job(jobs, "Acme", "Engineer", "R2", "", "https://example.com/jobs/r-1").id == "2"
+    assert store.match_job(jobs, "Acme", "Engineer", "R2", "", "https://example.com/jobs/r-1").id == "2026-002"
 
 
 def test_job_detail_answers_have_i_applied_by_identity(tmp_store, monkeypatch):
