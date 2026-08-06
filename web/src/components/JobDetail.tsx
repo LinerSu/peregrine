@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Evaluation, type Job, type LetterCheck } from "../api";
 import type { AssistantMode } from "../App";
-import { fitClass, legitimacyClass, relativeTime, safeHttpUrl, salaryRange, statusClass } from "../format";
+import { failureMessage, fitClass, legitimacyClass, relativeTime, safeHttpUrl, salaryRange, statusClass } from "../format";
 import JobMarkdown from "./JobMarkdown";
 import ContactsEditor from "./ContactsEditor";
 
@@ -101,6 +101,9 @@ export default function JobDetail({
   const [cvTexPromptCopied, setCvTexPromptCopied] = useState(false);
   const [cvTexCopied, setCvTexCopied] = useState(false);
   const [cvError, setCvError] = useState("");
+  // Evaluate / Prepare — the two header actions that can now fail loudly instead of
+  // quietly returning a placeholder. Shown next to the buttons, not in the drafts pane.
+  const [actionError, setActionError] = useState("");
   const [starBusy, setStarBusy] = useState(false); // in-flight guard for the star PATCH
   const [coverStale, setCoverStale] = useState(false); // drafted against a previous CV
   const [coverChecks, setCoverChecks] = useState<LetterCheck[]>([]);
@@ -171,6 +174,7 @@ export default function JobDetail({
     setCvTexPromptCopied(false);
     setCvTexCopied(false);
     setCvError("");
+    setActionError("");   // per-job, like the rest — a failure must not follow the user
     let live = true;
     load(() => live);
     return () => {
@@ -291,10 +295,16 @@ export default function JobDetail({
       return;
     }
     setBusy(true);
+    setActionError("");
     try {
       await api.evaluate(jobId);
       await load();
       onChanged();
+    } catch (e) {
+      // Evaluate used to be incapable of failing: a dead provider produced a
+      // placeholder score. Now it refuses instead, so this button needs somewhere to
+      // say so — silence would be strictly worse than the placeholder it replaced.
+      setActionError(failureMessage(e, "Couldn't evaluate this job."));
     } finally {
       setBusy(false);
     }
@@ -320,9 +330,12 @@ export default function JobDetail({
       setCoverStale(false);
       setShowStaleCover(false);
       setCoverTextCopied(false);
-    } catch {
-      // The cover-letter LLM call is the longest in the app — surface failures.
-      setCoverError("Couldn't generate the cover letter. Try again, or use Internal mode.");
+    } catch (e) {
+      // The cover-letter LLM call is the longest in the app — surface failures, and
+      // surface the API's reason when it has one ("hit its output cap", "provider
+      // failed"). A generic message here is how a provider problem used to read as
+      // "mock mode" to the user.
+      setCoverError(failureMessage(e, "Couldn't generate the cover letter."));
     } finally {
       setBusy(false);
     }
@@ -345,8 +358,8 @@ export default function JobDetail({
       setCvTex(res.tex);
       setCvPdf(res.pdf_available);
       setCvTexCopied(false);
-    } catch {
-      setCvError("Couldn't generate the tailored CV. Try again, or use Internal mode.");
+    } catch (e) {
+      setCvError(failureMessage(e, "Couldn't generate the tailored CV."));
     } finally {
       setBusy(false);
     }
@@ -398,6 +411,7 @@ export default function JobDetail({
 
   const prepare = async () => {
     setBusy(true);
+    setActionError("");
     try {
       const res = await api.prepare(jobId);
       setApplyUrl(res.apply_url);
@@ -407,6 +421,8 @@ export default function JobDetail({
       requestAnimationFrame(() =>
         gateRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
       );
+    } catch (e) {
+      setActionError(failureMessage(e, "Couldn't prepare this application."));
     } finally {
       setBusy(false);
     }
@@ -581,6 +597,8 @@ export default function JobDetail({
             Delete
           </button>
         </div>
+
+        {actionError && <p className="mt-2 text-sm text-rose-600">{actionError}</p>}
 
         {/* Internal mode: ONE compact strip for the guided prompts (was three ~90px
             cards that pushed the posting content off-screen). */}

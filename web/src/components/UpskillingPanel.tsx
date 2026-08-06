@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Job } from "../api";
+import { failureMessage } from "../format";
 import type { AssistantMode } from "../App";
 
 interface Gap {
@@ -18,6 +19,9 @@ export default function UpskillingPanel({ jobs, mode }: { jobs: Job[]; mode: Ass
   const [summary, setSummary] = useState("");
   const [gaps, setGaps] = useState<Gap[] | null>(null);
   const [prompt, setPrompt] = useState(""); // Internal: the line to run
+  // The analysis can now fail loudly (a truncated or failed completion is no longer
+  // swapped for a "(mock) example gap"), so the panel needs somewhere to say so.
+  const [error, setError] = useState("");
   const [waiting, setWaiting] = useState(false); // Internal: polling for Claude's save
   const [copied, setCopied] = useState(false);
   const baseline = useRef(""); // signature of the saved result before the run
@@ -84,8 +88,11 @@ export default function UpskillingPanel({ jobs, mode }: { jobs: Job[]; mode: Ass
       return;
     }
     setBusy(true);
+    setError("");
     try {
       show(await api.upskilling(jobId));
+    } catch (e) {
+      setError(failureMessage(e, "Couldn't analyze the gaps for this job."));
     } finally {
       setBusy(false);
     }
@@ -122,6 +129,8 @@ export default function UpskillingPanel({ jobs, mode }: { jobs: Job[]; mode: Ass
             {busy ? "Analyzing…" : waiting ? "Waiting…" : "Analyze gaps"}
           </button>
         </div>
+
+        {error && <p className="text-sm text-rose-600">{error}</p>}
 
         {jobs.length === 0 && (
           <p className="text-sm text-gray-400">No jobs yet — scan or ingest one first.</p>

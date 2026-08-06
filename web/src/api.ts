@@ -162,24 +162,28 @@ export interface DocSection {
   pages: DocMeta[];
 }
 
+// Surface the API's reason (FastAPI puts it in `detail`) — the crawl-policy explanation
+// "Meta bot-protects its careers site… paste the text instead", or an LLM failure saying
+// the model hit its output cap — so the UI can show *why*, not just a status code. Every
+// caller must use this: the multipart uploads each rolled their own and threw a bare
+// "502 Bad Gateway", which is how the file paths lost the explanation.
+async function apiError(res: Response): Promise<Error> {
+  let detail = "";
+  try {
+    const body = (await res.json()) as { detail?: unknown };
+    if (typeof body?.detail === "string") detail = body.detail;
+  } catch {
+    /* non-JSON error body */
+  }
+  return new Error(detail || `${res.status} ${res.statusText}`);
+}
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
-  if (!res.ok) {
-    // Surface the API's reason (FastAPI puts it in `detail`) — e.g. the crawl-policy
-    // explanation "Meta bot-protects its careers site… paste the text instead" — so the
-    // UI can show *why*, not just a status code.
-    let detail = "";
-    try {
-      const body = (await res.json()) as { detail?: unknown };
-      if (typeof body?.detail === "string") detail = body.detail;
-    } catch {
-      /* non-JSON error body */
-    }
-    throw new Error(detail || `${res.status} ${res.statusText}`);
-  }
+  if (!res.ok) throw await apiError(res);
   return res.json() as Promise<T>;
 }
 
@@ -226,11 +230,7 @@ export const api = {
     const fd = new FormData();
     fd.append("file", file);
     const res = await fetch(`${BASE}/api/evidence/upload`, { method: "POST", body: fd });
-    if (!res.ok) {
-      let detail = "";
-      try { detail = ((await res.json()) as { detail?: string }).detail || ""; } catch { /* non-JSON */ }
-      throw new Error(detail || `${res.status} ${res.statusText}`);
-    }
+    if (!res.ok) throw await apiError(res);
     return (await res.json()) as { name: string; bytes: number; passages: number };
   },
   deleteEvidence: (name: string) =>
@@ -264,7 +264,7 @@ export const api = {
     const fd = new FormData();
     fd.append("file", file);
     const res = await fetch(`${BASE}/api/jobs/ingest-doc/upload`, { method: "POST", body: fd });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    if (!res.ok) throw await apiError(res);
     return res.json() as Promise<{ job?: Job; created?: boolean; auto_evaluating?: boolean }>;
   },
   // Internal mode: stash the raw posting (paste or file) for local Claude to parse.
@@ -274,7 +274,7 @@ export const api = {
     const fd = new FormData();
     fd.append("file", file);
     const res = await fetch(`${BASE}/api/jobs/ingest-source/upload`, { method: "POST", body: fd });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    if (!res.ok) throw await apiError(res);
     return res.json() as Promise<{ chars: number }>;
   },
   // Marker the Internal-mode add-job poll watches (bumps on every ingest, even dedup).
@@ -297,7 +297,7 @@ export const api = {
     const fd = new FormData();
     fd.append("file", file);
     const res = await fetch(`${BASE}/api/cv/upload`, { method: "POST", body: fd });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    if (!res.ok) throw await apiError(res);
     return res.json() as Promise<Record<string, unknown>>;
   },
   // Internal mode: store the raw CV (paste or file) so local Claude can parse it.
@@ -307,7 +307,7 @@ export const api = {
     const fd = new FormData();
     fd.append("file", file);
     const res = await fetch(`${BASE}/api/cv/source/upload`, { method: "POST", body: fd });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    if (!res.ok) throw await apiError(res);
     return res.json() as Promise<{ chars: number }>;
   },
   // Import the résumé already in the resume/ folder — External parses it into the

@@ -19,7 +19,7 @@ from .. import data_store as store
 from .. import status
 from ..logging_config import get_logger
 from . import tools  # noqa: F401  (registers tools as a side effect)
-from .llm import LLMClient
+from .llm import LLMClient, LLMUnusable
 
 log = get_logger(__name__)
 
@@ -31,7 +31,14 @@ Handler = Callable[[str, list[dict[str, str]]], "tuple[str, list[dict[str, Any]]
 def run(message: str, history: list[dict[str, str]]) -> dict[str, Any]:
     status.record("chat", message[:120], current_task="Handling chat request")
     intent, handler = _route(message)
-    reply, actions = handler(message, history)
+    try:
+        reply, actions = handler(message, history)
+    except Exception as exc:
+        # `current_task` only moves back to "idle" on the line below, so a handler that
+        # raises (the LLM paths can now) would leave the app reading "Handling chat
+        # request" forever in STATUS.md and the UI.
+        status.record("chat_failed", f"{intent}: {exc}"[:300], current_task="idle")
+        raise
     status.record("chat_done", intent, current_task="idle")
     return {"reply": reply, "actions": actions}
 
@@ -64,12 +71,27 @@ def _handle_url(message: str, _history: list[dict[str, str]]) -> tuple[str, list
     if "error" in ingest:
         return f"Couldn't ingest that URL: {ingest['error']}", actions
     job = ingest["job"]
-    ev = tools.evaluate_fit(job["id"])  # fixed 2nd step
-    actions.append({"tool": "evaluate_fit", "result": ev})
-    return (
+    added = (
         f"Ingested **{job['position']}** at {job['company']} ({job['location']}) as `{job['id']}`"
         + (" (already tracked)" if ingest.get("deduped") else "")
-        + f". Fit {ev.get('fit_score')} — {ev.get('recommendation')}. Open it to review the cards.",
+    )
+    # Scoring is the fixed 2nd step, but only when the score would be real. The REST
+    # ingest path has always guarded this; the chat path didn't, so a pasted link in
+    # mock/keyless mode wrote a real-looking 0.5 onto the row (issue #88).
+    blocked = tools.real_analysis_blocked()
+    if blocked:
+        return f"{added}. Not scored automatically — {blocked}.", actions
+    try:
+        ev = tools.evaluate_fit(job["id"])
+    except LLMUnusable as exc:
+        # The ingest already succeeded and is already persisted. Failing the whole turn
+        # would tell the user nothing was added when a job was — report the half that
+        # worked, and the half that didn't, and keep the ingest in `actions`.
+        return f"{added}, but I couldn't score it: {exc}", actions
+    actions.append({"tool": "evaluate_fit", "result": ev})
+    return (
+        f"{added}. Fit {ev.get('fit_score')} — {ev.get('recommendation')}. "
+        "Open it to review the cards.",
         actions,
     )
 
