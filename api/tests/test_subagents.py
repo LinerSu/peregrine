@@ -6,7 +6,10 @@ tests pin the shape-validation that prevents it.
 """
 import types
 
+import pytest
+
 from app.agent import subagents
+from app.agent.llm import LLMUnusable
 
 
 class _Echo:
@@ -76,7 +79,11 @@ def test_every_posting_prompt_carries_the_untrusted_rule(monkeypatch):
     subagents.evaluator(posting, profile)
     subagents.upskiller(posting, profile)
     subagents.cover_letter_writer(object(), posting, profile, None, "")
-    subagents.cv_tailor(profile, "Engineer", "Acme", posting)
+    # The prompt still has to be built and sent, which is what this test checks — but a
+    # real provider answering with no LaTeX document in it is now a refusal, not a quiet
+    # swap to the "Mock CV" template (issue #88).
+    with pytest.raises(LLMUnusable):
+        subagents.cv_tailor(profile, "Engineer", "Acme", posting)
     subagents.reviewer({"fit_score": 0.5}, posting)
 
     assert len(seen) == 5

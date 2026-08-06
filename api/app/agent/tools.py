@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import re
 import time
+from contextlib import contextmanager
 from datetime import date
 from typing import Any
 
@@ -25,11 +26,13 @@ from ..skills import normalize_category
 from ..schemas import Application, Job
 from . import crawl_policy
 from . import providers
+from .llm import LLMUnusable, active_provider_is_mock
 from .registry import registry
 from .subagents import (
     cover_letter_writer,
     cv_tailor,
     evaluator,
+    is_stub_evaluation,
     job_parser,
     patterns_analyst,
     reviewer,
@@ -37,6 +40,24 @@ from .subagents import (
 )
 
 log = get_logger(__name__)
+
+
+@contextmanager
+def _llm_task(start_event: str, detail: str, task: str) -> Any:
+    """Bracket an LLM-backed action so a failure can't leave the app looking busy.
+
+    `current_task` is what STATUS.md and the UI show, and it only ever moves back to
+    "idle" on the `_done` record at the end of the happy path. That was safe while
+    every provider failure degraded to a placeholder; now that these paths raise, a
+    skipped `_done` would pin "Evaluating fit for 2026-001" forever. Records a
+    `<action>_failed` event (the shape `ingest_job_doc` already uses) and re-raises."""
+    status.record(start_event, detail, current_task=task)
+    try:
+        yield
+    except Exception as exc:
+        base = start_event[: -len("_start")] if start_event.endswith("_start") else start_event
+        status.record(f"{base}_failed", f"{detail}: {exc}"[:300], current_task="idle")
+        raise
 
 
 def _as_float(value: Any, default: float) -> float:
@@ -521,26 +542,46 @@ def evaluate_fit(job_id: str) -> dict[str, Any]:
     if not job:
         return {"error": f"job {job_id} not found"}
 
-    status.record("evaluate_start", job_id, current_task=f"Evaluating fit for {job_id}")
-    job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
-    evaluation = reviewer(evaluator(job_md, store.read_profile()), job_md)
-    saved = save_evaluation(job_id, evaluation)
+    with _llm_task("evaluate_start", job_id, f"Evaluating fit for {job_id}"):
+        job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
+        evaluation = evaluator(job_md, store.read_profile())
+        # Ask before the review pass, and carry the answer OUT of band: `reviewer`
+        # returns a dict rebuilt from its own model output, so anything hung on the
+        # evaluation itself is gone by the time the score is written.
+        placeholder = is_stub_evaluation(evaluation)
+        saved = save_evaluation(job_id, reviewer(evaluation, job_md), stub=placeholder)
 
     status.record("evaluate_done", f"{job_id} score={saved.get('fit_score')}", current_task="idle")
     return saved
 
 
 def save_evaluation(
-    job_id: str, evaluation: dict[str, Any], today: date | None = None
+    job_id: str, evaluation: dict[str, Any], today: date | None = None, *, stub: bool = False
 ) -> dict[str, Any]:
     """Persist a fit evaluation — same store path whether it came from the External
     subagents or from Internal mode (Claude reasons, then PUTs the result here). No LLM.
 
     `today` (used only for the legitimacy staleness check) is injectable so tests
-    are deterministic; it defaults to the wall clock for live saves."""
+    are deterministic; it defaults to the wall clock for live saves.
+
+    `stub` says the caller knows this is the deterministic {0.5, "(mock)"} placeholder
+    rather than a verdict. It is a parameter, not something read off `evaluation`,
+    because the dict has passed through a model by the time it arrives — provenance
+    the model can rewrite is not provenance. Internal-mode PUTs never set it: that
+    payload is Claude's own reasoning."""
     job = store.get_job(job_id)
     if not job:
         return {"error": f"job {job_id} not found"}
+    # Every fit score in the app is written here, so this is the one place that can
+    # refuse a fabricated one. A placeholder is honest in mock mode (the UI says so)
+    # and a fabrication when a provider IS configured — and once on the row it is
+    # indistinguishable from a real score, feeding ranking, the apply gate and the
+    # outcome analytics that tell the user what to learn next.
+    if stub and not active_provider_is_mock():
+        raise LLMUnusable(
+            "the model returned no usable evaluation — refusing to write a placeholder "
+            "fit score. Check the provider and try again."
+        )
     ev = dict(evaluation)
     ev["job_id"] = job_id
     job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
@@ -606,8 +647,20 @@ def prepare_materials(job_id: str) -> dict[str, Any]:
     job = store.get_job(job_id)
     if not job:
         return {"error": f"job {job_id} not found"}
-    if job.fit_score is None:
-        evaluate_fit(job_id)
+    # Scoring an unscored job here is a convenience the user didn't ask for, so it is
+    # subject to the same guard as auto-evaluate on ingest — otherwise clicking through
+    # to apply in mock mode stamps a placeholder 0.5 on the row (issue #88).
+    #
+    # And it is BEST EFFORT. Everything this gate actually does — create the application
+    # directory, hand back the apply URL and the review material — is deterministic and
+    # has nothing to do with a provider. The UI unlocks the Apply button on `apply_url`,
+    # so letting a failed convenience score propagate would lock the user out of
+    # applying because an unrelated evaluation could not be produced.
+    if job.fit_score is None and not real_analysis_blocked():
+        try:
+            evaluate_fit(job_id)
+        except LLMUnusable as exc:
+            log.warning("prepare: skipping the fit evaluation for %s — %s", job_id, exc)
         job = store.get_job(job_id)
     (APPLICATIONS_DIR / job_id).mkdir(parents=True, exist_ok=True)
     status.record("materials", job_id)
@@ -634,9 +687,9 @@ def assess_upskilling(job_id: str) -> dict[str, Any]:
     job = store.get_job(job_id)
     if not job:
         return {"error": f"job {job_id} not found"}
-    status.record("upskill_start", job_id, current_task=f"Upskilling analysis for {job_id}")
-    job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
-    saved = save_upskilling(job_id, upskiller(job_md, store.read_profile()))
+    with _llm_task("upskill_start", job_id, f"Upskilling analysis for {job_id}"):
+        job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
+        saved = save_upskilling(job_id, upskiller(job_md, store.read_profile()))
     status.record("upskill_done", job_id, current_task="idle")
     return saved
 
@@ -771,16 +824,16 @@ def generate_cover_letter(job_id: str) -> dict[str, Any]:
     job = store.get_job(job_id)
     if not job:
         return {"error": f"job {job_id} not found"}
-    status.record("cover_letter_start", job_id, current_task=f"Cover letter for {job_id}")
-    job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
-    profile = store.read_profile()
-    content = cover_letter_writer(
-        job, job_md, profile, store.read_evaluation(job_id), gather_style_references(),
-        evidence=evidence_lib.as_prompt_block(evidence_lib.select(job)),
-        goal=career_goal(profile),
-        employer=employer_context(job_id),
-    )
-    saved = save_cover_letter(job_id, content)
+    with _llm_task("cover_letter_start", job_id, f"Cover letter for {job_id}"):
+        job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
+        profile = store.read_profile()
+        content = cover_letter_writer(
+            job, job_md, profile, store.read_evaluation(job_id), gather_style_references(),
+            evidence=evidence_lib.as_prompt_block(evidence_lib.select(job)),
+            goal=career_goal(profile),
+            employer=employer_context(job_id),
+        )
+        saved = save_cover_letter(job_id, content)
     status.record("cover_letter_done", job_id, current_task="idle")
     return saved
 
@@ -800,6 +853,28 @@ def profile_ready() -> bool:
     auto-evaluation on ingest: scoring against an empty profile is noise."""
     p = store.read_profile()
     return bool(p.get("name") or p.get("skills") or p.get("sections"))
+
+
+def real_analysis_blocked() -> str:
+    """Why an evaluation we're about to run *on the user's behalf* would not be real —
+    "" when it would be. The one definition of the rule; four callers share it.
+
+    An automatic evaluation is only worth writing when there's a real profile to score
+    against and the active provider isn't effectively mock. A keyless anthropic/openai
+    config is the trap: it looks configured, then falls back to the deterministic
+    {fit 0.5, "(mock)"} stub. A placeholder score is indistinguishable from a real one
+    once it lands on the row, so it must never be written by something the user didn't
+    explicitly ask for.
+
+    This condition used to be spelled out inside `_schedule_auto_eval` and again in the
+    backfill; the chat URL handler and `prepare_materials` simply didn't have it, which
+    is how pasting a link in mock mode wrote a real-looking 0.5. A rule copied per call
+    site is a rule the next call site forgets."""
+    if not profile_ready():
+        return "profile not set up"
+    if active_provider_is_mock():
+        return "mock provider — placeholder scores are never written automatically"
+    return ""
 
 
 def cv_parsed_stamp() -> float | None:
@@ -901,14 +976,14 @@ def analyze_patterns() -> dict[str, Any]:
 
     from ..stats import compute_outcomes
 
-    status.record("patterns_start", "patterns", current_task="Analyzing application patterns")
-    apps = store.list_applications()
-    outcomes = compute_outcomes(apps, date.today())
-    # Ground the narrative in the SAME target-scoped skill gaps the /outcomes endpoint serves
-    # (Internal mode reads those), so External + Internal narratives see identical data.
-    outcomes["skill_gaps"] = scoped_skill_gaps(apps)
-    insight = patterns_analyst(outcomes)
-    saved = save_patterns(insight)
+    with _llm_task("patterns_start", "patterns", "Analyzing application patterns"):
+        apps = store.list_applications()
+        outcomes = compute_outcomes(apps, date.today())
+        # Ground the narrative in the SAME target-scoped skill gaps the /outcomes endpoint
+        # serves (Internal mode reads those), so External + Internal see identical data.
+        outcomes["skill_gaps"] = scoped_skill_gaps(apps)
+        insight = patterns_analyst(outcomes)
+        saved = save_patterns(insight)
     status.record("patterns_done", "patterns", current_task="idle")
     return saved
 
@@ -949,10 +1024,10 @@ def generate_tailored_cv(job_id: str) -> dict[str, Any]:
     job = store.get_job(job_id)
     if not job:
         return {"error": f"job {job_id} not found"}
-    status.record("tailor_cv_start", job_id, current_task=f"Tailoring CV for {job_id}")
-    job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
-    tex = cv_tailor(store.read_profile(), job.position, job.company, job_md)
-    saved = save_tailored_cv(job_id, tex)
+    with _llm_task("tailor_cv_start", job_id, f"Tailoring CV for {job_id}"):
+        job_md = store.read_job_md(job_id) or f"{job.position} at {job.company}"
+        tex = cv_tailor(store.read_profile(), job.position, job.company, job_md)
+        saved = save_tailored_cv(job_id, tex)
     status.record("tailor_cv_done", job_id, current_task="idle")
     return saved
 
@@ -1063,8 +1138,8 @@ def ingest_job_doc(text: str) -> dict[str, Any]:
     """External mode: parse a pasted/extracted posting with the LLM into a tracked job."""
     if not text.strip():
         return {"error": "no posting text provided"}
-    status.record("ingest_doc_start", f"{len(text)} chars", current_task="Ingesting pasted job")
-    parsed = job_parser(text)
+    with _llm_task("ingest_doc_start", f"{len(text)} chars", "Ingesting pasted job"):
+        parsed = job_parser(text)
     if not parsed:
         status.record("ingest_doc_failed", "no fields parsed", current_task="idle")
         return {"error": "couldn't parse a job from that text — paste more of the posting, or use Internal mode"}
@@ -1190,25 +1265,32 @@ def _normalize_cv_fields(parsed: dict[str, Any]) -> dict[str, Any]:
     },
 )
 def parse_cv(cv_text: str) -> dict[str, Any]:
-    from .subagents import LLMClient, _json_from_text, load_skill
+    from .subagents import LLMClient, _json_from_text, load_skill, require_usable
 
-    status.record("cv_intake", f"{len(cv_text)} chars", current_task="Parsing CV")
-    llm = LLMClient()
-    res = llm.complete(
-        [
-            {"role": "system", "content": load_skill("cv-intake")},
-            {"role": "user", "content": "CV:\n```\n" + cv_text[:12000] + "\n```\n\n" + _CV_PROMPT},
-        ]
-    )
-    fields = _normalize_cv_fields(_json_from_text(res.text))
-    # Only accept output that actually looks like a parsed CV (mock mode echoes the
-    # prompt, which can contain unrelated JSON — don't write that to the profile).
-    valid = any(k in fields for k in ("name", "headline", "skills", "location", "links", "sections"))
-    profile = store.read_profile()
-    if valid:
-        profile.update(fields)
-        profile["cv_parsed_at"] = time.time()  # the staleness stamp — CV-intake paths only
-        store.write_profile(profile)
+    with _llm_task("cv_intake", f"{len(cv_text)} chars", "Parsing CV"):
+        llm = LLMClient()
+        res = llm.complete(
+            [
+                {"role": "system", "content": load_skill("cv-intake")},
+                {"role": "user",
+                 "content": "CV:\n```\n" + cv_text[:12000] + "\n```\n\n" + _CV_PROMPT},
+            ]
+        )
+        # A truncated or failed parse must not read as "mock mode" — the caller's message
+        # for `updated: False` tells the user to configure a provider, which is wrong
+        # advice when they already did.
+        require_usable("a parsed CV", res)
+        fields = _normalize_cv_fields(_json_from_text(res.text))
+        # Only accept output that actually looks like a parsed CV (mock mode echoes the
+        # prompt, which can contain unrelated JSON — don't write that to the profile).
+        valid = any(
+            k in fields for k in ("name", "headline", "skills", "location", "links", "sections")
+        )
+        profile = store.read_profile()
+        if valid:
+            profile.update(fields)
+            profile["cv_parsed_at"] = time.time()  # staleness stamp — CV-intake paths only
+            store.write_profile(profile)
     n = len(fields.get("sections", [])) if valid else 0
     status.record("cv_intake_done", f"sections={n}", current_task="idle")
     return {"updated": valid, "profile": profile}

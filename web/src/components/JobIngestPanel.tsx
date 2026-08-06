@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { failureMessage } from "../format";
 import type { AssistantMode } from "../App";
 
 // Reusable both-modes job-ingest UI: add a job from a URL (fetched, allowlisted), or
@@ -114,9 +115,9 @@ export default function JobIngestPanel({
       let ok = true;
       try {
         await api.saveJobSource(text);
-      } catch {
+      } catch (e) {
         ok = false;
-        setMsg("Couldn't save the posting. Try again.");
+        setMsg(failureMessage(e, "Couldn't save the posting."));
       } finally {
         setBusy(false);
       }
@@ -134,8 +135,10 @@ export default function JobIngestPanel({
           : "Already tracked."
       );
       if (r.job?.id) onIngested(r.job.id, !!r.created, r.job.position ?? "");
-    } catch {
-      setMsg("Couldn't parse a job from that text — paste more of the posting.");
+    } catch (e) {
+      // "paste more of the posting" is the wrong advice when the API's reason is that
+      // the model hit its output cap or the provider failed — show what it said.
+      setMsg(failureMessage(e, "Couldn't parse a job from that text — paste more of the posting."));
     } finally {
       setBusy(false);
     }
@@ -148,9 +151,9 @@ export default function JobIngestPanel({
       let ok = true;
       try {
         await api.uploadJobSource(file);
-      } catch {
+      } catch (e) {
         ok = false;
-        setMsg("Couldn't read / save that file. Try again.");
+        setMsg(failureMessage(e, "Couldn't read / save that file."));
       } finally {
         setBusy(false);
       }
@@ -167,8 +170,8 @@ export default function JobIngestPanel({
           : "Already tracked."
       );
       if (r.job?.id) onIngested(r.job.id, !!r.created, r.job.position ?? "");
-    } catch {
-      setMsg("Couldn't read / parse that file.");
+    } catch (e) {
+      setMsg(failureMessage(e, "Couldn't read / parse that file."));
     } finally {
       setBusy(false);
     }

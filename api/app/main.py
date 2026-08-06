@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import status
+from .agent.llm import LLMUnusable
 from .config import ensure_dirs, get_settings
 from .logging_config import get_logger, setup_logging
 from .routers import applications, chat, docs, jobs, stats
@@ -66,6 +67,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(LLMUnusable)
+def llm_unusable(_request, exc: LLMUnusable) -> JSONResponse:
+    """A provider that failed, truncated, or said nothing is reported — never papered
+    over with a placeholder that reads as real analysis.
+
+    502 rather than 500: the upstream model is what went wrong, not this request. The
+    web surfaces `detail` verbatim, so the user is told what happened and what to do
+    instead of being handed a document stamped "Mock CV" with a valid key configured."""
+    log.warning("unusable LLM output: %s", exc)
+    return JSONResponse(status_code=502, content={"detail": str(exc)})
+
 
 app.include_router(chat.router)
 app.include_router(jobs.router)

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type Profile } from "../api";
+import { failureMessage } from "../format";
 import type { AssistantMode } from "../App";
 import { LinkIcon } from "./icons";
 import BackgroundPanel from "./BackgroundPanel";
@@ -25,6 +26,10 @@ export default function ProfilePanel({
   const [waiting, setWaiting] = useState(false); // Internal: polling for Claude's save
   const [copied, setCopied] = useState(false);
   const [resumeMsg, setResumeMsg] = useState(""); // result of "import from resume/"
+  // Paste / upload failures. CV parsing can now refuse (a truncated or failed
+  // completion is no longer written off as "mock mode"), and these two paths had
+  // no catch at all: the spinner stopped and nothing else happened.
+  const [cvError, setCvError] = useState("");
   const [expanded, setExpanded] = useState<Set<number>>(new Set()); // which résumé sections are open
   // Re-fold whenever the profile (re)loads, so a re-parse can't leave a stale index open.
   useEffect(() => setExpanded(new Set()), [profile]);
@@ -100,20 +105,28 @@ export default function ProfilePanel({
     if (!cv.trim() || busy || waiting) return;
     if (mode === "internal") {
       setBusy(true);
+      setCvError("");
+      let ok = true;
       try {
         await api.saveCvSource(cv);
+      } catch (e) {
+        ok = false;
+        setCvError(failureMessage(e, "Couldn't save the CV text."));
       } finally {
         setBusy(false);
       }
-      await startInternal();
+      if (ok) await startInternal();
       return;
     }
     setBusy(true);
+    setCvError("");
     try {
       await api.submitCv(cv);
       setCv("");
       await load();
       onChanged();
+    } catch (e) {
+      setCvError(failureMessage(e, "Couldn't parse that CV."));
     } finally {
       setBusy(false);
     }
@@ -123,19 +136,27 @@ export default function ProfilePanel({
     if (!file || busy || waiting) return;
     if (mode === "internal") {
       setBusy(true);
+      setCvError("");
+      let ok = true;
       try {
         await api.uploadCvSource(file);
+      } catch (e) {
+        ok = false;
+        setCvError(failureMessage(e, "Couldn't read / save that file."));
       } finally {
         setBusy(false);
       }
-      await startInternal();
+      if (ok) await startInternal();
       return;
     }
     setBusy(true);
+    setCvError("");
     try {
       await api.uploadCv(file);
       await load();
       onChanged();
+    } catch (e) {
+      setCvError(failureMessage(e, "Couldn't read / parse that file."));
     } finally {
       setBusy(false);
     }
@@ -344,6 +365,7 @@ export default function ProfilePanel({
           </button>
         </div>
         {resumeMsg && <p className="mt-2 text-xs text-gray-500">{resumeMsg}</p>}
+        {cvError && <p className="mt-2 text-sm text-rose-600">{cvError}</p>}
       </section>
 
       <section>
