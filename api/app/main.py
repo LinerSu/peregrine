@@ -96,13 +96,17 @@ def _startup() -> None:
 
 @app.get("/api/health")
 def health() -> dict:
-    from .config import DATASET
+    from .config import DATASET, repo_relative_dirs
 
     s = get_settings()
     # `dataset` drives the web's demo-data badge: without it the UI is pixel-identical
     # in live and demo modes, and users forget which identity they're looking at.
+    # `paths` is the authority a local CLI joins against instead of assuming `data/`:
+    # under a demo dataset those are still the user's REAL files (see
+    # config.repo_relative_dirs). Repo-relative, so it means the same on host and in
+    # the container.
     return {"status": "ok", "provider": s.llm_provider, "model": s.llm_model,
-            "dataset": DATASET or None}
+            "dataset": DATASET or None, "paths": repo_relative_dirs()}
 
 
 @app.get("/api/status")
