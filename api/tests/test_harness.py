@@ -57,3 +57,30 @@ def test_the_activity_log_records_the_intent_not_the_message_body(monkeypatch):
     assert "CANDIDATE NAME" not in blob
     assert "Initech" not in blob
     assert ("chat", f"cv ({len(pasted)} chars)") in recorded  # intent + size, nothing else
+
+
+def test_a_failing_handler_does_not_put_the_message_body_in_the_log(monkeypatch):
+    """The same guarantee, one line further down. A handler that raises with the user's
+    text in the exception — a parser echoing what it choked on, an API client quoting the
+    request body — would otherwise write it straight back into STATUS.md."""
+    recorded: list[tuple[str, str]] = []
+    monkeypatch.setattr(harness.status, "record",
+                        lambda event, detail="", **kw: recorded.append((event, detail)))
+
+    def _explode(text):
+        raise ValueError(f"could not parse: {text}")
+
+    monkeypatch.setattr(harness.tools, "parse_cv", _explode)
+
+    pasted = ("CANDIDATE NAME · candidate@example.com · +1-555-0000\n"
+              "Senior Engineer at Initech. " * 40)
+    assert len(pasted) > 400  # long enough to be treated as a CV paste
+    with pytest.raises(ValueError):
+        harness.run(pasted, [])
+
+    blob = " ".join(f"{e} {d}" for e, d in recorded)
+    assert "candidate@example.com" not in blob
+    assert "CANDIDATE NAME" not in blob
+    assert "Initech" not in blob
+    assert ("chat_failed", "cv: ValueError") in recorded  # what failed, not what they wrote
+    assert ("chat_done", "cv") not in recorded            # and the run really did fail

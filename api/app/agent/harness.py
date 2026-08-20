@@ -41,7 +41,12 @@ def run(message: str, history: list[dict[str, str]]) -> dict[str, Any]:
         # `current_task` only moves back to "idle" on the line below, so a handler that
         # raises (the LLM paths can now) would leave the app reading "Handling chat
         # request" forever in STATUS.md and the UI.
-        status.record("chat_failed", f"{intent}: {exc}"[:300], current_task="idle")
+        #
+        # The exception TYPE, never str(exc): a handler that raises with the user's text
+        # in the message — a parser echoing what it choked on, a client quoting the
+        # request body — would otherwise put it straight back into STATUS.md, undoing the
+        # guarantee made three lines above. The traceback still travels with the raise.
+        status.record("chat_failed", f"{intent}: {type(exc).__name__}", current_task="idle")
         raise
     status.record("chat_done", intent, current_task="idle")
     return {"reply": reply, "actions": actions}
