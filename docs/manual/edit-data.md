@@ -15,6 +15,13 @@ the app picks the changes up. The web UI is the easy path; this is the power-use
   **Profile / CV** tab's **Import from resume/** reads the newest file to build your profile.
 - **`data/jobs.csv`**, **`data/applications.csv`** — the source of truth for jobs and
   applications (the tables you see). Per-job detail is saved under `data/jobs/<id>.md`.
+  Two rules if you edit these in a spreadsheet:
+  - **`id` must look like `2026-001`** (year, dash, at least three digits). It is not a
+    label — it names `data/jobs/<id>.md` and the `applications/<id>/` folder, so an
+    invented id is refused rather than acted on.
+  - A value that would start with `=`, `+`, `-` or `@` is stored with a leading `'`.
+    That apostrophe is deliberate: it stops your spreadsheet from *running* a job title
+    a board sent us. Leave it alone; the app strips nothing and adds nothing further.
 
 ## How changes take effect
 

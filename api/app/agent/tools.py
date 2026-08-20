@@ -749,6 +749,12 @@ _ORG_HINT = re.compile(
 )
 
 
+# A "sentence" here is whatever sits between two full stops, and a posting is not obliged
+# to have any: a body with no ./!/? is one sentence, so `limit` alone caps nothing and the
+# whole payload rides into the letter prompt. Cap each pick as well as the count.
+_EMPLOYER_SENTENCE_CAP = 300
+
+
 def employer_context(job_id: str, limit: int = 4) -> str:
     """Sentences from the stored posting that describe the EMPLOYER, not the role.
 
@@ -759,7 +765,11 @@ def employer_context(job_id: str, limit: int = 4) -> str:
     """
     md = store.read_job_md(job_id) or ""
     body = _posting_description(md) if md else ""
-    picked = [s.strip() for s in re.split(r"(?<=[.!?])\s+", body) if _ORG_HINT.search(s)]
+    picked = [
+        s.strip()[:_EMPLOYER_SENTENCE_CAP]
+        for s in re.split(r"(?<=[.!?])\s+", body)
+        if _ORG_HINT.search(s)
+    ]
     return " ".join(picked[:limit])
 
 
