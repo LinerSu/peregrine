@@ -3,7 +3,7 @@
 # One-command launch for Peregrine.
 #
 # Brings up the web + api stack (Docker), then starts the LOCAL Claude terminal
-# that powers the assistant's "Internal (Claude)" mode. Run this instead of
+# that powers the assistant's Internal mode. Run this instead of
 # `docker compose up`.
 #
 # Claude runs on THIS machine (your host), using your own login — not in a
@@ -47,8 +47,8 @@ echo
 echo "  Web UI:    http://localhost:5173"
 echo "  Stack logs: docker compose logs -f      Stop stack: docker compose down"
 echo
-echo "▶ Starting the local Claude terminal for 'Internal (Claude)' mode…"
-echo "  Open the web UI, switch the assistant to 'Internal (Claude)'. Ctrl-C stops the terminal."
+echo "▶ Starting the local terminal for Internal mode…"
+echo "  Open the web UI, switch the assistant to Internal. Ctrl-C stops the terminal."
 echo
 
 # Hand off to the terminal launcher (it cd's into the repo and runs ttyd + claude).
