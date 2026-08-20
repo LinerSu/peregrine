@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Insights, type Outcomes, type PatternInsights } from "../api";
+import { failureMessage } from "../format";
 import type { AssistantMode } from "../App";
 
 // Pipeline analytics: a conversion funnel, fit-score distribution, weekly activity,
@@ -70,8 +71,10 @@ export default function InsightsPanel({ mode }: { mode: AssistantMode }) {
     setPatErr("");
     try {
       setPatterns(await api.analyzePatterns());
-    } catch {
-      setPatErr("Couldn't analyze — check the LLM provider/key, or switch to Internal mode.");
+    } catch (e) {
+      // "check the LLM provider/key" is exactly the advice this change exists to stop
+      // giving people whose key is fine — the API says what actually went wrong.
+      setPatErr(failureMessage(e, "Couldn't analyze the patterns."));
     } finally {
       setAnalyzing(false);
     }

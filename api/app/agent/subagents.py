@@ -11,9 +11,84 @@ from typing import Any
 
 from ..config import SKILLS_DIR
 from ..logging_config import get_logger
-from .llm import LLMClient
+from .llm import MAX_TOKENS_LONG_FORM, LLMClient, LLMUnusable
 
 log = get_logger(__name__)
+
+# The deterministic placeholder the evaluator falls back to when the model returned
+# nothing usable. A module constant, not an inline literal, so the code that PERSISTS
+# a score can recognise it — see `is_stub_evaluation`.
+STUB_EVALUATION: dict[str, Any] = {
+    "fit_score": 0.5,
+    "strengths": ["(mock) profile overlaps with core responsibilities"],
+    "weaknesses": ["(mock) configure an LLM provider for a real evaluation"],
+    "materials": ["Tailored resume", "Cover letter"],
+    "recommendation": "hold",
+}
+
+
+def is_stub_evaluation(evaluation: dict[str, Any]) -> bool:
+    """Is this the placeholder rather than a real verdict?
+
+    Compared by value against the constant, NOT carried as a key inside the dict.
+    Provenance must not travel in the payload the model writes: the evaluation is
+    round-tripped through `reviewer`, which rebuilds it from its own JSON output — an
+    in-band marker is silently dropped there, which is exactly how a fabricated 0.5
+    would reach the row anyway. It is also third-party-influenced text: a job posting
+    is on this path, and a marker the model can emit is a marker a posting can forge
+    to get a genuine evaluation thrown away.
+
+    Ask this BEFORE the review pass; afterwards the answer is meaningless.
+    """
+    return evaluation == STUB_EVALUATION
+
+
+def require_usable(what: str, res: Any) -> None:
+    """Refuse to fall back to a placeholder when the provider actually failed.
+
+    Every fallback in this module is stamped "(mock) … set an LLM provider in .env" —
+    honest when the mock provider is what's running, a fabrication when a real one is
+    configured. Three failures are unambiguous whichever provider is active: the call
+    raised, the model hit its output cap mid-answer, or nothing came back at all.
+
+    This is the check that applies even to a stub-shaped result. Where a caller is
+    about to SUBSTITUTE a stub it must also call `refuse_stub_substitution`.
+
+    Reads the result defensively: subagents are stubbed in tests with a bare object
+    exposing `.text`, and that duck type stays valid.
+    """
+    error = getattr(res, "error", "")
+    if error:
+        raise LLMUnusable(f"the LLM provider failed while producing {what}: {error}")
+    if getattr(res, "truncated", False):
+        raise LLMUnusable(
+            f"the model hit its output cap before finishing {what} — a truncated "
+            "answer is not an answer. Try again, or shorten the input."
+        )
+    if not (getattr(res, "text", "") or "").strip():
+        raise LLMUnusable(f"the model returned nothing for {what}")
+
+
+def refuse_stub_substitution(what: str, res: Any) -> None:
+    """About to hand back a stub instead of the model's answer? Only the mock may.
+
+    Truncation and provider errors are not the only way to get unusable output: a model
+    can simply answer with prose where a LaTeX document was asked for. `_extract_latex`
+    then returns "" and the old code quietly substituted `cv_render.fallback_tex` — a
+    document stamped "Mock CV — set an LLM provider in .env" delivered to a user who
+    HAS set one. That is issue #88's actual complaint, and no truncation flag catches it.
+
+    Asks the RESULT, not global settings: the client that made the call is the only
+    component that knows whether the mock wrote this, and reading `.env` from here would
+    make every subagent's behaviour depend on the runner's environment. An object that
+    doesn't answer (a test's bare `.text` fake) is treated as a real provider — refusing
+    is the safe default; substituting is the one that fabricates.
+    """
+    if not getattr(res, "mocked", False):
+        raise LLMUnusable(
+            f"the model did not return {what}. Nothing was saved — a placeholder here "
+            "would read as your own work. Try again, or use Internal mode."
+        )
 
 
 def load_skill(name: str) -> str:
@@ -77,17 +152,14 @@ def evaluator(job_md: str, profile: dict[str, Any]) -> dict[str, Any]:
             ),
         },
     ]
-    result = _json_from_text(llm.complete(messages).text)
+    res = llm.complete(messages)
+    require_usable("a fit evaluation", res)
+    result = _json_from_text(res.text)
     if "fit_score" not in result:
         # No valid evaluation (e.g. mock mode echoes the prompt). Deterministic
-        # fallback so the UI always has something to gate on.
-        result = {
-            "fit_score": 0.5,
-            "strengths": ["(mock) profile overlaps with core responsibilities"],
-            "weaknesses": ["(mock) configure an LLM provider for a real evaluation"],
-            "materials": ["Tailored resume", "Cover letter"],
-            "recommendation": "hold",
-        }
+        # fallback so the UI always has something to gate on; `is_stub_evaluation`
+        # is how the save path tells it from a real verdict.
+        result = dict(STUB_EVALUATION)
     return result
 
 
@@ -109,7 +181,9 @@ def upskiller(job_md: str, profile: dict[str, Any]) -> dict[str, Any]:
             ),
         },
     ]
-    result = _json_from_text(llm.complete(messages).text)
+    res = llm.complete(messages)
+    require_usable("a skill-gap analysis", res)
+    result = _json_from_text(res.text)
     if "missing_skills" not in result:
         result = {
             "summary": "(mock) Configure an LLM provider for a real upskilling analysis.",
@@ -152,7 +226,9 @@ def patterns_analyst(outcomes: dict[str, Any]) -> dict[str, Any]:
             ),
         },
     ]
-    result = _json_from_text(llm.complete(messages).text)
+    res = llm.complete(messages)
+    require_usable("a pattern analysis", res)
+    result = _json_from_text(res.text)
     if "summary" not in result:
         # mock / provider echo — deterministic fallback so the UI always has something.
         result = {
@@ -170,15 +246,12 @@ def patterns_analyst(outcomes: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-_MOCK_MARKER = "Running in **mock** LLM mode"
-
-
 def cover_letter_writer(
     job: Any, job_md: str, profile: dict[str, Any], evaluation: dict[str, Any] | None,
     style_refs: str, evidence: str = "", goal: str = "", employer: str = ""
 ) -> str:
     """Draft a tailored cover letter. Returns the letter text (markdown)."""
-    llm = LLMClient()
+    llm = LLMClient(max_tokens=MAX_TOKENS_LONG_FORM)  # a whole letter, not a reply
     parts = [
         "Candidate profile (JSON):\n```\n" + json.dumps(profile, ensure_ascii=False, indent=2) + "\n```",
         untrusted_block("JOB POSTING", job_md) + "\n\n" + UNTRUSTED_RULE,
@@ -212,11 +285,12 @@ def cover_letter_writer(
         {"role": "system", "content": load_skill("cover-letter")},
         {"role": "user", "content": "\n\n".join(parts)},
     ]
-    text = llm.complete(messages).text.strip()
-    if not text or _MOCK_MARKER in text:
-        # Mock / no-key / provider-error fallback so the UI always gets a draft.
+    res = llm.complete(messages)
+    require_usable("a cover letter", res)
+    if getattr(res, "mocked", False):
+        # Honestly running the mock provider: the stub draft says so on its face.
         return _mock_cover_letter(job, profile)
-    return text
+    return res.text.strip()
 
 
 def _mock_cover_letter(job: Any, profile: dict[str, Any]) -> str:
@@ -240,7 +314,7 @@ def _extract_latex(text: str) -> str:
 
 def cv_tailor(profile: dict[str, Any], position: str, company: str, job_md: str) -> str:
     """Produce a one-page CV tailored to a job, as LaTeX source. Returns the .tex."""
-    llm = LLMClient()
+    llm = LLMClient(max_tokens=MAX_TOKENS_LONG_FORM)  # a full LaTeX document
     messages = [
         {"role": "system", "content": load_skill("cv-tailor")},
         {
@@ -259,11 +333,16 @@ def cv_tailor(profile: dict[str, Any], position: str, company: str, job_md: str)
             ),
         },
     ]
-    text = llm.complete(messages).text
-    extracted = _extract_latex(text)
-    if extracted and _MOCK_MARKER not in text:
+    res = llm.complete(messages)
+    require_usable("a tailored CV", res)
+    extracted = _extract_latex(res.text)
+    if extracted and not getattr(res, "mocked", False):
         return extracted
-    from .. import cv_render  # fallback for mock / no-key / unusable output
+    # No complete LaTeX document in the reply. Only the mock may fall back here — its
+    # template says "Mock CV — set an LLM provider in .env", which is a lie to anyone
+    # who has.
+    refuse_stub_substitution("a complete LaTeX document", res)
+    from .. import cv_render
 
     return cv_render.fallback_tex(profile, position, company)
 
@@ -271,7 +350,9 @@ def cv_tailor(profile: dict[str, Any], position: str, company: str, job_md: str)
 def job_parser(text: str) -> dict[str, Any]:
     """Parse a pasted/extracted job posting into structured fields. Returns {} when
     nothing usable is found (e.g. mock mode), so the caller can report a clear error."""
-    llm = LLMClient()
+    # Long-form: the result carries a clean plain-text copy of the whole posting, so
+    # this is document-sized output even though the other fields are one-liners.
+    llm = LLMClient(max_tokens=MAX_TOKENS_LONG_FORM)
     messages = [
         {
             "role": "system",
@@ -289,12 +370,19 @@ def job_parser(text: str) -> dict[str, Any]:
             "description (a clean plain-text version of the posting).",
         },
     ]
-    parsed = _json_from_text(llm.complete(messages).text)
+    res = llm.complete(messages)
+    require_usable("a parsed job posting", res)
+    parsed = _json_from_text(res.text)
     return parsed if (parsed.get("company") or parsed.get("position")) else {}
 
 
 def reviewer(evaluation: dict[str, Any], job_md: str) -> dict[str, Any]:
-    """Critique the evaluation in a fresh context and return a revised version."""
+    """Critique the evaluation in a fresh context and return a revised version.
+
+    Deliberately does NOT call require_usable: its fallback is the evaluation it was
+    given — real output that simply went unreviewed — not a fabricated placeholder.
+    Failing the whole evaluation because the second-opinion pass hiccupped would
+    throw away work the user already paid for."""
     llm = LLMClient()
     messages = [
         {

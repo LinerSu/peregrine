@@ -72,3 +72,18 @@ export function legitimacyClass(score: number | null | undefined): string {
   if (score >= 0.5) return "bg-amber-100 text-amber-700";
   return "bg-rose-100 text-rose-700";
 }
+
+// What to show when an action fails. The API now explains LLM failures in `detail`
+// ("hit its output cap", "the provider failed…") and api.ts throws that as the Error
+// message — surfacing it is the point of making those failures loud, since a generic
+// "couldn't do it" reads exactly like the placeholder output it replaced. The
+// cross-mode escape hatch stays on the end either way: Internal mode runs the same
+// work locally, which is the one action that always helps.
+export function failureMessage(e: unknown, fallback: string): string {
+  const reason = (e instanceof Error && e.message ? e.message : fallback).trim();
+  // The API's own messages end with their advice ("Try again, or shorten the input.").
+  // Appending ours would give the user two "try again"s in one line, so the hint is a
+  // default, not a suffix — and the sentence gets a full stop either way.
+  const text = /[.!?]$/.test(reason) ? reason : `${reason}.`;
+  return /try again/i.test(text) ? text : `${text} Try again, or use Internal mode.`;
+}

@@ -12,9 +12,9 @@ from pydantic import ValidationError
 from .. import data_store as store
 from .. import evidence as evidence_lib
 from .. import letter_check
-from ..agent.llm import active_provider_is_mock
 from ..agent import tools
 from ..extract import extract_text
+from ..logging_config import get_logger
 from ..agent import providers
 from ..schemas import (
     APPLICATION_STATUSES,
@@ -31,6 +31,7 @@ from ..schemas import (
 )
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+log = get_logger(__name__)
 
 # Providers a user may configure in-app. SmartRecruiters is excluded (its robots.txt disallows
 # the postings API); "generic" is the no-op fallback for an unrecognized provider.
@@ -151,9 +152,20 @@ def _claim(job_id: str) -> bool:
 
 def _evaluate_claimed(job_id: str) -> None:
     """Run the evaluation and release the claim, even if it raises — a crashed run must
-    not leave a job permanently unevaluable."""
+    not leave a job permanently unevaluable.
+
+    The failure is logged and swallowed, NOT propagated. Starlette runs a request's
+    background tasks in sequence in one coroutine: an exception escaping this one
+    cancels every task queued behind it, and those jobs were already claimed at
+    schedule time — so their `finally` never runs and they stay claimed for the life
+    of the process, unevaluable without a restart. One provider hiccup would take out
+    the rest of a 25-job backfill. The user-facing report is the score that never
+    appears plus the `evaluate_failed` entry in the activity log; the foreground
+    routes are where a failure is raised at somebody."""
     try:
         tools.evaluate_fit(job_id)
+    except Exception:
+        log.exception("background evaluation failed for %s", job_id)
     finally:
         with _evaluating_lock:
             _evaluating.discard(job_id)
@@ -164,19 +176,12 @@ def _schedule_auto_eval(background: BackgroundTasks, result: dict, enabled: bool
     the background so the paste-to-added feel stays instant; the UI's normal
     refresh/poll picks the score up when it lands.
 
-    Guards: only NEWLY created jobs (a dedup hit keeps its existing evaluation);
-    only when a real profile exists (scoring an empty profile is noise); never when the
-    active provider is effectively mock — a keyless anthropic/openai config falls back
-    to the deterministic {fit 0.5, "(mock)"} stub, and placeholder scores must not be
-    written silently. The Internal store-only path (/ingest-doc/save) is deliberately
-    NOT wired here — the API can't run Internal-mode LLM work; the local-Claude skill
-    chains the evaluation itself (mode contract)."""
-    if (
-        enabled
-        and result.get("created")
-        and tools.profile_ready()
-        and not active_provider_is_mock()
-    ):
+    Guards: only NEWLY created jobs (a dedup hit keeps its existing evaluation), plus
+    the shared `tools.real_analysis_blocked()` predicate — a real profile to score
+    against, and a provider that isn't effectively mock. The Internal store-only path
+    (/ingest-doc/save) is deliberately NOT wired here — the API can't run Internal-mode
+    LLM work; the local-Claude skill chains the evaluation itself (mode contract)."""
+    if enabled and result.get("created") and not tools.real_analysis_blocked():
         if _claim(result["job"]["id"]):
             background.add_task(_evaluate_claimed, result["job"]["id"])
             result["auto_evaluating"] = True
@@ -196,11 +201,9 @@ def evaluate_missing(background: BackgroundTasks):
     Bounded on purpose: at most _BACKFILL_CAP per call, skipping anything already in
     flight, with `remaining` telling the caller what a second call would pick up. Each
     evaluation is a metered request, so "one click, N jobs, unbounded N" is a bill."""
-    if not tools.profile_ready():
-        return {"scheduled": 0, "reason": "profile not set up"}
-    if active_provider_is_mock():
-        return {"scheduled": 0,
-                "reason": "mock provider — placeholder scores are never written automatically"}
+    blocked = tools.real_analysis_blocked()
+    if blocked:
+        return {"scheduled": 0, "reason": blocked}
     # "Missing" must mean what the rest of the app means. GET /api/jobs nulls a fit score
     # whose evaluation predates the last CV parse, so on screen — and to the Internal skill,
     # which reads that same list — a stale job already reads as unscored. Reading the raw

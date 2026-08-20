@@ -6,6 +6,12 @@ Rules pinned here:
     provider isn't effectively mock — a keyless anthropic/openai config silently
     falls back to the {fit 0.5, "(mock)"} stub, and placeholder scores must never be
     written silently;
+  * the same predicate gates every path that scores a job the user didn't explicitly
+    ask about — REST ingest, the backfill, AND the chat handler for a pasted URL. The
+    chat path was written without it, so in mock mode pasting a link stamped a
+    real-looking 0.5 onto the row (issue #88). `_BLOCKED_MODES` below is the rule; it
+    is shared by all three tests, because a guard spelled out per call site is a guard
+    the next call site forgets;
   * the Internal store-only path (/ingest-doc/save) NEVER schedules API-side LLM
     work — the local-Claude skill chains the evaluation itself (mode contract), and
     the shared /ingest URL path honours the caller's auto_evaluate:false for the
@@ -20,8 +26,18 @@ from app import config
 from app import data_store as store
 from app.agent import llm
 from app.agent import tools
+from app.agent.llm import LLMUnusable
 from app.main import app
 from app.routers import jobs as jobs_router
+
+# When an evaluation the user didn't ask for must NOT run: (provider, key, profile_ready).
+# One table, shared by the ingest, chat and backfill guards — they are the same rule.
+_BLOCKED_MODES = [
+    ("mock", "sk-test", True),        # mock provider: never write placeholders silently
+    ("anthropic", "", True),          # real provider, NO key -> falls back to the stub
+    ("openai", "   ", True),          # blank key counts as no key
+    ("anthropic", "sk-test", False),  # empty profile: scoring is noise
+]
 
 
 @pytest.fixture
@@ -33,7 +49,14 @@ def env(tmp_path, monkeypatch):
     (tmp_path / "jobs").mkdir()
 
     calls: list[str] = []
-    monkeypatch.setattr(tools, "evaluate_fit", lambda job_id: calls.append(job_id))
+
+    def fake_evaluate(job_id: str) -> dict:
+        # Records the call AND returns an evaluation-shaped dict: the background task
+        # ignores the return, but the chat handler formats it into its reply.
+        calls.append(job_id)
+        return {"fit_score": 0.8, "recommendation": "apply"}
+
+    monkeypatch.setattr(tools, "evaluate_fit", fake_evaluate)
     monkeypatch.setattr(tools.status, "record", lambda *a, **k: None)
     monkeypatch.setattr(store, "write_ingest_result", lambda *a, **k: None)
     monkeypatch.setattr(store, "read_ingest_result", lambda: {}, raising=False)
@@ -45,13 +68,14 @@ def env(tmp_path, monkeypatch):
             llm_provider=name, anthropic_api_key=key, openai_api_key=key))
 
     def set_ingest_result(created: bool) -> None:
+        # Company/location are what the chat handler prints back; the REST paths only
+        # read the id.
+        job = {"id": "2026-001", "position": "Eng", "company": "Acme", "location": "Remote"}
         monkeypatch.setattr(
-            tools, "ingest_job_doc",
-            lambda text: {"job": {"id": "2026-001", "position": "Eng"}, "created": created},
+            tools, "ingest_job_doc", lambda text: {"job": job, "created": created},
         )
         monkeypatch.setattr(
-            tools, "ingest_job_url",
-            lambda url: {"job": {"id": "2026-001", "position": "Eng"}, "created": created},
+            tools, "ingest_job_url", lambda url: {"job": job, "created": created},
         )
 
     return SimpleNamespace(calls=calls, set_provider=set_provider,
@@ -80,10 +104,7 @@ def test_created_job_with_profile_schedules_background_eval(env):
 
 
 @pytest.mark.parametrize("provider,key,ready,created", [
-    ("mock", "sk-test", True, True),   # mock provider: never write placeholders silently
-    ("anthropic", "", True, True),     # real provider, NO key -> falls back to the stub
-    ("openai", "   ", True, True),     # blank key counts as no key
-    ("anthropic", "sk-test", False, True),  # empty profile: scoring is noise
+    *[(*mode, True) for mode in _BLOCKED_MODES],
     ("anthropic", "sk-test", True, False),  # dedup hit: keeps its existing evaluation
 ])
 def test_guards_suppress_auto_eval(env, provider, key, ready, created):
@@ -139,6 +160,105 @@ def test_upload_path_honours_the_guards(env):
     assert env.calls == []
 
 
+# --- the chat path: pasting a URL scores the job the same way, or not at all ----------
+
+def _chat(message: str):
+    return TestClient(app).post("/api/chat", json={"message": message, "history": []})
+
+
+@pytest.mark.parametrize("provider,key,ready", _BLOCKED_MODES)
+def test_chat_url_ingest_must_not_write_a_placeholder_score(env, provider, key, ready):
+    """The REST ingest path guards this deliberately; the chat handler called
+    evaluate_fit unconditionally, so a pasted link in mock or keyless mode put a
+    real-looking 0.5 on the row — indistinguishable from a real score, and feeding
+    ranking, the apply gate and the outcome analytics from there on."""
+    _profile(ready)
+    env.set_provider(provider, key)
+    env.set_ingest_result(created=True)
+
+    r = _chat("please add https://example.com/jobs/1")
+    assert r.status_code == 200
+    assert env.calls == []                                       # nothing scored
+    assert [a["tool"] for a in r.json()["actions"]] == ["ingest_job_url"]
+    assert "not scored automatically" in r.json()["reply"].lower()  # and it says so
+
+
+def test_chat_url_ingest_still_scores_when_the_score_would_be_real(env):
+    _profile(True)
+    env.set_provider("anthropic")
+    env.set_ingest_result(created=True)
+
+    r = _chat("please add https://example.com/jobs/1")
+    assert r.status_code == 200 and env.calls == ["2026-001"]
+    assert [a["tool"] for a in r.json()["actions"]] == ["ingest_job_url", "evaluate_fit"]
+    assert "Fit 0.8" in r.json()["reply"]
+
+
+def test_chat_still_reports_the_ingest_when_the_score_fails(env, monkeypatch):
+    """The ingest is already persisted by the time scoring runs. Failing the whole turn
+    would tell the user nothing was added when a job was — and leave them re-pasting a
+    link that is already tracked."""
+    _profile(True)
+    env.set_provider("anthropic")
+    env.set_ingest_result(created=True)
+
+    def boom(job_id):
+        raise LLMUnusable("the provider returned no usable evaluation")
+
+    monkeypatch.setattr(tools, "evaluate_fit", boom)
+    r = _chat("please add https://example.com/jobs/1")
+    assert r.status_code == 200
+    body = r.json()
+    assert "Ingested" in body["reply"] and "couldn't score it" in body["reply"]
+    assert [a["tool"] for a in body["actions"]] == ["ingest_job_url"]  # the ingest is kept
+
+
+def test_chat_reports_an_ingest_failure_instead_of_scoring_nothing(env, monkeypatch):
+    monkeypatch.setattr(tools, "ingest_job_url", lambda url: {"error": "unsupported board"})
+    r = _chat("https://example.com/jobs/1")
+    assert r.status_code == 200 and "unsupported board" in r.json()["reply"]
+    assert env.calls == []
+
+
+def test_prepare_materials_does_not_score_on_the_way_to_applying(env, monkeypatch):
+    """prepare_materials evaluates an unscored job as a convenience — the user asked to
+    apply, not for a score — so it carries the same guard. Without it, clicking through
+    to apply in mock mode is another way to stamp a placeholder onto the row."""
+    from app.schemas import Job
+
+    _profile(True)
+    env.set_provider("mock")
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1", position="Eng"))
+
+    r = TestClient(app).post("/api/jobs/2026-001/prepare")
+    assert r.status_code == 200
+    assert env.calls == []
+
+    env.set_provider("anthropic")  # real provider + real profile -> the score is worth writing
+    assert TestClient(app).post("/api/jobs/2026-001/prepare").status_code == 200
+    assert env.calls == ["2026-001"]
+
+
+def test_prepare_still_unlocks_apply_when_the_evaluation_fails(env, monkeypatch):
+    """The pre-apply gate's real work is deterministic — make the application dir, hand
+    back the apply URL and the review material. The UI unlocks Apply on `apply_url`, so
+    a convenience score that can't be produced must not lock the user out of applying."""
+    from app.schemas import Job
+
+    _profile(True)
+    env.set_provider("anthropic")
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1", position="Eng",
+                         url="https://example.com/jobs/1"))
+
+    def boom(job_id):
+        raise LLMUnusable("the provider returned nothing usable")
+
+    monkeypatch.setattr(tools, "evaluate_fit", boom)
+    r = TestClient(app).post("/api/jobs/2026-001/prepare")
+    assert r.status_code == 200
+    assert r.json()["apply_url"] == "https://example.com/jobs/1"
+
+
 def test_internal_store_only_save_never_schedules_api_eval(env):
     # The mode contract: /ingest-doc/save is Claude's store-only path — the API must
     # not run LLM work for it (the skill chains the evaluation locally instead).
@@ -174,11 +294,7 @@ def test_backfill_schedules_only_open_jobs_missing_scores(env):
     assert sorted(env.calls) == ["2026-001", "2026-004"]
 
 
-@pytest.mark.parametrize("provider,key,ready", [
-    ("mock", "sk-test", True),
-    ("anthropic", "", True),   # keyless real provider would mass-write 0.5 placeholders
-    ("anthropic", "sk-test", False),
-])
+@pytest.mark.parametrize("provider,key,ready", _BLOCKED_MODES)
 def test_backfill_guards(env, provider, key, ready):
     _profile(ready)
     env.set_provider(provider, key)
@@ -231,6 +347,34 @@ def test_a_failing_evaluation_releases_its_claim(env, monkeypatch):
     except RuntimeError:
         pass  # TestClient surfaces the background task's error; the claim must still clear
     assert "2026-001" not in jobs_router._evaluating
+
+
+def test_one_failing_evaluation_does_not_strand_the_rest_of_the_batch(env, monkeypatch):
+    """A backfill queues N background tasks, and Starlette runs them in sequence in one
+    coroutine — so an exception escaping the first cancels every task behind it. Those
+    jobs were claimed at SCHEDULE time, so their release never runs either: they stay
+    claimed for the life of the process and can never be evaluated again without a
+    restart. Now that an evaluation can fail (it used to write a placeholder instead),
+    one hiccup must cost one job, not the batch."""
+    _profile(True)
+    env.set_provider("anthropic")
+    for i in (1, 2, 3):
+        _job(f"2026-00{i}")
+
+    seen: list[str] = []
+
+    def flaky(job_id: str) -> dict:
+        seen.append(job_id)
+        if job_id == "2026-001":
+            raise LLMUnusable("the provider returned no usable evaluation")
+        return {"fit_score": 0.8}
+
+    monkeypatch.setattr(tools, "evaluate_fit", flaky)
+    r = TestClient(app).post("/api/jobs/evaluate-missing").json()
+
+    assert r["scheduled"] == 3
+    assert seen == ["2026-001", "2026-002", "2026-003"]  # the failure didn't stop the queue
+    assert jobs_router._evaluating == set()              # and nothing stayed claimed
 
 
 
