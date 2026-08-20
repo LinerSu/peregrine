@@ -20,9 +20,15 @@ The switch only changes the API's data and reflects on **refresh** — no rebuil
 
 ## How it stays isolated
 
-A persona is generated into a separate, **gitignored** `.demo/<persona>/` directory. Your real
-`config/` and `data/` are never touched. To reset a persona, delete its dir and re-run the
-switch.
+A persona is generated into a separate, **gitignored** `.demo/<persona>/` directory. The app
+reads and writes only that — your real `config/` and `data/` are left alone. To reset a
+persona, delete its dir and re-run the switch.
+
+**What the switch does not move is the files themselves.** Your real `config/` and `data/`
+stay at their normal paths, so anything reading the repo *directly* — a local CLI in
+Internal mode, an editor, a script — still sees them. Internal mode's worker resolves its
+paths from `/api/health` for exactly this reason. If you drive the app some other way while
+a dataset is active, don't assume `data/` is the demo copy: it isn't.
 
 ## A private test profile (kept out of the repo)
 

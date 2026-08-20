@@ -33,6 +33,11 @@ Then just click **Internal (Claude)** in the top bar. (Or run `./start.sh` to br
 stack and the terminal together for one session.) The terminal is bound to `127.0.0.1` —
 local-only; never expose it.
 
+The local CLI has a shell in the repo, so it asks `/api/health` where the app's data lives
+rather than assuming `data/`. That matters when you've switched to a demo dataset: the app
+is serving `.demo/<persona>/`, while your real `data/` is still sitting in the same repo.
+See **Demo / test datasets**.
+
 ### Using a different CLI
 
 The terminal will run whatever CLI you point it at — `PEREGRINE_TERMINAL_CMD` is read by

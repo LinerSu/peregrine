@@ -3,6 +3,12 @@
 # PEREGRINE_DATASET in .env and restarts the API — the web reflects it on refresh
 # (no rebuild: only the API's data changes, not the frontend).
 #
+# SCOPE: this moves the API, not the filesystem. Your real data/ and config/ stay
+# exactly where they are, so anything reading the repo DIRECTLY — a local CLI in
+# Internal mode, an editor, a script — still sees them. The Internal-mode router
+# resolves its paths from /api/health for that reason; don't hand-edit data/ while a
+# dataset is active and expect this switch to have protected it.
+#
 #   ./scripts/dataset.sh                 # show the active dataset + what's available
 #   ./scripts/dataset.sh ai-engineer     # a built-in demo persona
 #   ./scripts/dataset.sh marcela         # a private local dataset (.demo/marcela/)
@@ -30,6 +36,10 @@ case "${1:-}" in
   ""|status)
     cur="$(current)"
     echo "active dataset: ${cur:-<live: config/ + data/>}"
+    if [ -n "$cur" ]; then
+      echo "the API reads:  .demo/$cur/{config,data}/"
+      echo "on disk still:  ./config/ + ./data/  (your real files — this switch does not move them)"
+    fi
     echo "built-in personas: $PERSONAS"
     [ -d .demo ] && echo "local datasets:    $(ls .demo 2>/dev/null | tr '\n' ' ')"
     echo "usage: $0 <name> | off"
@@ -57,5 +67,7 @@ case "${1:-}" in
       printf '\nPEREGRINE_DATASET=%s\n' "$name" >> "$ENV_FILE"
     fi
     restart "dataset '$name'"
+    echo "  note: this moves the API only — ./data/ and ./config/ still hold your real"
+    echo "        files, and a local CLI with a shell in this repo can still reach them."
     ;;
 esac

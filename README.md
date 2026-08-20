@@ -215,8 +215,10 @@ Personas: `ai-engineer` · `ux-designer` · `chem-phd` · `bio-scientist` · `la
 (`./scripts/dataset.sh <name>` also accepts a private local dataset under `.demo/<name>/`.)
 
 The dataset is generated from [`api/app/demo_seed.py`](api/app/demo_seed.py) into an
-isolated, gitignored `.demo/<persona>/` directory (mounted to the host) — your `data/`
-and `config/` are never touched. Reset a persona by deleting its dir:
+isolated, gitignored `.demo/<persona>/` directory (mounted to the host) — the app reads and
+writes only that, leaving your `data/` and `config/` alone. (Those still sit at their normal
+paths, so anything reading the repo directly still sees them — see
+[Datasets](docs/manual/datasets.md).) Reset a persona by deleting its dir:
 `rm -rf .demo/<persona>` then `docker compose up -d` re-seeds it. (Because the data now
 persists, editing a persona in `demo_seed.py` also needs that delete to take effect.)
 

@@ -48,6 +48,31 @@ else:
     APPLICATIONS_DIR = ROOT / "applications"
     RESUME_DIR = ROOT / "resume"  # your master résumé(s) live here (CV intake reads them)
 
+def repo_relative_dirs() -> dict[str, str]:
+    """The data/config/applications/resume roots, RELATIVE TO THE REPO ROOT.
+
+    `PEREGRINE_DATASET` moves these under `.demo/<persona>/`, but only for whoever reads
+    this module — the API. Internal mode puts a local CLI in the repo with a shell, and
+    it resolves `data/` on the HOST, so it keeps reading and writing the user's REAL
+    files while the app serves the demo ones. Reads then analyse the wrong posting and
+    writes destroy data the switch promised to protect.
+
+    So the API publishes where its data actually lives (`/api/health`) and the CLI joins
+    against that instead of assuming. Repo-relative, not absolute: the API resolves ROOT
+    to `/app` inside its container while the CLI resolves it to the repo on the host, and
+    only the relative prefix means the same thing on both sides.
+    """
+    return {
+        name: path.relative_to(ROOT).as_posix()
+        for name, path in (
+            ("data", DATA_DIR),
+            ("config", CONFIG_DIR),
+            ("applications", APPLICATIONS_DIR),
+            ("resume", RESUME_DIR),
+        )
+    }
+
+
 JOBS_DIR = DATA_DIR / "jobs"
 # Long-form material a CV can't hold (write-ups, papers, talks, notes) — read by the
 # cover-letter writer. Personal data: gitignored, hook-blocked, never committed.
