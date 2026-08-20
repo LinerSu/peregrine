@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, type DetectedSource, type Portals, type Targets } from "../api";
 
 // The "Search" tab — set up a job search end to end, in logical order:
@@ -12,6 +12,10 @@ const parseSalary = (s: string) => {
   return digits ? Number(digits) : null;
 };
 const fmtSalary = (n?: number | null) => (n != null ? n.toLocaleString("en-US") : "");
+// Show the API's own reason rather than a guess — "profile.yml is not writable" is
+// actionable, "something went wrong" is not.
+const msgOf = (e: unknown) => (e instanceof Error ? e.message : String(e ?? ""));
+const why = (r: PromiseSettledResult<unknown>) => (r.status === "rejected" ? msgOf(r.reason) : "");
 
 export default function PreferencesPanel({ onChanged }: { onChanged: () => void }) {
   const [t, setT] = useState<Targets>({});
@@ -30,20 +34,42 @@ export default function PreferencesPanel({ onChanged }: { onChanged: () => void 
   const [purgeDays, setPurgeDays] = useState("180"); // housekeeping: retention cutoff
   const [purgeBusy, setPurgeBusy] = useState(false);
   const [purgeMsg, setPurgeMsg] = useState("");
+  // Save REPLACES both stores with what's on screen, so an empty form is a destructive
+  // form. Until both loads have actually succeeded there is nothing truthful to show and
+  // no safe thing to save — so the form isn't rendered at all until then.
+  const [load, setLoad] = useState<"loading" | "ready" | "failed">("loading");
+  const [loadErr, setLoadErr] = useState("");
+
+  const reload = useCallback(async () => {
+    setLoad("loading");
+    setLoadErr("");
+    // allSettled, not all: one store failing must not leave the other's values on screen
+    // as if they were the whole picture.
+    const [rt, rp] = await Promise.allSettled([api.getPreferences(), api.getPortals()]);
+    if (rt.status === "rejected" || rp.status === "rejected") {
+      const failed = [rt, rp].find((r) => r.status === "rejected") as PromiseRejectedResult;
+      setLoadErr(msgOf(failed.reason));
+      setLoad("failed");
+      return;
+    }
+    const tt = rt.value;
+    setT(tt);
+    setLocText((tt.locations ?? []).join(", "));
+    setIncludeText((tt.include_keywords ?? []).join(", "));
+    setExcludeText((tt.exclude_keywords ?? []).join(", "));
+    setSalaryText(fmtSalary(tt.min_salary));
+    setPortals(rp.value);
+    // One box, two stores: Save writes these terms to BOTH portals.queries (the scan's
+    // relevance gate) and targets.roles (fit-scoring). So it must LOAD from both — seeding
+    // from queries alone shows an empty box to someone who has roles, and their next Save
+    // deletes them. Prefer queries: that's the copy a scan actually reads.
+    setTermsText((rp.value.queries.length ? rp.value.queries : tt.roles ?? []).join("\n"));
+    setLoad("ready");
+  }, []);
 
   useEffect(() => {
-    api.getPreferences().then((tt) => {
-      setT(tt);
-      setLocText((tt.locations ?? []).join(", "));
-      setIncludeText((tt.include_keywords ?? []).join(", "));
-      setExcludeText((tt.exclude_keywords ?? []).join(", "));
-      setSalaryText(fmtSalary(tt.min_salary));
-    });
-    api.getPortals().then((p) => {
-      setPortals(p);
-      setTermsText(p.queries.join("\n"));
-    });
-  }, []);
+    void reload();
+  }, [reload]);
 
   const hasCompanies = (portals?.companies.length ?? 0) > 0;
 
@@ -71,19 +97,27 @@ export default function PreferencesPanel({ onChanged }: { onChanged: () => void 
       if (rp.status === "fulfilled") setPortals(rp.value);
       if (rt.status === "fulfilled") setT(next);
       const ok = rp.status === "fulfilled" && rt.status === "fulfilled";
-      setMsg(ok ? "Saved ✓" : "Partly saved — please retry (search terms and filters may differ).");
+      setMsg(
+        ok
+          ? "Saved ✓"
+          : `Partly saved — please retry (search terms and filters may differ). ${why(rp) || why(rt)}`
+      );
       if (ok) onChanged();
     } finally {
       setBusy(false);
     }
   };
   const suggest = async () => {
-    const r = await api.suggestQueries();
-    if (r.queries.length) {
-      setTermsText(r.queries.join("\n"));
-      setMsg("Filled from your profile — review and Save.");
-    } else {
-      setMsg("No suggestions yet — import your CV on the Profile tab first.");
+    try {
+      const r = await api.suggestQueries();
+      setMsg(
+        r.queries.length
+          ? "Filled from your profile — review and Save."
+          : "No suggestions yet — import your CV on the Profile tab first."
+      );
+      if (r.queries.length) setTermsText(r.queries.join("\n"));
+    } catch (e) {
+      setMsg(`Couldn't read suggestions from your profile. ${msgOf(e)}`);
     }
   };
 
@@ -94,6 +128,8 @@ export default function PreferencesPanel({ onChanged }: { onChanged: () => void 
     setMsg("");
     try {
       setDetected((await api.detectSources(detectName.trim())).sources);
+    } catch (e) {
+      setMsg(`Couldn't look up that company's board. ${msgOf(e)}`);
     } finally {
       setBusy(false);
     }
@@ -111,6 +147,10 @@ export default function PreferencesPanel({ onChanged }: { onChanged: () => void 
       setDetectName("");
       setDetected(null);
       setMsg(`Added ${name} as a scan source ✓ — go to the Jobs tab and click Scan to fetch its jobs.`);
+    } catch (e) {
+      // Leave `portals` as-is: the list on screen must keep matching what's on disk, so a
+      // failed add never looks added.
+      setMsg(`Couldn't add ${name}. ${msgOf(e)}`);
     } finally {
       setBusy(false);
     }
@@ -120,6 +160,8 @@ export default function PreferencesPanel({ onChanged }: { onChanged: () => void 
     setBusy(true);
     try {
       setPortals(await api.putPortals({ companies: portals.companies.filter((_, i) => i !== idx) }));
+    } catch (e) {
+      setMsg(`Couldn't remove that company. ${msgOf(e)}`);
     } finally {
       setBusy(false);
     }
@@ -129,6 +171,35 @@ export default function PreferencesPanel({ onChanged }: { onChanged: () => void 
   const label = "block text-xs font-medium text-gray-600 mb-1";
   const h = "text-sm font-semibold text-gray-800";
   const help = "text-xs text-gray-500";
+
+  if (load !== "ready") {
+    return (
+      <div className="h-full overflow-auto p-5">
+        <div className="max-w-2xl mx-auto">
+          {load === "loading" ? (
+            <p className={help}>Loading your search settings…</p>
+          ) : (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-4 space-y-2">
+              <p className="text-sm font-semibold text-amber-900">
+                Couldn't load your search settings.
+              </p>
+              <p className="text-xs text-amber-800">
+                Your saved settings are untouched — this form stays closed rather than showing
+                blank fields you could overwrite them with. Check the API is running, then retry.
+              </p>
+              {loadErr && <p className="text-xs font-mono text-amber-700">{loadErr}</p>}
+              <button
+                onClick={() => void reload()}
+                className="px-3 py-1.5 text-sm font-medium text-white bg-amber-600 rounded-md hover:bg-amber-700"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full overflow-auto p-5">
