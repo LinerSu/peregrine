@@ -85,6 +85,11 @@ export default function JobDetail({
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [busy, setBusy] = useState(false);
   const [applyUrl, setApplyUrl] = useState<string | null>(null);
+  // Distinct from applyUrl: a posting can be prepared and still have no link (pasted as
+  // text, or a hostile url the store rejected). Inferring "prepared" from applyUrl made
+  // those jobs fall back to the PRE-prepare hint — telling the user to press the button
+  // they had just pressed, with no way through.
+  const [prepared, setPrepared] = useState(false);
   const [evalPrompt, setEvalPrompt] = useState(""); // Internal: the line to run
   const [waitingEval, setWaitingEval] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -153,6 +158,7 @@ export default function JobDetail({
 
   useEffect(() => {
     setApplyUrl(null);
+    setPrepared(false);
     setEvalPrompt("");
     setWaitingEval(false);
     setEvaluation(null);
@@ -418,6 +424,7 @@ export default function JobDetail({
       // React does not block a `javascript:` href at runtime, and this one sits under
       // Peregrine's own "Apply on company site" button on an allowed origin.
       setApplyUrl(safeHttpUrl(res.apply_url) ?? null);
+      setPrepared(true);
       await load();
       // The gate lives at the END of the scroll now — bring it into view so the
       // unlocked Apply link is never a mystery below the fold.
@@ -952,6 +959,24 @@ export default function JobDetail({
                 className="px-4 py-2 text-sm font-semibold text-indigo-700 bg-white border border-indigo-300 rounded-md hover:bg-indigo-50 disabled:opacity-50"
               >
                 I applied ✓
+              </button>
+            </div>
+          ) : prepared ? (
+            // Prepared, but this posting carries no link — pasted as text, or a url the
+            // store refused. The review is done and the application dir exists, so the
+            // user must still be able to reach the same end state; inventing a link is
+            // the one thing we can't do.
+            <div className="space-y-2">
+              <p className="text-xs text-center text-gray-500">
+                This posting has no application link saved — apply on the company&apos;s site,
+                then record it here.
+              </p>
+              <button
+                onClick={markApplied}
+                disabled={busy}
+                className="w-full px-4 py-2 text-sm font-semibold text-indigo-700 bg-white border border-indigo-300 rounded-md hover:bg-indigo-50 disabled:opacity-50"
+              >
+                I applied to this ✓
               </button>
             </div>
           ) : (
