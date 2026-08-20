@@ -861,3 +861,30 @@ def test_reported_keys_are_truncated(tmp_path):
     assert secret not in r.stderr
     assert "(redacted)" in r.stderr
 
+
+
+def test_commit_msg_allows_dependabot_signoff_trailer(tmp_path):
+    # Dependabot signs off as support@github.com on EVERY bump. The PII guard is a
+    # required check, so matching that trailer made every dependency-bump PR
+    # permanently unmergeable — pins the bot-address exemption.
+    r = _run_msg(
+        tmp_path,
+        "chore(deps): bump pypdf from 6.14.2 to 6.15.0 in /api\n\n"
+        "Signed-off-by: dependabot[bot] <support@github.com>\n",
+    )
+    assert r.returncode == 0, r.stderr
+
+
+def test_allows_github_privacy_author_address(tmp_path):
+    # 12345+user@users.noreply.github.com is the address GitHub hands out precisely SO
+    # a real one never appears — flagging it as personal data is exactly backwards.
+    r = _run(tmp_path, {"docs/note.md": "author: 12345+octocat@users.noreply.github.com\n"})
+    assert r.returncode == 0, r.stderr
+
+
+def test_blocks_a_real_person_at_the_github_domain(tmp_path):
+    # The exemption is address-specific, not domain-wide: allowing all of @github.com
+    # would hide a real employee's address behind the bot rule.
+    r = _run(tmp_path, {"docs/note.md": f"reviewer: jane.doe{_AT}github.com\n"})
+    assert r.returncode == 1, r.stderr
+    assert "email" in r.stderr.lower()

@@ -25,6 +25,14 @@ PII_PATH_EXEMPT_RE='^data/[^/]*\.example\.csv$|^(api/)?data/jobs/\.gitkeep$|^(ap
 PII_EMAIL_RE='\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
 PII_EMAIL_ALLOW_RE='@(example\.(com|org|net)|test\.com|localhost|anthropic\.com|sentry\.io|schema\.org|[a-z0-9-]+\.example)$'
 PII_EMAIL_NOREPLY_RE='^(noreply|no-reply)@'
+# Machine-authored addresses that identify no person: bot sign-off trailers, and
+# GitHub's privacy-preserving author form (12345+user@users.noreply.github.com),
+# which exists precisely SO that a real address never appears. Dependabot signs every
+# commit with "Signed-off-by: dependabot[bot] <support@github.com>", so without this
+# the guard is red on every dependency-bump PR — and a required check that can never
+# pass teaches people to bypass the gate, which is the opposite of its job. Kept
+# address-specific, not domain-wide: a real person @github.com must still be caught.
+PII_EMAIL_BOT_RE='^(support|noreply)@github\.com$|@users\.noreply\.github\.com$'
 
 # Your personal-term denylist: real name, addresses, phone, handles — one per line.
 # Gitignored AND path-blocked above; seed it from config/pii_terms.example.txt.
@@ -63,6 +71,7 @@ pii_offending_emails() {
   grep -Eioh "$PII_EMAIL_RE" \
     | grep -viE "$PII_EMAIL_ALLOW_RE" \
     | grep -viE "$PII_EMAIL_NOREPLY_RE" \
+    | grep -viE "$PII_EMAIL_BOT_RE" \
     | sort -u || true
 }
 
