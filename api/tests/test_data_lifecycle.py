@@ -93,6 +93,34 @@ def test_purge_refuses_zero_and_negative_windows(tmp_store):
     assert len(tmp_store.list_jobs()) == 1
 
 
+def test_purge_rewrites_the_jobs_csv_once_for_the_whole_batch(tmp_store, monkeypatch):
+    # It used to call delete_job per doomed row, and each of those re-read and rewrote the
+    # ENTIRE csv — quadratic, on the path that runs at the end of every scan, over exactly
+    # the rows that pile up across months of scanning. The decision is now one pass and the
+    # rewrite is one write; the artifacts still go per job, so this also pins that batching
+    # the rows didn't quietly leave the sidecars and materials mirrors behind.
+    today = date(2026, 7, 27)
+    for n in range(1, 6):
+        tmp_store.upsert_job(_job(f"2026-00{n}", "closed", "2025-01-01"))
+        (config.JOBS_DIR / f"2026-00{n}.md").write_text("posting")
+        (config.APPLICATIONS_DIR / f"2026-00{n}").mkdir(parents=True)
+
+    writes: list = []
+    real_write = tmp_store._write_csv
+
+    def counting_write(path, fields, rows):
+        writes.append(path)
+        return real_write(path, fields, rows)
+
+    monkeypatch.setattr(tmp_store, "_write_csv", counting_write)
+
+    assert tmp_store.purge_closed_jobs(180, today=today)["deleted"] == 5
+    assert writes.count(config.JOBS_CSV) == 1, "one purge, one rewrite — not one per row"
+    assert tmp_store.list_jobs() == []
+    assert list(config.JOBS_DIR.iterdir()) == [], "every purged job's artifacts go too"
+    assert not (config.APPLICATIONS_DIR / "2026-003").exists(), "and its materials mirror"
+
+
 def test_purge_boundary_exactly_n_days_old_is_deleted(tmp_store):
     # posted exactly N days before today: cutoff comparison is `posted > cutoff` to
     # KEEP, so the exact boundary falls on the delete side — pinned deliberately.

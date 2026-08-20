@@ -41,7 +41,8 @@ companies:
 filters:
   locations: []                 # empty = any
   remote_only: false
-  min_base: 0                   # 0 = no salary floor
+  # No salary floor here: boards don't publish comp at scan time, so a filter could only
+  # ever be a no-op. It lives in profile.yml::targets.min_salary and flags jobs in the list.
   max_age_days: 0               # 0 = no limit; e.g. 60 = only postings from the last ~2 months
                                 # (also auto-closes tracked open jobs once they age past this)
   retention_days: 0             # 0 = keep closed jobs forever; e.g. 180 = after each scan,

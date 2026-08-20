@@ -56,6 +56,41 @@ def test_delete_linked_application_reverts_job(tmp_store):
     assert store.get_job("2026-001").status == "open"  # reverted
 
 
+@pytest.mark.parametrize("status", ["applied", "interviewing", "offer", "rejected"])
+def test_deleting_an_application_returns_the_job_to_open_from_every_applied_status(tmp_store, status):
+    # The revert used to fire on the exact status "applied" only, so deleting an application
+    # you had moved to interviewing/offer/rejected — the statuses you reach precisely BY
+    # tracking a real application — stranded the job claiming a history that no longer
+    # existed: the Jobs tab said "interviewing", the Applications tab had nothing to open,
+    # and only a hand edit got it back.
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1",
+                         position="Engineer", status=status))
+    store.upsert_application(Application(id="2026-001", company="Acme", company_job_id="R1",
+                                         position="Engineer", status=status))
+    assert TestClient(app).delete("/api/applications/2026-001").status_code == 200
+    assert store.get_job("2026-001").status == "open"
+
+
+def test_deleting_an_application_must_not_reopen_a_closed_posting(tmp_store):
+    # "closed" is an application status AND a job status, and for a job it means the board
+    # no longer lists the posting (scan_jobs sets exactly that). Reopening a dead posting
+    # into the actionable list is the worse of the two mistakes, so it is left alone.
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    store.upsert_job(Job(id="2026-001", company="Acme", company_job_id="R1",
+                         position="Engineer", status="closed"))
+    store.upsert_application(Application(id="2026-001", company="Acme", company_job_id="R1",
+                                         position="Engineer", status="closed"))
+    TestClient(app).delete("/api/applications/2026-001")
+    assert store.get_job("2026-001").status == "closed"
+
+
 def test_link_does_not_downgrade_actioned_job(tmp_store):
     from fastapi.testclient import TestClient
 

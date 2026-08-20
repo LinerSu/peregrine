@@ -260,7 +260,6 @@ class ScanFilters(BaseModel):
     """Hard scan filters (portals.filters)."""
     locations: list[str] = []
     remote_only: bool = False
-    min_base: float = 0.0
     max_age_days: int = 0
     # 0 = keep closed jobs forever. N = after each scan, closed jobs whose posting is
     # older than N days are DELETED (rows + artifacts; linked applications skipped).
