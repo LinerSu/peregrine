@@ -527,3 +527,72 @@ def test_patch_rejects_values_that_would_corrupt_the_row(tmp_store):
     assert client.patch("/api/jobs/2026-001", json={"posted_date": "last Tuesday"}).status_code == 422
     assert store.get_job("2026-001").salary_min is None      # nothing was written
 
+
+
+def test_a_repost_does_not_steal_an_application_already_linked_to_another_job(tmp_store):
+    """Acme reposts the same role under a new requisition id. The application must stay on
+    the posting it was made against: re-keying it marks a job never applied to as applied,
+    and leaves the real one claiming an application that no longer exists."""
+    from fastapi.testclient import TestClient
+
+    from app.agent import tools
+    from app.main import app
+
+    client = TestClient(app)
+    first = tools.save_ingested_job({
+        "company": "Acme", "position": "Backend Engineer", "company_job_id": "REQ-1",
+        "url": "https://example.com/jobs/req-1", "description": "x",
+    })
+    jid1 = first["job"]["id"]
+    client.post("/api/applications", json={
+        "job_id": jid1, "applied_date": "2026-07-01", "notes": "phone screen booked",
+    })
+
+    second = tools.save_ingested_job({
+        "company": "Acme", "position": "Backend Engineer", "company_job_id": "REQ-2",
+        "url": "https://example.com/jobs/req-2", "description": "x",
+    })
+    jid2 = second["job"]["id"]
+
+    apps = {a["id"]: a for a in client.get("/api/applications").json()["applications"]}
+    assert list(apps) == [jid1]                        # NOT re-keyed onto the repost
+    assert apps[jid1]["notes"] == "phone screen booked"
+    assert apps[jid1]["applied_date"] == "2026-07-01"
+    assert store.get_job(jid2).status == "open"        # the repost was never applied to
+
+
+def test_adoption_leaves_alone_an_application_already_linked_to_a_job(tmp_store):
+    """An application carrying a tracked job's id is not an orphan, whatever else it
+    matches. Pinned at the store because a posting with NO requisition id of its own — a
+    hand-edited row, a provider that supplies none — contradicts nothing, so requisition
+    evidence cannot settle this case. Only orphan-ness can."""
+    store.upsert_job(Job(id="2026-001", company="Acme", position="Backend Engineer",
+                         company_job_id="REQ-1", status="applied"))
+    store.upsert_application(Application(id="2026-001", company="Acme",
+                                         position="Backend Engineer",
+                                         company_job_id="REQ-1", status="applied",
+                                         applied_date="2026-07-01",
+                                         notes="phone screen booked"))
+    job2 = store.upsert_job(Job(id="2026-002", company="Acme", position="Backend Engineer",
+                                company_job_id="", status="open"))
+
+    assert store.adopt_orphan_application(job2) is None
+    assert [a.id for a in store.list_applications()] == ["2026-001"]
+    assert store.get_application("2026-001").notes == "phone screen booked"
+    assert store.get_job("2026-002").status == "open"
+
+
+def test_match_job_does_not_pair_two_different_requisitions(tmp_store):
+    """Two real requisition ids that disagree are positive evidence of DIFFERENT postings
+    (a repost gets a new id), so company+position must not overrule them."""
+    jobs = [Job(id="2026-002", company="Acme", position="Backend Engineer",
+                company_job_id="REQ-2", status="open")]
+    assert store.match_job(jobs, "Acme", "Backend Engineer", "REQ-1") is None
+
+
+def test_match_job_still_pairs_when_the_tracked_job_has_no_requisition_id(tmp_store):
+    """The guard is evidence-based, not a blanket refusal: a posting with no id of its own
+    contradicts nothing, so company+position still settles it."""
+    jobs = [Job(id="2026-002", company="Acme", position="Backend Engineer",
+                company_job_id="", status="open")]
+    assert store.match_job(jobs, "Acme", "Backend Engineer", "REQ-1").id == "2026-002"

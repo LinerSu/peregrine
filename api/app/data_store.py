@@ -192,6 +192,15 @@ def find_job_by_key(company: str, company_job_id: str) -> Optional[Job]:
     return None
 
 
+def _real_req_id(value: str) -> str:
+    """The requisition id as an identity, or "" when it identifies nothing.
+
+    Absent ids and synthetic "manual-" keys name no posting on the employer's side, so
+    they can neither confirm nor contradict a match."""
+    v = (value or "").strip().lower()
+    return "" if v.startswith("manual-") else v
+
+
 def match_job(
     jobs: list[Job], company: str, position: str, company_job_id: str = "",
     location: str = "", url: str = ""
@@ -213,15 +222,22 @@ def match_job(
         if len(hits) == 1:
             return hits[0]
     c = norm_company(company)  # "Acme" must match a job tracked as "Acme Inc."
-    cj = (company_job_id or "").strip().lower()
+    cj = _real_req_id(company_job_id)
     # Only a real, non-manual key counts (a whitespace/"manual-" key must fall through
     # to the company+position match, not key-match a job with an empty id).
-    if cj and not cj.startswith("manual-"):
+    if cj:
         for j in jobs:
-            if norm_company(j.company) == c and j.company_job_id.strip().lower() == cj:
+            if norm_company(j.company) == c and _real_req_id(j.company_job_id) == cj:
                 return j
     p = (position or "").strip().lower()
     matches = [j for j in jobs if norm_company(j.company) == c and j.position.strip().lower() == p]
+    if cj:
+        # Two REAL requisition ids that DISAGREE are positive evidence of different
+        # postings — a repost of the same role gets a new one — so company+position must
+        # not overrule them. A posting carrying no id of its own contradicts nothing and
+        # stays eligible, which is the only way a pasted job ever matches.
+        matches = [j for j in matches
+                   if not _real_req_id(j.company_job_id) or _real_req_id(j.company_job_id) == cj]
     if len(matches) == 1:
         return matches[0]
     if len(matches) > 1 and (location or "").strip():
@@ -269,9 +285,15 @@ def adopt_orphan_application(job: Job) -> Optional[Application]:
 
     Deliberately conservative: several orphans matching one posting means don't guess.
     """
+    # An orphan is an application linked to NO tracked posting; a linked one carries its
+    # job's id (scan_jobs already uses this definition before it bothers calling here).
+    # Without the check, a REPOST — same company and title, new requisition id — adopts
+    # the first posting's application: the row is re-keyed and the original deleted, a
+    # job never applied to reads "applied", and the posting actually applied to loses it.
+    tracked_ids = {j.id for j in list_jobs()}
     candidates = [
         a for a in list_applications()
-        if a.id != job.id
+        if a.id not in tracked_ids
         and match_job([job], a.company, a.position, a.company_job_id, a.location, a.url) is not None
     ]
     if len(candidates) != 1:
